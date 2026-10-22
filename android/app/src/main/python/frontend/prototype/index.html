@@ -333,6 +333,12 @@
     .eps-sec{padding:0 20px 22px}
     .tabs button{padding:8px 12px;font-size:13px}
   }
+  .upd-banner{margin:14px 0 2px;padding:12px 16px;border-radius:14px;display:flex;gap:12px;align-items:center;
+    background:linear-gradient(90deg,rgba(124,92,255,.25),rgba(0,198,255,.18));border:1px solid rgba(124,92,255,.45)}
+  .upd-banner .grow{flex:1;font-size:14px}
+  .upd-banner button{border:0;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
+  .upd-banner .go{background:var(--acc,#7c5cff);color:#fff}
+  .upd-banner .no{background:transparent;color:var(--faint,#9a9ab0)}
 </style>
 </head>
 <body>
@@ -341,7 +347,7 @@
   <div class="brand">
     <div class="logo">🎬</div>
     <div class="name">Lum<em>io</em></div>
-    <span class="badge-proto">UI BARU — PROTOTYPE</span>
+    <span class="badge-proto">UI BARU</span>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="home" class="active">Beranda</button>
@@ -367,6 +373,11 @@
       <button class="cat" data-cat="manhwa">📖 Manhwa <span class="soon-tag">SEGERA</span></button>
       <button class="cat" data-cat="donghua">🐉 Donghua <span class="soon-tag">SEGERA</span></button>
       <button class="cat" data-cat="adult">🔞 18+ <span class="soon-tag">TERKUNCI</span></button>
+    </div>
+    <div class="upd-banner hidden" id="updateBanner">
+      <div class="grow" id="updText">🎉 Update tersedia</div>
+      <button class="go" id="btnDoUpdate">Update Sekarang</button>
+      <button class="no" id="btnSkipUpdate">Nanti</button>
     </div>
     <section class="hero hidden" id="hero">
       <div class="backdrop"><img id="heroImg" alt=""></div>
@@ -1261,6 +1272,26 @@ function showCategory(cat){
 $$("#catBar .cat").forEach(b => b.addEventListener("click", () => showCategory(b.dataset.cat)));
 $("#btnSoonBack").addEventListener("click", () => showCategory("anime"));
 
+/* ---------------- Update dalam aplikasi ---------------- */
+async function checkUpdate(){
+  try {
+    const d = await api("/api/update/check");
+    if (!d || !d.has_update || !d.latest_version) return;
+    $("#updText").textContent = "🎉 Lumio v" + d.latest_version + " tersedia — kamu masih di v" + (d.current_version || "?") + ". Update biar dapet fitur & perbaikan terbaru.";
+    $("#updateBanner").classList.remove("hidden");
+    $("#btnDoUpdate").addEventListener("click", () => {
+      const url = (d.assets && d.assets.android) || "";
+      if (window.LumioNative && url) {
+        toast("⬇️ Mengunduh update Lumio v" + d.latest_version + "…");
+        window.LumioNative.installUpdate(url);
+      } else if (d.release_url) {
+        window.open(d.release_url, "_blank");
+      }
+    });
+    $("#btnSkipUpdate").addEventListener("click", () => $("#updateBanner").classList.add("hidden"));
+  } catch (e) { /* diam: cek update tidak boleh mengganggu */ }
+}
+
 /* ---------------- Jembatan aplikasi (WebView Lumio) ---------------- */
 window.LUMIO_back = function(){
   if (!$("#settingsWrap").classList.contains("hidden")) { closeSettings(); return true; }
@@ -1274,6 +1305,7 @@ window.LUMIO_back = function(){
 /* ---------------- Mulai ---------------- */
 loadHome();
 loadGenres();
+checkUpdate();
 </script>
 </body>
 </html>

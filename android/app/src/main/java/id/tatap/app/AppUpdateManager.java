@@ -41,6 +41,9 @@ import java.util.Locale;
  * - Meluncurkan PackageInstaller resmi OS Android via FileProvider.
  */
 public class AppUpdateManager {
+    // Repo rilis resmi fork Lumio (sumber cek update dalam aplikasi)
+    private static final String UPDATE_REPO = "wisnumacheda/lumio";
+    private static final String UPDATE_REPO_URL = "https://github.com/" + UPDATE_REPO;
 
     public static final int REQUEST_CODE_INSTALL_PERMISSION = 7129;
     private static volatile AppUpdateManager instance;
@@ -162,7 +165,7 @@ public class AppUpdateManager {
 
                 // 1. Direct Tier 1: GitHub REST API
                 try {
-                    URL u = new URL("https://api.github.com/repos/asfaraguest/tatap/releases/latest");
+                    URL u = new URL("https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest");
                     HttpURLConnection c = (HttpURLConnection) u.openConnection();
                     c.setRequestProperty("User-Agent", "Tatap-App/Android");
                     c.setRequestProperty("Accept", "application/vnd.github.v3+json");
@@ -185,7 +188,7 @@ public class AppUpdateManager {
                 // 2. Direct Tier 2: GitHub Web Releases Redirect (Bebas Rate-Limit 403)
                 if (data == null) {
                     try {
-                        URL u = new URL("https://github.com/asfaraguest/tatap/releases/latest");
+                        URL u = new URL(UPDATE_REPO_URL + "/releases/latest");
                         HttpURLConnection c = (HttpURLConnection) u.openConnection();
                         c.setInstanceFollowRedirects(false);
                         c.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)");
@@ -204,7 +207,7 @@ public class AppUpdateManager {
                 // 3. Direct Tier 3: GitHub Raw Fastly CDN (VERSION)
                 if (data == null) {
                     try {
-                        URL u = new URL("https://raw.githubusercontent.com/asfaraguest/tatap/main/VERSION");
+                        URL u = new URL("https://raw.githubusercontent.com/" + UPDATE_REPO + "/main/VERSION");
                         HttpURLConnection c = (HttpURLConnection) u.openConnection();
                         c.setRequestProperty("User-Agent", "Tatap-App/Android");
                         c.setConnectTimeout(8000);
@@ -216,7 +219,7 @@ public class AppUpdateManager {
                             if (latestClean != null) {
                                 latestClean = latestClean.trim().replaceFirst("^v", "");
                                 String tag = "v" + latestClean;
-                                data = buildReleasePayload(latestClean, tag, "Tatap " + tag, "Pembaruan rilis " + tag + " terdeteksi dari repositori resmi.", "https://github.com/asfaraguest/tatap/releases/tag/" + tag);
+                                data = buildReleasePayload(latestClean, tag, "Tatap " + tag, "Pembaruan rilis " + tag + " terdeteksi dari repositori resmi.", UPDATE_REPO_URL + "/releases/tag/" + tag);
                             }
                         }
                         c.disconnect();
@@ -273,13 +276,13 @@ public class AppUpdateManager {
             data.put("release_name", name);
             data.put("notes", notes != null ? notes : "");
             data.put("body", notes != null ? notes : "");
-            data.put("release_url", htmlUrl != null ? htmlUrl : ("https://github.com/asfaraguest/tatap/releases/tag/" + tag));
+            data.put("release_url", htmlUrl != null ? htmlUrl : (UPDATE_REPO_URL + "/releases/tag/" + tag));
 
             boolean hasUpdate = compareSemVer(latestVer, "2.9.2") > 0;
             data.put("has_update", hasUpdate);
 
             JSONObject assets = new JSONObject();
-            String base = "https://github.com/asfaraguest/tatap/releases/download/" + tag;
+            String base = UPDATE_REPO_URL + "/releases/download/" + tag;
             assets.put("android", base + "/tatap-release-" + tag + ".apk");
             assets.put("android_tv", base + "/tatap-tv-release-" + tag + ".apk");
             assets.put("windows", base + "/tatap-windows-x64-portable.zip");
@@ -342,7 +345,7 @@ public class AppUpdateManager {
         String currentVer = data.optString("current_version", "2.9.2");
         String latestVer = data.optString("latest_version", currentVer);
         String notes = data.optString("notes", data.optString("body", ""));
-        String releaseUrl = data.optString("release_url", "https://github.com/asfaraguest/tatap/releases/latest");
+        String releaseUrl = data.optString("release_url", UPDATE_REPO_URL + "/releases/latest");
 
         if (tvBadge != null) {
             tvBadge.setText("v" + currentVer + " ➔ v" + latestVer);
@@ -627,7 +630,7 @@ public class AppUpdateManager {
             conn.setInstanceFollowRedirects(true);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(30000);
-            conn.setRequestProperty("User-Agent", "Tatap-Android (https://github.com/asfaraguest/tatap)");
+            conn.setRequestProperty("User-Agent", "Lumio-Android (" + UPDATE_REPO_URL + ")");
 
             int status = conn.getResponseCode();
             if (status == HttpURLConnection.HTTP_MOVED_PERM ||

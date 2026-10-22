@@ -28,6 +28,20 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.11.1] - 2026-10-23
+
+Rilis perdana fork **Lumio** (berbasis Tatap v2.11.0, GPL-3.0).
+
+### Ditambahkan
+- Tampilan utama aplikasi kini UI web Lumio (WebView shell) dengan UI klasik bawaan sebagai cadangan.
+- Menu Pengaturan di UI web: tema, audio SUB/DUB, kualitas, subtitle, sumber server, dan Mode Aman.
+- Pilihan urutan anime: Populer / Rilisan Terbaru (jadwal rilis) / Abjad A–Z.
+- Banner pembaruan dalam aplikasi dengan tombol pasang langsung (jembatan LumioNative).
+
+### Diubah
+- Nama aplikasi menjadi **Lumio**; package `id.tatap.fork` (berdampingan dengan aplikasi asal).
+- Pemeriksa pembaruan kini mengarah ke repo rilis fork sendiri (`wisnumacheda/lumio`) di backend maupun pemeriksa bawaan Android.
+
 ## [2.11.0] - 2026-10-22
 
 ### Justifikasi SemVer 2.0.0 (MINOR: 2.10.0 -> 2.11.0)

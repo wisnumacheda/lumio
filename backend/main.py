@@ -52,6 +52,10 @@ async def lifespan(app: FastAPI):
         pass
 
 from version import __version__ as CURRENT_VERSION
+
+# Repo rilis resmi fork Lumio (sumber cek update dalam aplikasi)
+UPDATE_REPO = "wisnumacheda/lumio"
+UPDATE_REPO_URL = f"https://github.com/{UPDATE_REPO}"
 app = FastAPI(title="Tatap", version=CURRENT_VERSION, lifespan=lifespan)
 
 def ok(data):
@@ -106,7 +110,7 @@ async def check_update(force: bool = False):
 
     def build_official_assets(ver_clean):
         tag = f"v{ver_clean}" if not ver_clean.startswith("v") else ver_clean
-        base = f"https://github.com/asfaraguest/tatap/releases/download/{tag}"
+        base = f"{UPDATE_REPO_URL}/releases/download/{tag}"
         return {
             "android": f"{base}/tatap-release-{tag}.apk",
             "android_tv": f"{base}/tatap-tv-release-{tag}.apk",
@@ -116,7 +120,7 @@ async def check_update(force: bool = False):
 
     curr_clean = re.sub(r"^v", "", CURRENT_VERSION)
     headers = {
-        "User-Agent": f"Tatap-App/{CURRENT_VERSION} (https://github.com/asfaraguest/tatap)",
+        "User-Agent": f"Lumio-App/{CURRENT_VERSION} ({UPDATE_REPO_URL})",
         "Accept": "application/vnd.github.v3+json, text/html;q=0.9, */*;q=0.8"
     }
 
@@ -125,7 +129,7 @@ async def check_update(force: bool = False):
 
     # TIER 1: GitHub REST API
     try:
-        url_api = "https://api.github.com/repos/asfaraguest/tatap/releases/latest"
+        url_api = f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest"
         async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
             resp = await client.get(url_api, headers=headers)
         if resp.status_code == 200:
@@ -170,7 +174,7 @@ async def check_update(force: bool = False):
                 "notes": notes_body,
                 "body": notes_body,
                 "published_at": rel_data.get("published_at") or "",
-                "release_url": rel_data.get("html_url") or f"https://github.com/asfaraguest/tatap/releases/tag/{tag_name}",
+                "release_url": rel_data.get("html_url") or f"{UPDATE_REPO_URL}/releases/tag/{tag_name}",
                 "assets": assets_out
             }
         else:
@@ -181,7 +185,7 @@ async def check_update(force: bool = False):
     # TIER 2: GitHub Web Releases Redirect (Bypasses API rate-limits 403 on CGNAT / cellular)
     if not out_payload:
         try:
-            url_web = "https://github.com/asfaraguest/tatap/releases/latest"
+            url_web = f"{UPDATE_REPO_URL}/releases/latest"
             async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
                 r_web = await client.get(url_web, headers=headers)
             if r_web.status_code == 200:
@@ -222,7 +226,7 @@ async def check_update(force: bool = False):
     # TIER 3: GitHub Raw Fastly CDN (VERSION & CHANGELOG.md)
     if not out_payload:
         try:
-            url_raw_ver = "https://raw.githubusercontent.com/asfaraguest/tatap/main/VERSION"
+            url_raw_ver = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/VERSION"
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 r_raw = await client.get(url_raw_ver, headers=headers)
             if r_raw.status_code == 200 and r_raw.text.strip():
@@ -244,7 +248,7 @@ async def check_update(force: bool = False):
                     "notes": f"Pembaruan rilis Tatap {tag_name} terdeteksi dari repositori resmi.",
                     "body": f"Pembaruan rilis Tatap {tag_name} terdeteksi dari repositori resmi.",
                     "published_at": "",
-                    "release_url": f"https://github.com/asfaraguest/tatap/releases/tag/{tag_name}",
+                    "release_url": f"{UPDATE_REPO_URL}/releases/tag/{tag_name}",
                     "assets": build_official_assets(latest_clean)
                 }
         except Exception as e:
