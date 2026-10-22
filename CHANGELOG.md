@@ -28,6 +28,19 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.14.0] - 2026-10-23
+
+### Ditambahkan
+- **Tarik ke bawah untuk menyegarkan (pull-to-refresh)** di Beranda & grid: memuat ulang data langsung dari sumber — parameter `fresh=1` baru pada `/api/catalog`, `/api/seasonal`, dan `/api/browse` melewati cache backend khusus untuk penyegaran manual ini.
+
+### Diubah
+- **Rel "🆕 Baru Diupdate" disusun ulang**: kini hanya anime ONGOING dengan episode paling segar (gabungan browse rilis-terbaru + jalur ongoing, judul TAMAT disaring). Sebelumnya rel mengikuti urutan "Masih Tayang" mentah yang didominasi judul baru tamat — sesuai namanya, daftar itu memang dirancang upstream sebagai jalur "baru saja tamat + ongoing".
+- Rel "Masih Tayang" di Beranda kini juga menyaring judul TAMAT (gabungan halaman 1–2).
+- Lencana "UI BARU" di samping logo Lumio dihapus — UI web ini sudah menjadi tampilan utama aplikasi, bukan lagi penanda prototype.
+
+### Diperbaiki
+- **"Muat Lebih Banyak" tidak lagi melompat ke atas** (tab Musim Ini / Masih Tayang & grid lain): `showView()` yang menggulir ke puncak kini hanya dipanggil saat membuka grid baru, bukan saat menambah halaman.
+
 ## [2.13.0] - 2026-10-23
 
 ### Ditambahkan

@@ -504,12 +504,12 @@ async def filters():
     return ok(hi.FILTERS)
 
 @app.get("/api/catalog")
-async def catalog(page: int = Query(1, ge=1, le=100), safe_mode: int = Query(1)):
+async def catalog(page: int = Query(1, ge=1, le=100), safe_mode: int = Query(1), fresh: int = Query(0)):
     """Katalog umum: semua judul, default urut populer."""
     try:
         import json as _json
         key = f"catalog|page={page}"
-        hit = await get_browse_cache(key, ttl=600)
+        hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
             res = dict(hit)
             res["cached"] = True
@@ -580,7 +580,7 @@ def _is_long_running(title: str, episodes: int = 0, start_year: int = 0, sub_cou
 async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                    season: str = Query("", pattern="^(winter|spring|summer|fall)$|^$"),
                    year: int = Query(0, ge=0, le=2100),
-                   page: int = Query(1, ge=1, le=100)):
+                   page: int = Query(1, ge=1, le=100), fresh: int = Query(0)):
     """Daftar anime per musim / ongoing (AniList dengan fallback HiAnime).
     which=now|prev|airing = musim saat ini / sebelumnya / sedang tayang.
     season+year = musim spesifik (contoh: season=fall year=2024)."""
@@ -590,7 +590,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
         # Kasus khusus: Masih Tayang / Airing Ongoing dengan Dual-Lane (Musiman vs Panjang)
         if which == "airing":
             key = f"airing_lanes_v4|page={page}"
-            hit = await get_browse_cache(key, ttl=600)
+            hit = None if fresh else await get_browse_cache(key, ttl=600)
             if hit:
                 hit["cached"] = True
                 return ok(hit)
@@ -758,7 +758,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
             cache_id = which or "now"
 
         key = f"seasonal_v4|{cache_id}|page={page}"
-        hit = await get_browse_cache(key, ttl=600)
+        hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
             hit["cached"] = True
             hit["season"] = season_name
@@ -1225,6 +1225,7 @@ async def browse_ep(
     year: str = Query(""), month: str = Query(""),
     page: int = Query(1, ge=1, le=100),
     safe_mode: int = Query(1),
+    fresh: int = Query(0),
 ):
     """Filter bebas — semua parameter sesuai form filter (mendukung cross-filter sort, year, month)."""
     try:
@@ -1274,7 +1275,7 @@ async def browse_ep(
                    "sort": _to_str(sort), "genre": c_genre, "keyword": _to_str(keyword),
                    "sy": c_sy, "sm": c_sm, "ey": c_ey, "em": c_em}.items() if v}
         key = "browse|" + _json.dumps(params, sort_keys=True) + f"|page={c_page}"
-        hit = await get_browse_cache(key, ttl=600)
+        hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
             hit["cached"] = True
             return ok(hit)

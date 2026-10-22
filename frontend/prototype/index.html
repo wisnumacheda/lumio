@@ -285,6 +285,10 @@
   .icon-btn:hover{color:#fff;border-color:var(--acc);background:rgba(139,92,246,.14)}
   .icon-btn svg{width:21px;height:21px;transition:transform .45s cubic-bezier(.2,.7,.3,1.2)}
   .icon-btn:hover svg{transform:rotate(50deg)}
+  #ptrPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:50%;transform:translate(-50%,-72px);
+    z-index:400;background:var(--panel2);border:1px solid var(--acc);color:#fff;font-size:13px;font-weight:700;
+    padding:9px 16px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.5);transition:transform .25s ease;pointer-events:none}
+  #ptrPill.on{transform:translate(-50%,0)}
   .drawer-wrap{position:fixed;inset:0;z-index:200}
   .drawer-wrap.hidden{display:none}
   .drawer-backdrop{position:absolute;inset:0;background:rgba(3,2,8,.6);backdrop-filter:blur(3px)}
@@ -351,7 +355,6 @@
   <div class="brand">
     <div class="logo">🎬</div>
     <div class="name">Lum<em>io</em></div>
-    <span class="badge-proto">UI BARU</span>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="home" class="active">Beranda</button>
@@ -499,6 +502,7 @@
 </div>
 
 <!-- ============ PANEL PENGATURAN ============ -->
+<div id="ptrPill">↻ Tarik untuk menyegarkan</div>
 <div class="drawer-wrap hidden" id="settingsWrap">
   <div class="drawer-backdrop" id="settingsBackdrop"></div>
   <aside class="drawer" role="dialog" aria-label="Pengaturan">
@@ -659,11 +663,13 @@ function toast(msg, isErr){
   toastTimer = setTimeout(() => t.classList.remove("show"), 3400);
 }
 
+let FORCE_FRESH = false;
 async function api(path){
   // Mode Aman (Pengaturan) diteruskan ke endpoint yang mendukung safe_mode.
   if (/^\/api\/(catalog|search|browse|genres)\b/.test(path) && !path.includes("safe_mode=")) {
     path += (path.includes("?") ? "&" : "?") + "safe_mode=" + (typeof SETTINGS !== "undefined" && !SETTINGS.safeMode ? 0 : 1);
   }
+  if (FORCE_FRESH && !path.includes("fresh=")) path += (path.includes("?") ? "&" : "?") + "fresh=1";
   const r = await fetch(path);
   if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
   const j = await r.json();
@@ -835,10 +841,26 @@ function fillScheduleRail(d){
     "Jadwal rilis belum tersedia dari backend saat ini — daftar biasa tetap ada di bawah.");
 }
 
+async function loadBaruRail(){
+  // "Baru Diupdate" = anime ONGOING yang episodenya paling segar dari sumber.
+  // Daftar "Masih Tayang" mentah didominasi judul baru-TAMAT, jadi di sini TAMAT disaring
+  // dan dua sumber digabung: browse rilis-terbaru + jalur ongoing Masih Tayang.
+  const seen = new Set(); const out = [];
+  const push = items => { for (const it of (items || [])) {
+    if (!it || !it.id || seen.has(it.id)) continue;
+    if ((it.badge || "") === "TAMAT") continue;
+    seen.add(it.id); out.push(it);
+  } };
+  try { const d = await api("/api/browse?status=releasing&sort=latest&page=1"); push(d.items); } catch(_){}
+  try { const d = await api("/api/seasonal?which=airing&page=1"); push(d.seasonal || d.items); } catch(_){}
+  if (out.length < 10) { try { const d = await api("/api/browse?status=releasing&sort=latest&page=2"); push(d.items); } catch(_){} }
+  if (out.length < 12) { try { const d = await api("/api/seasonal?which=now&page=1"); push(d.items || d.seasonal); } catch(_){} }
+  fillRail("railBaru", out.slice(0, 14));
+}
 async function loadHome(){
   hideState();
   $("#rails").innerHTML =
-    railSection("railBaru", "🆕 Baru Diupdate", "Paling baru diperbarui dari sumber - episode terbaru di atas") +
+    railSection("railBaru", "🆕 Baru Diupdate", "Anime ongoing dengan episode paling segar dari sumber") +
     (SETTINGS.sort === "terbaru" ? railSection("railRilis", "📅 Jadwal Rilis", "Jadwal rilis minggu ini — hari ini paling atas, kemarin di bawahnya") : "") +
     railSection("railPopuler", "Populer Sekarang", "Paling banyak ditonton di katalog") +
     railSection("railMusim", "Musim Ini", "Rilisan musim berjalan") +
@@ -851,7 +873,7 @@ async function loadHome(){
 
   let firstError = null;
   const jobs = [
-    api("/api/seasonal?which=airing&page=1").then(d => fillRail("railBaru", (d.seasonal || d.items || []).slice(0, 14))).catch(() => fillRail("railBaru", [])),
+    loadBaruRail(),
     api("/api/catalog?page=1").then(d => {
       const items = d.items || [];
       fillRail("railPopuler", sortItems(items));
@@ -859,7 +881,14 @@ async function loadHome(){
       else { $("#heroSkel").classList.add("hidden"); }
     }).catch(e => { firstError = firstError || e; fillRail("railPopuler", []); $("#heroSkel").classList.add("hidden"); }),
     api("/api/seasonal?which=now").then(d => fillRail("railMusim", sortItems(d.items || []))).catch(() => fillRail("railMusim", [])),
-    api("/api/seasonal?which=airing").then(d => fillRail("railTayang", sortItems(d.seasonal || d.items || []))).catch(e => fillRail("railTayang", [], "⚠️ Endpoint Masih Tayang lagi error di backend (" + e.message + ") — bukan error UI prototype. Bagian lain tetap jalan; coba lagi nanti.")),
+    (async () => {
+      const all = [];
+      for (const pg of [1, 2]) {
+        try { const d = await api("/api/seasonal?which=airing&page=" + pg); all.push(...(d.seasonal || d.items || [])); } catch(_){}
+      }
+      const ongoing = all.filter(it => (it.badge || "") !== "TAMAT");
+      fillRail("railTayang", sortItems(ongoing).slice(0, 14));
+    })(),
   ];
   if (SETTINGS.sort === "terbaru") {
     jobs.push(api("/api/schedule?day=all").then(d => fillScheduleRail(d))
@@ -907,7 +936,7 @@ async function openGrid(title, loader, append){
   if (!append) { gridLoader = loader; gridPage = 1; gridTotalPages = 1; $("#grid").innerHTML = ""; }
   if (gridBusy) return;
   gridBusy = true;
-  showView("grid");
+  if (!append) showView("grid");
   $("#gridTitle").textContent = title;
   const grid = $("#grid");
   if (!append) grid.innerHTML = Array.from({length: 12}, () =>
@@ -935,6 +964,40 @@ async function openGrid(title, loader, append){
   } finally { gridBusy = false; }
 }
 $("#btnMore").addEventListener("click", () => { gridPage++; openGrid($("#gridTitle").textContent, gridLoader, true); });
+
+/* ---------------- Tarik untuk menyegarkan ---------------- */
+let ptrStartY = null, ptrArmed = false, ptrBusy = false;
+async function refreshCurrentView(){
+  FORCE_FRESH = true;
+  try {
+    if (!$("#viewGrid").classList.contains("hidden") && gridLoader) { await openGrid($("#gridTitle").textContent, gridLoader); }
+    else if (!$("#viewHome").classList.contains("hidden")) { await loadHome(); }
+  } finally { FORCE_FRESH = false; }
+}
+document.addEventListener("touchstart", e => {
+  ptrArmed = false;
+  if (ptrBusy || window.scrollY > 0) { ptrStartY = null; return; }
+  if (!$("#settingsWrap").classList.contains("hidden")) { ptrStartY = null; return; }
+  if (!$("#detailModal").classList.contains("hidden") || !$("#playerModal").classList.contains("hidden")) { ptrStartY = null; return; }
+  if (!$("#viewSoon").classList.contains("hidden")) { ptrStartY = null; return; }
+  ptrStartY = e.touches[0].clientY;
+}, {passive: true});
+document.addEventListener("touchmove", e => {
+  if (ptrStartY === null || ptrBusy) return;
+  const dy = e.touches[0].clientY - ptrStartY;
+  const pill = $("#ptrPill");
+  if (dy > 70 && window.scrollY <= 0) { pill.classList.add("on"); pill.textContent = "↻ Lepaskan untuk menyegarkan"; ptrArmed = true; }
+  else if (dy < 30) { pill.classList.remove("on"); ptrArmed = false; }
+}, {passive: true});
+document.addEventListener("touchend", async () => {
+  const pill = $("#ptrPill");
+  if (ptrArmed && !ptrBusy) {
+    ptrBusy = true; pill.textContent = "⏳ Menyegarkan…";
+    try { await refreshCurrentView(); } catch(_){}
+    pill.classList.remove("on"); ptrBusy = false;
+  }
+  ptrStartY = null; ptrArmed = false;
+});
 $("#btnBack").addEventListener("click", goHome);
 function goHome(){
   setActiveTab("home");
