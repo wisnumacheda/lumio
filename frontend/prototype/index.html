@@ -885,6 +885,7 @@ async function openGrid(title, loader, append){
       return;
     }
     gridTotalPages = d.total_pages || (d.has_next ? gridPage + 1 : gridPage);
+    if (!append) grid.innerHTML = "";
     grid.insertAdjacentHTML("beforeend", items.map(cardHTML).join(""));
     bindCards(grid);
     const total = grid.querySelectorAll(".card").length;

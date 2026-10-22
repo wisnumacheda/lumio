@@ -47,6 +47,7 @@ public class WebUiActivity extends Activity {
 
     private WebView web;
     private TextView splashText;
+    private View splashView;
     private FrameLayout fullContainer;
     private View customView;
     private WebChromeClient.CustomViewCallback customCallback;
@@ -117,7 +118,7 @@ public class WebUiActivity extends Activity {
             public void onPageFinished(WebView v, String url) {
                 if (!pageLoaded) {
                     pageLoaded = true;
-                    splashText.setVisibility(View.GONE);
+                    if (splashView != null) splashView.setVisibility(View.GONE);
                     if (customView == null) web.setVisibility(View.VISIBLE);
                 }
             }
@@ -152,6 +153,7 @@ public class WebUiActivity extends Activity {
         FrameLayout.LayoutParams splashLp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         root.addView(splash, splashLp);
+        splashView = splash;
         splashText.setOnClickListener(v -> {
             splashText.setText("Menyiapkan Lumio…");
             waitForBackend(0);
@@ -275,7 +277,7 @@ public class WebUiActivity extends Activity {
         if (web != null) {
             web.evaluateJavascript("(window.LUMIO_back ? window.LUMIO_back() : false)",
                     value -> {
-                        if (!"true".equals(value)) finish();
+                        if (!"true".equals(value)) finishAffinity();
                     });
         } else {
             finish();
