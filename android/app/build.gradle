@@ -19,14 +19,15 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "id.tatap.app"
+        applicationId "id.tatap.fork"
         minSdk 24
         targetSdk 34
         versionCode parseVersionCode(currentVersionName)
         versionName currentVersionName
 
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a", "x86_64"
+            // Fork test build: arm64 saja agar build ringan (HP Android modern umumnya arm64).
+            abiFilters "armeabi-v7a", "arm64-v8a"
         }
 
         python {

@@ -13,6 +13,21 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **MINOR (x.Y.0):** Penambahan fitur atau kapabilitas baru yang tetap kompatibel ke belakang (*backward-compatible new features*). Digit PATCH direset ke 0.
 - **PATCH (x.y.Z):** Perbaikan bug, peningkatan stabilitas, atau perbaikan internal tanpa penambahan fitur baru (*backward-compatible bug fixes*).
 
+## [Unreleased]
+
+### Ditambahkan (fork lokal — prototype, belum dirilis)
+- **Prototype UI Baru (`frontend/prototype/index.html`):** antarmuka web sinematik alternatif (hero banner, rail poster horizontal, chip genre, modal detail + grid episode, player HLS) yang berjalan berdampingan dengan UI asli tanpa mengubahnya; di-mount oleh backend pada path `/prototype` (`backend/main.py`). Data sepenuhnya dari API lokal yang sama (`/api/catalog`, `/api/seasonal`, `/api/genres`, `/api/browse`, `/api/search`, `/api/stream/resolve`). Status: bahan evaluasi desain untuk iterasi UI berikutnya, bukan bagian dari 4 aset rilis resmi.
+- **Pilihan Server & Bar Kategori pada Prototype UI:** pemutar kini punya pemilih **Server** (Otomatis / HiAnime / Otakudesu / AniChan — diteruskan sebagai parameter `source` ke `/api/stream/resolve`, dengan petunjuk pemulihan bila server pilihan tidak punya judulnya) plus **Sumber Server Bawaan** di Pengaturan; bar kategori baru (Anime aktif; Movie, Series, Manhwa, Donghua sebagai panel "Segera Hadir" berisi rencana provider; 18+ sebagai panel **Terkunci**); **Mode Aman** di Pengaturan (bawaan aktif) meneruskan `safe_mode` ke endpoint katalog/pencarian/browse/genre — selaras Safe Mode upstream, dan blacklist hentai permanen di server tidak berubah.
+- **Menu Pengaturan pada Prototype UI:** tombol gear (ikon SVG) di pojok kanan navbar membuka panel geser berisi pengaturan yang tersimpan di perangkat (localStorage) dan langsung berlaku: Tema (Ungu / AMOLED / Biru Malam), Audio bawaan (SUB/DUB), Kualitas awal (Otomatis–360p, dipilih dari varian resolver saat putar), Lanjut Episode Otomatis, Bahasa Subtitle Pilihan (Indonesia/Inggris/Mati), Ukuran Teks Subtitle (Kecil–Jumbo via `video::cue`), Reset Pengaturan, dan info versi backend dari `/api/version`.
+- **Opt-in DNS Fake-IP untuk Penjaga SSRF Player (`TATAP_ALLOW_FAKEIP=1`):** domain publik yang ter-resolve ke rentang 198.18.0.0/15 (rentang fake-IP DNS proxy lokal seperti Clash/sing-box) tidak lagi otomatis ditolak 403 oleh `_validate_external_proxy_url`; penolakan tetap menjadi perilaku default dan hanya dilonggarkan bila admin mengaktifkan variabel lingkungan tersebut secara eksplisit.
+
+- **UI web menjadi tampilan utama aplikasi Android (WebView shell):** activity baru `WebUiActivity` menampilkan UI Lumio (`/prototype`) dari backend lokal sebagai layar utama pada perangkat non-TV, lengkap dengan dukungan fullscreen video HTML5, jembatan tombol Back (`window.LUMIO_back`), dan jalan kembali ke UI native (tombol Back di beranda web / tautan "UI Klasik" di Pengaturan web). UI native tetap utuh sebagai cadangan.
+- **Pengaturan urutan anime pada Prototype UI:** segmen "Urutan Anime" di Pengaturan (Populer / Rilisan Terbaru / Abjad A–Z), tersimpan di perangkat. "Rilisan Terbaru" menambahkan rail jadwal rilis dari `/api/schedule?day=all` (Hari Ini paling atas menurut jam tayang, lalu Kemarin, lalu sisa minggu ini); "Abjad A–Z" mengurutkan semua rail berdasarkan judul.
+- **Rebrand build Android menjadi "Lumio":** nama tampilan aplikasi diganti menjadi **Lumio** (dipilih pemilik fork) dengan application id `id.tatap.fork` agar terpasang berdampingan dengan Tatap asli; build ditandatangani keystore fork lokal (bukan keystore produksi CI upstream) dan dibatasi ke ABI arm64-v8a untuk build uji. Brand "Lumio" juga dipakai pada Prototype UI yang terbundel; kredit fork GPL-3.0 ke upstream Tatap tetap tercantum.
+
+### Diperbaiki (fork lokal)
+- **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
+
 ## [2.11.0] - 2026-10-22
 
 ### Justifikasi SemVer 2.0.0 (MINOR: 2.10.0 -> 2.11.0)

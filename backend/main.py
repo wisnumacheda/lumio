@@ -1845,6 +1845,12 @@ def _validate_external_proxy_url(url: str) -> None:
         for family, socktype, proto, canonname, sockaddr in addr_info:
             ip_str = sockaddr[0]
             ip = _ipa.ip_address(ip_str)
+            # 198.18.0.0/15 adalah rentang "fake-IP" yang dipakai DNS proxy lokal
+            # (Clash/sing-box/V2Ray). Domain publik yang ter-resolve ke rentang
+            # ini sebenarnya publik; izinkan HANYA bila admin mengaktifkan
+            # TATAP_ALLOW_FAKEIP=1 (default tetap ditolak demi keamanan SSRF).
+            if ip in _ipa.ip_network("198.18.0.0/15") and os.environ.get("TATAP_ALLOW_FAKEIP", "").lower() in ("1", "true", "yes"):
+                continue
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
                 raise HTTPException(status_code=403, detail=f"Resolusi domain mengarah ke IP privat/lokal ({ip_str})")
     except (_sock.gaierror, _sock.herror):
@@ -2863,6 +2869,8 @@ if os.path.isdir(os.path.join(frontend_dir, "css")):
     app.mount("/css", StaticFiles(directory=os.path.join(frontend_dir, "css")), name="css")
 if os.path.isdir(os.path.join(frontend_dir, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dir, "assets")), name="assets")
+if os.path.isdir(os.path.join(frontend_dir, "prototype")):
+    app.mount("/prototype", StaticFiles(directory=os.path.join(frontend_dir, "prototype"), html=True), name="prototype")
 
 @app.get("/")
 async def root():

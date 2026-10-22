@@ -22,3 +22,10 @@ signing.properties
 local.properties
 *.properties
 !gradle/wrapper/gradle-wrapper.properties
+
+# Lokal Muse (jangan commit)
+.preview-token
+*.apk
+build*.log
+preview_gateway.py
+prototype-*.png

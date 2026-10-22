@@ -319,6 +319,9 @@ public class MainActivity extends Activity {
         // 2. Tunggu backend siap lalu muat konten pertama
         waitForServerAndLoadCatalog(0);
 
+        // 2b. Lumio (fork): buka UI web sebagai tampilan utama (khusus non-TV)
+        maybeOpenLumioWebUi();
+
         handleIncomingIntent(getIntent());
     }
 
@@ -327,6 +330,18 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleIncomingIntent(intent);
+    }
+
+    // ===== Lumio (fork): UI web (prototype) sebagai tampilan utama =====
+    private boolean lumioWebUiLaunched = false;
+
+    private void maybeOpenLumioWebUi() {
+        if (lumioWebUiLaunched) return;
+        lumioWebUiLaunched = true;
+        try {
+            if (TvFocusHelper.isTv(this)) return; // Android TV tetap UI native
+        } catch (Exception ignored) {}
+        startActivity(new Intent(this, WebUiActivity.class));
     }
 
     private void handleIncomingIntent(Intent intent) {
