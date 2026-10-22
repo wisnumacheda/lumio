@@ -110,7 +110,10 @@
   .rail-head h2::before{content:"";display:inline-block;width:4px;height:20px;border-radius:2px;
     background:linear-gradient(180deg,var(--amber),var(--acc));margin-right:11px;vertical-align:-3px}
   .rail-head .sub{color:var(--faint);font-size:13px}
-  .rail-nav{margin-left:auto;display:flex;gap:8px}
+  .rail-nav{margin-left:0;display:flex;gap:8px}
+  .see-all{margin-left:auto;background:none;border:0;color:var(--acc);font-size:13px;font-weight:700;
+    cursor:pointer;padding:6px 2px;font-family:inherit;white-space:nowrap}
+  .see-all:hover{text-decoration:underline}
   .rail-nav button{width:34px;height:34px;border-radius:50%;background:var(--panel);
     border:1px solid var(--line);color:var(--muted);font-size:15px;transition:.18s}
   .rail-nav button:hover{color:#fff;border-color:var(--acc);background:var(--panel2)}
@@ -450,10 +453,8 @@
 </main>
 
 <footer>
-  <b>Lumio — Prototype UI Baru</b> · Prototype fork dari Tatap (GPL-3.0) — kredit ke
-  <a href="https://github.com/asfaraguest/tatap" target="_blank" rel="noopener">asfaraguest/tatap</a>.<br>
-  UI asli tetap tersedia di <a href="/">halaman utama</a> — prototype ini tidak mengubahnya.
-  Semua data &amp; stream berasal dari backend lokal yang sama.
+  <b>Lumio</b> · Nonton anime subtitle Indonesia &amp; Inggris — katalog lengkap, episode terbaru, streaming lancar.<br>
+  Kode sumber terbuka (GPL-3.0) · Update otomatis langsung dari aplikasi.
 </footer>
 
 <!-- ============ DETAIL MODAL ============ -->
@@ -777,9 +778,10 @@ function railSkeleton(){
   return Array.from({length: 7}, () =>
     `<div class="skel-card"><div class="skel"></div><div class="skel skel-line" style="width:85%"></div></div>`).join("");
 }
-function railSection(id, title, sub){
+function railSection(id, title, sub, seeAll){
   return `<section class="rail-sec" id="${id}">
     <div class="rail-head"><h2>${esc(title)}</h2><span class="sub">${esc(sub||"")}</span>
+      ${seeAll ? `<button class="see-all" data-seeall="${id}">Lihat Semua ›</button>` : ""}
       <div class="rail-nav">
         <button data-rail="${id}" data-dir="-1" aria-label="Geser kiri">‹</button>
         <button data-rail="${id}" data-dir="1" aria-label="Geser kanan">›</button>
@@ -841,6 +843,47 @@ function fillScheduleRail(d){
     "Jadwal rilis belum tersedia dari backend saat ini — daftar biasa tetap ada di bawah.");
 }
 
+async function ongoingLatestLoader(p){
+  // Halaman grid = gabungan 2 halaman backend "Masih Tayang", khusus judul ONGOING
+  // (item header & yang sudah TAMAT dibuang) - urutan server = episode paling segar.
+  const seen = new Set(); const out = [];
+  let tp = 1;
+  for (const bp of [2*p - 1, 2*p]) {
+    const d = await api("/api/seasonal?which=airing&page=" + bp);
+    tp = d.total_pages || bp;
+    for (const it of (d.items || [])) {
+      if (!it.id || seen.has(it.id) || it.is_header) continue;
+      if (it.is_finished || (it.badge || "") === "TAMAT") continue;
+      seen.add(it.id); out.push(it);
+    }
+  }
+  return {items: out, total_pages: Math.max(1, Math.ceil(tp / 2))};
+}
+async function airingGridLoader(p){
+  // Tab Masih Tayang: "Populer" mengambil urutan popularitas sumber (browse),
+  // "Rilisan Terbaru"/"Abjad" mengambil jalur ongoing - jadi urutannya beda beneran.
+  if (SETTINGS.sort === "populer") {
+    const seen = new Set(); const out = [];
+    let tp = 1;
+    for (const bp of [2*p - 1, 2*p]) {
+      const d = await api("/api/browse?status=releasing&sort=popularity&page=" + bp);
+      tp = d.total_pages || bp;
+      for (const it of (d.items || [])) {
+        if (!it.id || seen.has(it.id)) continue;
+        if ((it.badge || "") === "TAMAT") continue;
+        seen.add(it.id); out.push(it);
+      }
+    }
+    return {items: out, total_pages: Math.max(1, Math.ceil(tp / 2))};
+  }
+  return ongoingLatestLoader(p);
+}
+const SEE_ALL = {
+  railBaru:    {title: "🆕 Baru Diupdate", loader: ongoingLatestLoader},
+  railPopuler: {title: "Populer Sekarang", loader: p => api("/api/catalog?page=" + p)},
+  railMusim:   {title: "Musim Ini", loader: p => api("/api/seasonal?which=now&page=" + p)},
+  railTayang:  {title: "Masih Tayang", loader: airingGridLoader},
+};
 async function loadBaruRail(){
   // "Baru Diupdate" = anime ONGOING yang episodenya paling segar dari sumber.
   // Daftar "Masih Tayang" mentah didominasi judul baru-TAMAT, jadi di sini TAMAT disaring
@@ -860,15 +903,21 @@ async function loadBaruRail(){
 async function loadHome(){
   hideState();
   $("#rails").innerHTML =
-    railSection("railBaru", "🆕 Baru Diupdate", "Anime ongoing dengan episode paling segar dari sumber") +
+    railSection("railBaru", "🆕 Baru Diupdate", "Anime ongoing dengan episode paling segar dari sumber", true) +
     (SETTINGS.sort === "terbaru" ? railSection("railRilis", "📅 Jadwal Rilis", "Jadwal rilis minggu ini — hari ini paling atas, kemarin di bawahnya") : "") +
-    railSection("railPopuler", "Populer Sekarang", "Paling banyak ditonton di katalog") +
-    railSection("railMusim", "Musim Ini", "Rilisan musim berjalan") +
-    railSection("railTayang", "Masih Tayang", "Sedang ongoing minggu ini");
+    railSection("railPopuler", "Populer Sekarang", "Paling banyak ditonton di katalog", true) +
+    railSection("railMusim", "Musim Ini", "Rilisan musim berjalan", true) +
+    railSection("railTayang", "Masih Tayang", "Sedang ongoing minggu ini", true);
   // tombol geser rail dibuat dinamis -> ikat ulang
   $$(".rail-nav button").forEach(b => b.addEventListener("click", () => {
     const rail = document.querySelector("#" + b.dataset.rail + " .rail");
     if (rail) rail.scrollBy({left: Number(b.dataset.dir) * 760, behavior: "smooth"});
+  }));
+  $$(".see-all").forEach(b => b.addEventListener("click", () => {
+    const cfg = SEE_ALL[b.dataset.seeall];
+    if (!cfg) return;
+    setActiveTab("");
+    openGrid(cfg.title, cfg.loader);
   }));
 
   let firstError = null;
@@ -877,7 +926,10 @@ async function loadHome(){
     api("/api/catalog?page=1").then(d => {
       const items = d.items || [];
       fillRail("railPopuler", sortItems(items));
-      if (items.length) fillHero(items[0]);
+      if (items.length) {
+        const pool = items.slice(0, 10);
+        fillHero(pool[Math.floor(Date.now() / 86400000) % pool.length]);
+      }
       else { $("#heroSkel").classList.add("hidden"); }
     }).catch(e => { firstError = firstError || e; fillRail("railPopuler", []); $("#heroSkel").classList.add("hidden"); }),
     api("/api/seasonal?which=now").then(d => fillRail("railMusim", sortItems(d.items || []))).catch(() => fillRail("railMusim", [])),
@@ -897,7 +949,7 @@ async function loadHome(){
   await Promise.allSettled(jobs);
   if (firstError) {
     showState("🔌", "Backend tidak merespons",
-      "Gagal memuat katalog (" + firstError.message + "). Pastikan server Tatap berjalan, lalu coba lagi.",
+      "Gagal memuat katalog (" + firstError.message + "). Pastikan server Lumio berjalan, lalu coba lagi.",
       loadHome);
   }
 }
@@ -1011,7 +1063,7 @@ $$("#tabs button").forEach(b => b.addEventListener("click", () => {
   setActiveTab(tab);
   if (tab === "home") { goHome(); return; }
   if (tab === "now") openGrid("Musim Ini", p => api(`/api/seasonal?which=now&page=${p}`));
-  if (tab === "airing") openGrid("Masih Tayang", p => api(`/api/seasonal?which=airing&page=${p}`));
+  if (tab === "airing") openGrid("Masih Tayang", airingGridLoader);
 }));
 
 /* ---------------- Pencarian ---------------- */
@@ -1264,7 +1316,7 @@ async function attachSubtitle(data, referer){
     t.default = true;
     video.appendChild(t);
     t.addEventListener("load", () => { if (t.track) t.track.mode = "showing"; });
-    if (el) el.textContent = "Subtitle: " + (track.label || t.srclang.toUpperCase()) + " (via proxy Tatap)";
+    if (el) el.textContent = "Subtitle: " + (track.label || t.srclang.toUpperCase()) + " (via proxy Lumio)";
   } catch (e) {
     if (el) el.textContent = "Subtitle gagal dimuat (" + e.message + ") — video tetap diputar tanpa subtitle.";
   }
@@ -1354,7 +1406,7 @@ applySettings();
 /* ---------------- Kategori ---------------- */
 const CAT_INFO = {
   movie:   {ico: "🎬", title: "Movie — Segera Hadir",
-    desc: "Ruang buat film layar lebar (Barat, Indonesia, Asia) lagi disiapkan. Arsitektur Tatap memang dirancang per-sumber, jadi kategori ini tinggal menunggu provider pertamanya.",
+    desc: "Ruang buat film layar lebar (Barat, Indonesia, Asia) lagi disiapkan. Arsitektur Lumio memang dirancang per-sumber, jadi kategori ini tinggal menunggu provider pertamanya.",
     plan: ["<b>Metadata:</b> katalog + poster + rating dari basis data film publik", "<b>Provider pertama:</b> satu sumber streaming film, dipasang sebagai modul backend baru", "<b>Tampilan:</b> rail & halaman ini sudah siap menampung datanya"]},
   series:  {ico: "📺", title: "Series — Segera Hadir",
     desc: "Buat serial TV & web-series (US, K-Drama, C-Drama, Indo) lengkap dengan musim dan episode per musim.",

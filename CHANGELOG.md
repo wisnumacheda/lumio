@@ -28,6 +28,19 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.15.0] - 2026-10-23
+
+### Ditambahkan
+- **Tombol "Lihat Semua ›" pada rel Beranda** (Baru Diupdate, Populer Sekarang, Musim Ini, Masih Tayang): membuka grid penuh kategori tersebut dengan pagination "Muat Lebih Banyak"; kartu menampilkan info episode terbaru seperti di rel.
+
+### Diubah
+- **Anime unggulan (hero) Beranda kini bergilir harian** di antara 10 judul teratas katalog — tidak lagi selalu judul yang sama.
+- **Grid tab "Masih Tayang" kini khusus judul ONGOING**: item header & judul yang sudah TAMAT dari jalur ganda backend disaring (2 halaman backend digabung per halaman grid). Urutan kini beda beneran: "Populer" memakai urutan popularitas sumber, "Rilisan Terbaru" memakai urutan episode paling segar.
+- Grid "Lihat Semua — Baru Diupdate" memakai daftar ongoing yang sama dengan tab Masih Tayang mode terbaru.
+
+### Dibersihkan
+- Kredit & nama proyek asal dihapus dari tampilan aplikasi (footer Beranda, pesan error server, label subtitle player, teks panel kategori) — seluruh permukaan kini murni branding Lumio. Atribusi lisensi tetap utuh di berkas LICENSE & kode sumber repositori sesuai GPL-3.0.
+
 ## [2.14.0] - 2026-10-23
 
 ### Ditambahkan
