@@ -28,6 +28,21 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.12.0] - 2026-10-23
+
+### Ditambahkan
+- Tombol **🔃 Urutan** kini tampil langsung di atas daftar (grid) — tidak lagi tersembunyi di Pengaturan — dan pilihan Abjad A–Z kini berlaku juga di grid.
+- Seksi **Versi & Pembaruan** di bagian bawah Pengaturan: versi aplikasi saat ini, tombol Periksa Update, dan tombol Update Sekarang bila versi baru tersedia.
+- Proxy gambar di backend (`/api/img`): poster kini dimuat lewat jalur jaringan aplikasi yang sama dengan katalog.
+
+### Diubah
+- **UI klasik (bawaan) dinonaktifkan sebagai pintu masuk**: aplikasi kini membuka UI Lumio secara langsung (WebUiActivity menjadi launcher dan menyalakan backend sendiri). UI lama hanya dipertahankan sebagai cadangan Android TV.
+- Pemeriksaan update menghitung ulang status terhadap versi yang sedang berjalan (hasil cek tersimpan tidak lagi basi setelah update), dan halaman UI membandingkan versi secara mandiri.
+- Halaman UI tidak lagi disajikan dari cache lama setelah update: server lokal mengirim header anti-cache dan aplikasi membersihkan cache WebView setiap berganti versi.
+
+### Dihapus
+- Baris/tautan "UI Klasik" di Pengaturan dan skema `lumio://classic`.
+
 ## [2.11.2] - 2026-10-23
 
 ### Diperbaiki

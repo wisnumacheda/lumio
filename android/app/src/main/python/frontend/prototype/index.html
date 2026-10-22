@@ -308,6 +308,8 @@
     background:var(--panel);border:1px solid var(--line);color:var(--muted);transition:.18s}
   .seg button:hover{color:var(--txt)}
   .seg button.active{background:linear-gradient(135deg,var(--acc),#7c3aed);color:#fff;border-color:transparent}
+  .sortbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 14px}
+  .sortbar-lbl{font-size:13px;font-weight:700;color:var(--dim)}
   .set-select{width:100%;padding:10px 12px;border-radius:10px;background:var(--panel);
     border:1px solid var(--line);color:var(--txt);font-size:14px;outline:none}
   .set-select:focus{border-color:var(--acc)}
@@ -409,6 +411,14 @@
       <button class="btn-back" id="btnBack">← Kembali</button>
       <h2 id="gridTitle">Hasil</h2>
       <span class="count" id="gridCount"></span>
+    </div>
+    <div class="sortbar">
+      <span class="sortbar-lbl">🔃 Urutan:</span>
+      <div class="seg" id="gridSort">
+        <button data-val="populer">Populer</button>
+        <button data-val="terbaru">Rilisan Terbaru</button>
+        <button data-val="az">Abjad A–Z</button>
+      </div>
     </div>
     <div class="grid" id="grid"></div>
     <button class="load-more hidden" id="btnMore">Muat Lebih Banyak</button>
@@ -548,18 +558,6 @@
       </div>
     </div>
 
-    <div class="set-sec">
-      <h4>🔃 Urutan Anime</h4>
-      <div class="set-row">
-        <div class="lbl">Urutkan daftar anime</div>
-        <div class="desc">“Rilisan Terbaru” menampilkan jadwal rilis minggu ini di bagian atas beranda — rilis hari ini paling atas, kemarin di bawahnya. “Abjad A–Z” mengurutkan semua daftar berdasarkan judul.</div>
-        <div class="seg" id="setSort">
-          <button data-val="populer">Populer</button>
-          <button data-val="terbaru">Rilisan Terbaru</button>
-          <button data-val="az">Abjad A–Z</button>
-        </div>
-      </div>
-    </div>
 
     <div class="set-sec">
       <h4>🛡️ Konten &amp; Keamanan</h4>
@@ -600,18 +598,26 @@
 
     <div class="set-sec">
       <h4>🧰 Lainnya</h4>
-      <div class="set-row hidden" id="rowClassicUi">
-        <div class="lbl">Tampilan aplikasi</div>
-        <div class="desc">Kamu sedang memakai UI Lumio yang baru. UI bawaan lama tetap tersedia bila suatu saat dibutuhkan — aplikasi akan kembali ke UI baru pada pembukaan berikutnya dari awal.</div>
-        <a class="btn-reset" href="lumio://classic" style="display:block;text-align:center;text-decoration:none">↩ Buka UI Klasik (bawaan)</a>
-      </div>
       <div class="set-row">
         <button class="btn-reset" id="btnResetSettings">↺ Reset semua pengaturan</button>
       </div>
       <div class="set-row about-box" id="aboutBox">
-        <b>Lumio — Prototype UI Baru</b><br>
-        Backend: <span id="verInfo">memuat…</span><br>
-        Fork dari Tatap (GPL-3.0) © asfaraguest — UI asli tetap ada di halaman utama.
+        <b>Lumio</b> — aplikasi nonton anime subtitle Indonesia &amp; Inggris.<br>
+        Berlisensi GPL-3.0 · Kode sumber: github.com/wisnumacheda/lumio
+      </div>
+    </div>
+
+    <div class="set-sec">
+      <h4>📦 Versi &amp; Pembaruan</h4>
+      <div class="set-row">
+        <div class="lbl">Versi aplikasi saat ini</div>
+        <div class="desc">Lumio v<span id="verInfo">memuat…</span></div>
+      </div>
+      <div class="set-row">
+        <div class="lbl">Pembaruan aplikasi</div>
+        <div class="desc" id="updStatus">Ketuk tombol di bawah untuk memeriksa versi terbaru.</div>
+        <button class="btn-reset" id="btnCheckUpdate">🔍 Periksa Update</button>
+        <button class="btn-reset hidden" id="btnInstallUpdate" style="margin-top:8px">⬇️ Update Sekarang</button>
       </div>
     </div>
   </aside>
@@ -663,6 +669,16 @@ async function api(path){
 }
 
 /* ---------------- Kartu poster ---------------- */
+function posterSrc(u){
+  if (!u) return "";
+  if (u.startsWith("/api/") || u.startsWith("data:")) return u;
+  return "/api/img?url=" + encodeURIComponent(u);
+}
+function imgFallback(el){
+  const direct = el.dataset.direct || "";
+  if (direct && !el.src.endsWith(direct)) { el.src = direct; return; }
+  el.style.visibility = "hidden";
+}
 function cardHTML(it){
   const badge = it.badge
     ? `<span class="st-badge${it.is_finished ? "" : " ongoing"}">${esc(it.badge)}</span>` : "";
@@ -674,8 +690,8 @@ function cardHTML(it){
   return `<article class="card" data-slug="${esc(it.id)}" tabindex="0" role="button"
       aria-label="${esc(it.title)}">
     <div class="poster">
-      <img loading="lazy" src="${esc(it.poster)}" alt="${esc(it.title)}"
-           onerror="this.style.visibility='hidden'">
+      <img loading="lazy" src="${esc(posterSrc(it.poster))}" data-direct="${esc(it.poster || "")}" alt="${esc(it.title)}"
+           onerror="imgFallback(this)">
       ${badge}${eps}<div class="play-ico">▶</div>
     </div>
     <div class="meta">
@@ -711,7 +727,7 @@ $("#stateRetry").addEventListener("click", () => { hideState(); if (retryFn) ret
 let heroItem = null;
 function fillHero(it){
   heroItem = it;
-  $("#heroImg").src = it.poster || "";
+  const hi = $("#heroImg"); hi.dataset.direct = it.poster || ""; hi.src = posterSrc(it.poster);
   $("#heroTitle").textContent = it.title || "—";
   $("#heroSyn").textContent = it.synopsis || "Sinopsis belum tersedia.";
   const chips = [];
@@ -877,7 +893,7 @@ async function openGrid(title, loader, append){
   $("#btnMore").classList.add("hidden");
   try {
     const d = await gridLoader(gridPage);
-    const items = d.items || d.results || d.seasonal || [];
+    const items = sortItems(d.items || d.results || d.seasonal || []);
     registerItems(items);
     if (!append && !items.length) {
       grid.innerHTML = "";
@@ -948,7 +964,7 @@ async function openDetail(slug, autoplayEp){
   currentSlug = slug;
   currentItem = itemStore.get(slug) || {id: slug, title: slug};
   const it = currentItem;
-  $("#dPoster").src = it.poster || "";
+  const dp = $("#dPoster"); dp.dataset.direct = it.poster || ""; dp.src = posterSrc(it.poster);
   $("#dTitle").textContent = it.title || slug;
   $("#dSyn").textContent = "Memuat sinopsis…";
   $("#dGenres").innerHTML = "";
@@ -967,7 +983,7 @@ async function openDetail(slug, autoplayEp){
   api(`/api/anime/${encodeURIComponent(slug)}/detail`).then(d => {
     if (currentSlug !== slug) return;
     $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
-    if (d.poster) $("#dPoster").src = d.poster;
+    if (d.poster) { const dp2 = $("#dPoster"); dp2.dataset.direct = d.poster; dp2.src = posterSrc(d.poster); }
     const kv = [];
     if (d.score) kv.push(["Skor", "⭐ " + d.score]);
     if (d.status) kv.push(["Status", d.status]);
@@ -1170,9 +1186,7 @@ function syncSettingsUI(){
   segSync("setTheme", SETTINGS.theme);
   segSync("setAudio", SETTINGS.audio);
   segSync("setSubSize", SETTINGS.subSize);
-  segSync("setSort", SETTINGS.sort);
-  const rc = $("#rowClassicUi");
-  if (rc && /LumioApp/.test(navigator.userAgent || "")) rc.classList.remove("hidden");
+  segSync("gridSort", SETTINGS.sort);
   $("#setQuality").value = SETTINGS.quality;
   $("#setSubLang").value = SETTINGS.subLang;
   $("#setSource").value = SETTINGS.source;
@@ -1199,9 +1213,10 @@ function segWire(id, key){
 segWire("setTheme", "theme");
 segWire("setAudio", "audio");
 segWire("setSubSize", "subSize");
-$$("#setSort button").forEach(b => b.addEventListener("click", () => {
+$$("#gridSort button").forEach(b => b.addEventListener("click", () => {
   if (SETTINGS.sort === b.dataset.val) return;
   SETTINGS.sort = b.dataset.val; applySettings(); loadHome();
+  if (gridLoader && !$("#viewGrid").classList.contains("hidden")) openGrid($("#gridTitle").textContent, gridLoader);
   toast("🔃 Urutan: " + ({populer: "Populer", terbaru: "Rilisan Terbaru", az: "Abjad A–Z"})[SETTINGS.sort]);
 }));
 $("#setQuality").addEventListener("change", e => { SETTINGS.quality = e.target.value; applySettings(); });
@@ -1227,7 +1242,7 @@ function openSettings(){
   document.body.style.overflow = "hidden";
   if (!verLoaded) {
     verLoaded = true;
-    api("/api/version").then(d => { $("#verInfo").textContent = "Tatap v" + (d.version || "?") + " — berjalan"; })
+    api("/api/version").then(d => { $("#verInfo").textContent = d.version || "?"; })
       .catch(() => { $("#verInfo").textContent = "tidak terhubung"; });
   }
 }
@@ -1274,22 +1289,40 @@ $$("#catBar .cat").forEach(b => b.addEventListener("click", () => showCategory(b
 $("#btnSoonBack").addEventListener("click", () => showCategory("anime"));
 
 /* ---------------- Update dalam aplikasi ---------------- */
+function cmpVer(a, b){
+  const pa = String(a || "").split(".").map(x => parseInt(x, 10) || 0);
+  const pb = String(b || "").split(".").map(x => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++){ if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
+  return 0;
+}
+let updateInfo = null;
+async function fetchUpdateInfo(force){
+  const v = await api("/api/version").catch(() => null);
+  const running = (v && v.version) || "";
+  const d = await api("/api/update/check" + (force ? "?force=1" : "")).catch(() => null);
+  if (!d || !d.latest_version) { updateInfo = {running, latest: "", hasUpdate: false, data: null}; return updateInfo; }
+  updateInfo = {running, latest: d.latest_version, hasUpdate: cmpVer(d.latest_version, running) > 0, data: d};
+  return updateInfo;
+}
+function doInstallUpdate(){
+  const d = updateInfo && updateInfo.data;
+  if (!d) return;
+  const url = (d.assets && d.assets.android) || "";
+  if (window.LumioNative && url) {
+    toast("⬇️ Mengunduh update Lumio v" + d.latest_version + "…");
+    window.LumioNative.installUpdate(url);
+  } else if (d.release_url) {
+    window.open(d.release_url, "_blank");
+  }
+}
 async function checkUpdate(){
   try {
-    const d = await api("/api/update/check");
-    if (!d || !d.has_update || !d.latest_version) return;
-    $("#updText").textContent = "🎉 Lumio v" + d.latest_version + " tersedia — kamu masih di v" + (d.current_version || "?") + ". Update biar dapet fitur & perbaikan terbaru.";
+    const info = await fetchUpdateInfo(false);
+    if (!info.hasUpdate) return;
+    $("#updText").textContent = "🎉 Lumio v" + info.latest + " tersedia — kamu masih di v" + (info.running || "?") + ". Update biar dapet fitur & perbaikan terbaru.";
     $("#updateBanner").classList.remove("hidden");
-    $("#btnDoUpdate").addEventListener("click", () => {
-      const url = (d.assets && d.assets.android) || "";
-      if (window.LumioNative && url) {
-        toast("⬇️ Mengunduh update Lumio v" + d.latest_version + "…");
-        window.LumioNative.installUpdate(url);
-      } else if (d.release_url) {
-        window.open(d.release_url, "_blank");
-      }
-    });
-    $("#btnSkipUpdate").addEventListener("click", () => $("#updateBanner").classList.add("hidden"));
+    $("#btnDoUpdate").onclick = doInstallUpdate;
+    $("#btnSkipUpdate").onclick = () => $("#updateBanner").classList.add("hidden");
   } catch (e) { /* diam: cek update tidak boleh mengganggu */ }
 }
 
@@ -1307,6 +1340,22 @@ window.LUMIO_back = function(){
 loadHome();
 loadGenres();
 checkUpdate();
+["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
+$("#btnCheckUpdate").addEventListener("click", async () => {
+  const st = $("#updStatus");
+  st.textContent = "Memeriksa ke server…";
+  const info = await fetchUpdateInfo(true);
+  if (!info.latest) { st.textContent = "Gagal memeriksa — periksa koneksi lalu coba lagi."; return; }
+  if (info.hasUpdate) {
+    st.innerHTML = "🎉 Versi terbaru: <b>v" + esc(info.latest) + "</b> — kamu masih di v" + esc(info.running) + ".";
+    const bi = $("#btnInstallUpdate");
+    bi.classList.remove("hidden");
+    bi.onclick = doInstallUpdate;
+  } else {
+    st.textContent = "✓ Sudah versi terbaru (v" + info.running + ").";
+    $("#btnInstallUpdate").classList.add("hidden");
+  }
+});
 </script>
 </body>
 </html>

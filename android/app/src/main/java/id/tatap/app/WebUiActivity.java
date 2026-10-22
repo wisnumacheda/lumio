@@ -2,6 +2,8 @@ package id.tatap.app;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.util.Log;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -57,6 +59,16 @@ public class WebUiActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Android TV tetap memakai UI bawaan (navigasi fokus remote) — alihkan ke MainActivity.
+        try {
+            if (TvFocusHelper.isTv(this)) {
+                startActivity(new Intent(this, MainActivity.class));
+                finish();
+                return;
+            }
+        } catch (Exception ignored) {}
+
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#0B0B10"));
@@ -156,10 +168,12 @@ public class WebUiActivity extends Activity {
         splashView = splash;
         splashText.setOnClickListener(v -> {
             splashText.setText("Menyiapkan Lumio…");
+            startEmbeddedBackend();
             waitForBackend(0);
         });
 
         setContentView(root);
+        startEmbeddedBackend();
         waitForBackend(0);
     }
 
@@ -230,10 +244,7 @@ public class WebUiActivity extends Activity {
 
     private boolean handleUrl(Uri uri) {
         String u = uri.toString();
-        if (u.startsWith("lumio://classic")) {
-            finish(); // kembali ke UI bawaan (MainActivity) untuk sesi ini
-            return true;
-        }
+        if (u.startsWith("lumio://")) return true; // skema internal — UI klasik sudah tidak ada
         String host = uri.getHost();
         if (host == null || host.equals("127.0.0.1") || host.equals("localhost")) return false;
         try {
@@ -241,6 +252,29 @@ public class WebUiActivity extends Activity {
         } catch (Exception ignored) {
         }
         return true;
+    }
+
+    /** Menyalakan backend Python tertanam (dipindah dari MainActivity — activity ini kini pintu masuk aplikasi). */
+    private void startEmbeddedBackend() {
+        new Thread(() -> {
+            try {
+                Class<?> pyClass = Class.forName("com.chaquo.python.Python");
+                if (!(Boolean) pyClass.getMethod("isStarted").invoke(null)) {
+                    Class<?> androidPlatform = Class.forName("com.chaquo.python.android.AndroidPlatform");
+                    Object platform = androidPlatform.getConstructor(android.content.Context.class).newInstance(getApplicationContext());
+                    pyClass.getMethod("start", Class.forName("com.chaquo.python.Platform")).invoke(null, platform);
+                }
+                Object pyInstance = pyClass.getMethod("getInstance").invoke(null);
+                Object launcherMod = pyClass.getMethod("getModule", String.class).invoke(pyInstance, "server_launcher");
+                boolean isTv = false;
+                try { isTv = TvFocusHelper.isTv(this); } catch (Exception ignored) {}
+                String dataDir = getFilesDir().getAbsolutePath();
+                launcherMod.getClass().getMethod("callAttr", String.class, Object[].class).invoke(launcherMod, "run_in_background", new Object[]{dataDir, isTv});
+            } catch (Throwable t) {
+                Log.e("WebUiActivity", "Gagal start backend: " + t.getMessage(), t);
+                handler.post(() -> splashText.setText("Gagal menyalakan mesin Lumio — sentuh untuk coba lagi"));
+            }
+        }).start();
     }
 
     private void waitForBackend(final int attempt) {
@@ -258,7 +292,17 @@ public class WebUiActivity extends Activity {
             handler.post(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 if (ready) {
-                    if (!pageLoaded) web.loadUrl(HOME_URL);
+                    if (!pageLoaded) {
+                        try {
+                            int vc = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+                            SharedPreferences sp = getSharedPreferences("lumio_ui", MODE_PRIVATE);
+                            if (sp.getInt("last_version_code", -1) != vc) {
+                                web.clearCache(true);
+                                sp.edit().putInt("last_version_code", vc).apply();
+                            }
+                        } catch (Exception ignored) {}
+                        web.loadUrl(HOME_URL);
+                    }
                 } else if (attempt < 120) {
                     handler.postDelayed(() -> waitForBackend(attempt + 1), 700);
                 } else {

@@ -99,6 +99,19 @@ async def check_update(force: bool = False):
     if not force:
         cached = await get_browse_cache(cache_key, ttl=300)
         if cached and isinstance(cached, dict):
+            # Hitung ulang terhadap versi yang SEDANG berjalan: cache bisa lahir
+            # dari versi aplikasi sebelumnya (mis. tepat sebelum update terpasang),
+            # sehingga current_version/has_update bawaan cache bisa basi.
+            try:
+                def _pv(v):
+                    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))[:3])
+                latest_c = str(cached.get("latest_version") or "")
+                if latest_c:
+                    cached = dict(cached)
+                    cached["current_version"] = CURRENT_VERSION
+                    cached["has_update"] = _pv(latest_c) > _pv(CURRENT_VERSION)
+            except Exception:
+                pass
             return ok(cached)
 
     def parse_ver(v_str):
@@ -1929,6 +1942,28 @@ async def proxy_video(url: str = Query(""), referer: str = Query("")):
                headers={"Access-Control-Allow-Origin": "*"})
 
 
+@app.get("/api/img")
+async def proxy_image(url: str = Query("")):
+    """Proxy poster/gambar lewat backend — satu jalur jaringan dengan katalog,
+    supaya poster tidak bergantung pada akses langsung HP ke CDN gambar."""
+    if not url.startswith("http"):
+        return Response(status_code=400)
+    try:
+        _validate_external_proxy_url(url)
+    except Exception:
+        return Response(status_code=400)
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            r = await client.get(url, headers={"User-Agent": "Lumio-App (image proxy)", "Accept": "image/*,*/*;q=0.5"})
+        ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if r.status_code != 200 or not ctype.startswith("image/"):
+            return Response(status_code=502)
+        return Response(content=r.content, media_type=ctype,
+                        headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        return Response(status_code=502)
+
+
 def _rewrite_m3u8_content(txt: str, base_url: str, referer: str) -> str:
     """Tulis ulang m3u8 dan pastikan audio codec & sub-manifests (audio, subtitles, init) ter-proxy."""
     import urllib.parse as _up
@@ -2873,6 +2908,14 @@ if os.path.isdir(os.path.join(frontend_dir, "css")):
     app.mount("/css", StaticFiles(directory=os.path.join(frontend_dir, "css")), name="css")
 if os.path.isdir(os.path.join(frontend_dir, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dir, "assets")), name="assets")
+@app.middleware("http")
+async def _lumio_prototype_no_store(request, call_next):
+    resp = await call_next(request)
+    if request.url.path.startswith("/prototype"):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 if os.path.isdir(os.path.join(frontend_dir, "prototype")):
     app.mount("/prototype", StaticFiles(directory=os.path.join(frontend_dir, "prototype"), html=True), name="prototype")
 
