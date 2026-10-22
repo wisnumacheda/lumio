@@ -509,7 +509,7 @@ async def catalog(page: int = Query(1, ge=1, le=100), safe_mode: int = Query(1))
     try:
         import json as _json
         key = f"catalog|page={page}"
-        hit = await get_browse_cache(key)
+        hit = await get_browse_cache(key, ttl=600)
         if hit:
             res = dict(hit)
             res["cached"] = True
@@ -590,7 +590,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
         # Kasus khusus: Masih Tayang / Airing Ongoing dengan Dual-Lane (Musiman vs Panjang)
         if which == "airing":
             key = f"airing_lanes_v4|page={page}"
-            hit = await get_browse_cache(key, ttl=3600)
+            hit = await get_browse_cache(key, ttl=600)
             if hit:
                 hit["cached"] = True
                 return ok(hit)
@@ -758,7 +758,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
             cache_id = which or "now"
 
         key = f"seasonal_v4|{cache_id}|page={page}"
-        hit = await get_browse_cache(key)
+        hit = await get_browse_cache(key, ttl=600)
         if hit:
             hit["cached"] = True
             hit["season"] = season_name
@@ -1274,7 +1274,7 @@ async def browse_ep(
                    "sort": _to_str(sort), "genre": c_genre, "keyword": _to_str(keyword),
                    "sy": c_sy, "sm": c_sm, "ey": c_ey, "em": c_em}.items() if v}
         key = "browse|" + _json.dumps(params, sort_keys=True) + f"|page={c_page}"
-        hit = await get_browse_cache(key)
+        hit = await get_browse_cache(key, ttl=600)
         if hit:
             hit["cached"] = True
             return ok(hit)

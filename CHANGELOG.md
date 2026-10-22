@@ -28,6 +28,20 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.13.0] - 2026-10-23
+
+### Ditambahkan
+- **Rel "🆕 Baru Diupdate" di posisi paling atas Beranda** (prototype): daftar yang paling baru diperbarui dari sumber (urutan "Masih Tayang" dari server, 14 judul teratas) supaya episode/judul yang baru update langsung terlihat pertama — menjawab kebiasaan situs fansub yang menaruh update terbaru paling atas.
+- **Sinopsis bisa dilipat** (prototype): sinopsis panjang di modal detail kini ditampilkan 4 baris dengan tombol "📖 Lihat Selengkapnya / ▲ Sembunyikan".
+
+### Diubah
+- **Cache daftar backend dipersingkat 6 jam/1 jam → 10 menit** (`/api/catalog`, `/api/browse`, `/api/seasonal`): judul & episode yang baru update di sumber tampil jauh lebih cepat di aplikasi.
+- Rel jadwal di Beranda berganti nama menjadi "📅 Jadwal Rilis" (isinya tetap jadwal rilis mingguan).
+
+### Diperbaiki
+- **Item "judul seksi" dari sumber tidak lagi tampil sebagai kartu kosong** di rel & grid (item tanpa poster + tanpa info episode + tanpa tipe kini disaring).
+- **Poster yang gagal dimuat sesaat kini dicoba ulang sekali lewat proksi gambar** sebelum jatuh ke URL langsung / disembunyikan — mengurangi kotak poster kosong sesaat di modal detail & kartu.
+
 ## [2.12.0] - 2026-10-23
 
 ### Ditambahkan

@@ -195,6 +195,8 @@
   .detail-top h2{font-size:27px;font-weight:900;line-height:1.2;margin-bottom:12px;padding-right:34px}
   .detail-top .score{color:var(--amber);font-weight:800}
   .detail-top .syn{color:#cfcbe8;font-size:14px;line-height:1.7;margin:14px 0 16px}
+  .detail-top .syn.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .syn-toggle{margin:-8px 0 14px;background:none;border:0;color:var(--acc);font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;font-family:inherit}
   .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
   .kv div{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 12px}
   .kv b{display:block;font-size:10px;letter-spacing:1.2px;color:var(--faint);text-transform:uppercase;margin-bottom:4px}
@@ -462,6 +464,7 @@
         <div class="chips" id="dChips"></div>
         <div class="kv" id="dKv"></div>
         <p class="syn" id="dSyn">Memuat sinopsis…</p>
+        <button class="syn-toggle hidden" id="dSynToggle" type="button">📖 Lihat Selengkapnya</button>
         <div class="gtags" id="dGenres"></div>
       </div>
     </div>
@@ -675,8 +678,16 @@ function posterSrc(u){
   return "/api/img?url=" + encodeURIComponent(u);
 }
 function imgFallback(el){
+  const step = +(el.dataset.fb || 0);
+  if (step === 0) {
+    // Coba sekali lagi lewat proksi - kadang backend lokal lagi sibuk sesaat.
+    el.dataset.fb = 1;
+    const px = el.dataset.proxy || el.src;
+    setTimeout(() => { el.src = px + (px.indexOf("?") >= 0 ? "&" : "?") + "r=1"; }, 700);
+    return;
+  }
   const direct = el.dataset.direct || "";
-  if (direct && !el.src.endsWith(direct)) { el.src = direct; return; }
+  if (step === 1 && direct && !el.src.endsWith(direct)) { el.dataset.fb = 2; el.src = direct; return; }
   el.style.visibility = "hidden";
 }
 function cardHTML(it){
@@ -690,7 +701,7 @@ function cardHTML(it){
   return `<article class="card" data-slug="${esc(it.id)}" tabindex="0" role="button"
       aria-label="${esc(it.title)}">
     <div class="poster">
-      <img loading="lazy" src="${esc(posterSrc(it.poster))}" data-direct="${esc(it.poster || "")}" alt="${esc(it.title)}"
+      <img loading="lazy" src="${esc(posterSrc(it.poster))}" data-proxy="${esc(posterSrc(it.poster))}" data-direct="${esc(it.poster || "")}" data-fb="0" alt="${esc(it.title)}"
            onerror="imgFallback(this)">
       ${badge}${eps}<div class="play-ico">▶</div>
     </div>
@@ -727,7 +738,7 @@ $("#stateRetry").addEventListener("click", () => { hideState(); if (retryFn) ret
 let heroItem = null;
 function fillHero(it){
   heroItem = it;
-  const hi = $("#heroImg"); hi.dataset.direct = it.poster || ""; hi.src = posterSrc(it.poster);
+  const hi = $("#heroImg"); hi.dataset.direct = it.poster || ""; hi.dataset.proxy = posterSrc(it.poster); hi.dataset.fb = 0; hi.style.visibility = ""; hi.src = posterSrc(it.poster);
   $("#heroTitle").textContent = it.title || "—";
   $("#heroSyn").textContent = it.synopsis || "Sinopsis belum tersedia.";
   const chips = [];
@@ -771,11 +782,20 @@ function railSection(id, title, sub){
     <div class="rail">${railSkeleton()}</div>
   </section>`;
 }
+function isJunkItem(it){
+  // Item "judul seksi" dari sumber: tanpa poster, tanpa info episode, tanpa tipe.
+  return !it || (!it.poster && !it.eps_counter && !it.type);
+}
 function fillRail(id, items, emptyMsg){
   const sec = document.getElementById(id);
   if (!sec) return;
   const rail = $(".rail", sec);
   if (!items || !items.length) {
+    rail.innerHTML = `<p style="color:var(--faint);font-size:14px;padding:8px 2px">${esc(emptyMsg || "Belum ada data untuk bagian ini.")}</p>`;
+    return;
+  }
+  items = items.filter(it => !isJunkItem(it));
+  if (!items.length) {
     rail.innerHTML = `<p style="color:var(--faint);font-size:14px;padding:8px 2px">${esc(emptyMsg || "Belum ada data untuk bagian ini.")}</p>`;
     return;
   }
@@ -818,7 +838,8 @@ function fillScheduleRail(d){
 async function loadHome(){
   hideState();
   $("#rails").innerHTML =
-    (SETTINGS.sort === "terbaru" ? railSection("railRilis", "🔥 Rilisan Terbaru", "Jadwal rilis minggu ini — hari ini paling atas, kemarin di bawahnya") : "") +
+    railSection("railBaru", "🆕 Baru Diupdate", "Paling baru diperbarui dari sumber - episode terbaru di atas") +
+    (SETTINGS.sort === "terbaru" ? railSection("railRilis", "📅 Jadwal Rilis", "Jadwal rilis minggu ini — hari ini paling atas, kemarin di bawahnya") : "") +
     railSection("railPopuler", "Populer Sekarang", "Paling banyak ditonton di katalog") +
     railSection("railMusim", "Musim Ini", "Rilisan musim berjalan") +
     railSection("railTayang", "Masih Tayang", "Sedang ongoing minggu ini");
@@ -830,6 +851,7 @@ async function loadHome(){
 
   let firstError = null;
   const jobs = [
+    api("/api/seasonal?which=airing&page=1").then(d => fillRail("railBaru", (d.seasonal || d.items || []).slice(0, 14))).catch(() => fillRail("railBaru", [])),
     api("/api/catalog?page=1").then(d => {
       const items = d.items || [];
       fillRail("railPopuler", sortItems(items));
@@ -893,7 +915,7 @@ async function openGrid(title, loader, append){
   $("#btnMore").classList.add("hidden");
   try {
     const d = await gridLoader(gridPage);
-    const items = sortItems(d.items || d.results || d.seasonal || []);
+    const items = sortItems((d.items || d.results || d.seasonal || []).filter(it => !isJunkItem(it)));
     registerItems(items);
     if (!append && !items.length) {
       grid.innerHTML = "";
@@ -960,13 +982,22 @@ document.addEventListener("keydown", e => {
   else if (!$("#detailModal").classList.contains("hidden")) closeModal("detailModal");
 });
 
+function setupSynClamp(){
+  const p = $("#dSyn"), btn = $("#dSynToggle");
+  if (!p || !btn) return;
+  const long = (p.textContent || "").length > 320;
+  p.classList.toggle("clamp", long);
+  btn.classList.toggle("hidden", !long);
+  btn.textContent = "📖 Lihat Selengkapnya";
+}
 async function openDetail(slug, autoplayEp){
   currentSlug = slug;
   currentItem = itemStore.get(slug) || {id: slug, title: slug};
   const it = currentItem;
-  const dp = $("#dPoster"); dp.dataset.direct = it.poster || ""; dp.src = posterSrc(it.poster);
+  const dp = $("#dPoster"); dp.dataset.direct = it.poster || ""; dp.dataset.proxy = posterSrc(it.poster); dp.dataset.fb = 0; dp.style.visibility = ""; dp.src = posterSrc(it.poster);
   $("#dTitle").textContent = it.title || slug;
   $("#dSyn").textContent = "Memuat sinopsis…";
+  $("#dSyn").classList.remove("clamp"); $("#dSynToggle").classList.add("hidden");
   $("#dGenres").innerHTML = "";
   const chips = [];
   if (it.type) chips.push(`<span class="chip acc">${esc(it.type)}</span>`);
@@ -983,7 +1014,8 @@ async function openDetail(slug, autoplayEp){
   api(`/api/anime/${encodeURIComponent(slug)}/detail`).then(d => {
     if (currentSlug !== slug) return;
     $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
-    if (d.poster) { const dp2 = $("#dPoster"); dp2.dataset.direct = d.poster; dp2.src = posterSrc(d.poster); }
+    setupSynClamp();
+    if (d.poster) { const dp2 = $("#dPoster"); dp2.dataset.direct = d.poster; dp2.dataset.proxy = posterSrc(d.poster); dp2.dataset.fb = 0; dp2.style.visibility = ""; dp2.src = posterSrc(d.poster); }
     const kv = [];
     if (d.score) kv.push(["Skor", "⭐ " + d.score]);
     if (d.status) kv.push(["Status", d.status]);
@@ -1000,7 +1032,7 @@ async function openDetail(slug, autoplayEp){
         p => api(`/api/browse?keyword=${encodeURIComponent(b.dataset.genrename)}&page=${p}`));
     }));
   }).catch(() => {
-    if (currentSlug === slug) $("#dSyn").textContent = it.synopsis || "Sinopsis gagal dimuat dari server.";
+    if (currentSlug === slug) { $("#dSyn").textContent = it.synopsis || "Sinopsis gagal dimuat dari server."; setupSynClamp(); }
   });
 
   try {
@@ -1341,6 +1373,11 @@ loadHome();
 loadGenres();
 checkUpdate();
 ["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
+$("#dSynToggle").addEventListener("click", () => {
+  const p = $("#dSyn"), btn = $("#dSynToggle");
+  const clamped = p.classList.toggle("clamp");
+  btn.textContent = clamped ? "📖 Lihat Selengkapnya" : "▲ Sembunyikan";
+});
 $("#btnCheckUpdate").addEventListener("click", async () => {
   const st = $("#updStatus");
   st.textContent = "Memeriksa ke server…";
