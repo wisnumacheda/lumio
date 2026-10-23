@@ -1,9 +1,9 @@
 {
-  "version": 7,
-  "label": "Rontgen jalur masukan",
-  "notes": "Baris status masukan kini menampilkan berapa antrean yang dilihat penerus, plus tombol Kirim Ulang Antrean untuk mencoba meneruskan masukan yang tertahan. Tidak ada perubahan lain.",
+  "version": 8,
+  "label": "Warna subtitle + tombol kembali",
+  "notes": "Dua usulan yang masuk lewat kolom masukan: (1) pilihan warna teks subtitle (Putih/Kuning/Cyan/Hijau) di panel Gaya Subtitle saat menonton; (2) tombol panah kembali di bilah kontrol layar penuh. Terima kasih masukannya!",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-7/lumio-payload.zip",
-  "sha256": "0adbb791c4d6d9e236f5a3bbe80802362bf49432d59c0955731a3f17149805c3",
-  "size": 985571
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-8/lumio-payload.zip",
+  "sha256": "3355a1b638a8e0942aadbe780af8195b0c4278778645da7d475a0a20d80b2db9",
+  "size": 985766
 }
