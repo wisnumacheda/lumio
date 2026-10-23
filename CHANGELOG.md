@@ -28,6 +28,11 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.20.0] - 2026-10-23
+
+### Ditambahkan
+- **Mesin subtitle progresif di server** (`GET /api/player/sub_live`): subtitle Indonesia kini diterjemahkan per potongan (50 cue) dan bagian awal langsung tampil selagi sisanya diterjemahkan — tidak lagi menunggu seluruh berkas selesai (diuji: teks pertama tampil ±3 detik, progres naik bertahap sampai 100%). Player menampilkan persen terjemahan di baris info subtitle dan menyegarkan track setiap ±1,5 detik. Hasil akhir tetap masuk cache tier 7 hari yang sama, sehingga pemutaran berikutnya instan lewat jalur mana pun. Endpoint standar `/api/player/sub` (dipakai UI bawaan) tidak berubah.
+
 ## [2.19.1] - 2026-10-23
 
 ### Diubah

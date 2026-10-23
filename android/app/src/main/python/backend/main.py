@@ -2557,6 +2557,172 @@ async def _translate_with_fallback(cues, src, tgt, requested_mode="gtx"):
     return {"cues": cues, "level": "source", "error": last_err}
 
 
+_SUB_PROGRESS = {}
+
+
+async def _translate_sub_job_progressive(url, referer, src, lang, key_llm, key_gtxplus, fetcher, key_gtx=None, requested_mode="gtx", pkey=None):
+    """Varian progresif _translate_sub_job: menerjemahkan per potongan (50 cue) dan
+    mempublikasikan prefix yang sudah diterjemahkan ke _SUB_PROGRESS[pkey] setiap
+    potongan selesai, supaya klien bisa menampilkan subtitle sejak potongan pertama.
+    Hasil akhir disimpan ke cache tier yang sama seperti jalur standar."""
+    if not key_gtx:
+        import hashlib
+        b_hash = hashlib.sha1((url + "|" + (referer or "") + "|" + lang).encode("utf-8")).hexdigest()
+        key_gtx = "sub2|gtx|" + b_hash
+    state = _SUB_PROGRESS.get(pkey) if pkey else None
+    try:
+        text = await fetcher(url, referer)
+    except Exception as e:
+        if state is not None:
+            state["error"] = str(e)[:200]
+            state["done"] = True
+        raise HTTPException(status_code=502, detail=f"gagal mengambil subtitle: {e}")
+    try:
+        from api.translate import parse_vtt, build_vtt
+        cues = parse_vtt(text)
+        if not cues:
+            if state is not None:
+                state.update({"vtt": text, "done": True, "pct": 100, "level": "source"})
+            return text, {"level": "source", "error": "Subtitle kosong atau format tidak didukung"}
+        work = [dict(c) for c in cues]
+        total = len(work)
+        if state is not None:
+            state.update({"total": total, "done_count": 0, "pct": 0, "vtt": "WEBVTT\n"})
+        agg = {"level": "source", "llm_lines": 0, "gtx_lines": 0, "total": 0, "error": ""}
+        pos = 0
+        while pos < total:
+            part = [dict(c) for c in work[pos:pos + 50]]
+            tier_i = await _translate_with_fallback(part, src, lang, requested_mode=requested_mode)
+            new_part = tier_i.get("cues") or part
+            work[pos:pos + len(new_part)] = new_part
+            pos += len(new_part)
+            if tier_i.get("level") not in (None, "source", "source-fallback"):
+                agg["level"] = tier_i["level"]
+            agg["llm_lines"] += tier_i.get("llm_lines", 0) or 0
+            agg["gtx_lines"] += tier_i.get("gtx_lines", 0) or 0
+            agg["total"] += tier_i.get("total", 0) or len(new_part)
+            if tier_i.get("error"):
+                agg["error"] = tier_i["error"]
+            if state is not None:
+                state.update({"vtt": build_vtt(work[:pos]), "done_count": pos, "pct": int(pos * 100 / max(1, total))})
+        new_text = build_vtt(work)
+    except Exception as e:
+        if state is not None:
+            state.update({"error": str(e)[:200], "done": True, "vtt": text})
+        return text, {"level": "source", "error": str(e)}
+    lvl = agg["level"]
+    if lvl not in ("source", "source-fallback", "tier4", "mymemory"):
+        if (lang or "").lower() != "id" or _is_valid_id_subtitle(new_text):
+            if lvl in ("tier1", "gtx"):
+                await set_subtitle_cache(key_gtx, new_text)
+            elif lvl in ("tier2", "gtx+", "aigtx"):
+                await set_subtitle_cache(key_gtxplus, new_text)
+            elif lvl in ("tier3", "ai"):
+                tot = max(1, agg["total"] or total)
+                if agg["llm_lines"] / tot >= 0.8:
+                    await set_subtitle_cache(key_llm, new_text)
+                else:
+                    await set_subtitle_cache(key_gtxplus, new_text)
+    if state is not None:
+        state.update({"vtt": new_text, "done": True, "pct": 100, "level": lvl, "done_count": total})
+    tier_out = {"level": lvl, "llm_lines": agg["llm_lines"], "gtx_lines": agg["gtx_lines"], "total": agg["total"] or total}
+    if agg["error"]:
+        tier_out["error"] = agg["error"]
+    return new_text, tier_out
+
+
+@app.get("/api/player/sub_live")
+async def proxy_sub_live(url: str = Query(""),
+                         referer: str = Query(""),
+                         lang: str = Query("", pattern="^(en|id|ja|es|fr|de|pt|ko|zh)$|^$"),
+                         src: str = Query("en", pattern="^(en|ja|es|fr|de|pt|ko|zh)$"),
+                         mode: str = Query("", pattern="^(gtx|gtx\\+|aigtx|ai|)$"),
+                         refresh: bool = Query(False)):
+    """Varian progresif /api/player/sub untuk UI Lumio: selagi pekerjaan terjemahan
+    berjalan di latar, endpoint ini mengembalikan prefix subtitle yang SUDAH
+    diterjemahkan + header X-Translate-Progress / X-Translate-Done, alih-alih
+    memblokir sampai seluruh berkas selesai. Hasil akhir masuk cache tier yang
+    sama, jadi panggilan berikutnya lewat jalur mana pun langsung penuh."""
+    if not url.startswith("http"):
+        return Response(status_code=400)
+    _validate_external_proxy_url(url)
+    if not lang or lang == src:
+        try:
+            content = await _fetch_sub_text(url, referer)
+            resp = Response(content=content, media_type="text/vtt")
+            resp.headers["X-Translate-Progress"] = "100"
+            resp.headers["X-Translate-Done"] = "1"
+            return resp
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"gagal mengambil subtitle: {e}")
+    import hashlib
+    base_hash = hashlib.sha1((url + "|" + (referer or "") + "|" + lang).encode("utf-8")).hexdigest()
+    key_gtxplus = "sub2|gtx+|" + base_hash
+    key_aigtx = "sub2|aigtx|" + base_hash
+    key_gtx = "sub2|gtx|" + base_hash
+    key_llm = "sub2|llm|" + base_hash
+    req_mode = "gtx+" if mode in ("gtx+", "aigtx") else (mode or "gtx")
+    pkey = f"{base_hash}|{lang}|{req_mode}"
+    if refresh:
+        for k in (key_gtx, key_gtxplus, key_aigtx, key_llm, "sub2|mt|" + base_hash):
+            try:
+                await delete_subtitle_cache(k)
+            except Exception:
+                pass
+        st = _SUB_PROGRESS.get(pkey)
+        if st and st.get("done"):
+            _SUB_PROGRESS.pop(pkey, None)
+    if not refresh:
+        checks = []
+        if req_mode == "gtx":
+            checks = [(key_gtx, "cached-gtx")]
+        elif req_mode in ("gtx+", "aigtx"):
+            checks = [(key_gtxplus, "cached-gtx+"), (key_aigtx, "cached-gtx+"), ("sub2|mt|" + base_hash, "cached-gtx+")]
+        elif req_mode == "ai":
+            checks = [(key_llm, "cached-llm")]
+        for k, label in checks:
+            hit = await _get_validated_subtitle_cache(k, lang=lang)
+            if hit:
+                resp = Response(content=hit, media_type="text/vtt")
+                resp.headers["X-Translate-Tier"] = label
+                resp.headers["X-Translate-Progress"] = "100"
+                resp.headers["X-Translate-Done"] = "1"
+                return resp
+    state = _SUB_PROGRESS.get(pkey)
+    if state is not None and not state.get("done") and pkey not in _SUB_INFLIGHT:
+        # Pekerjaan berakhir tanpa menyelesaikan status (jalur abnormal) — tutup sebagai error.
+        state["error"] = state.get("error") or "pekerjaan terjemahan berhenti"
+        state["done"] = True
+    if state is None:
+        fut = _SUB_INFLIGHT.get(pkey)
+        if fut is not None:
+            # Pekerjaan standar untuk mode yang sama sedang berjalan; klien terus
+            # polling sampai hasil penuhnya muncul di cache.
+            resp = Response(content="WEBVTT\n", media_type="text/vtt")
+            resp.headers["X-Translate-Progress"] = "0"
+            resp.headers["X-Translate-Done"] = "0"
+            return resp
+        state = {"vtt": "WEBVTT\n", "done": False, "pct": 0, "total": 0, "done_count": 0, "level": "", "error": ""}
+        _SUB_PROGRESS[pkey] = state
+        if len(_SUB_PROGRESS) > 16:
+            for old_k in list(_SUB_PROGRESS.keys()):
+                if old_k != pkey and _SUB_PROGRESS[old_k].get("done"):
+                    _SUB_PROGRESS.pop(old_k, None)
+                    break
+        fut = asyncio.ensure_future(
+            _translate_sub_job_progressive(url, referer, src, lang, key_llm, key_gtxplus, _fetch_sub_text, key_gtx=key_gtx, requested_mode=req_mode, pkey=pkey)
+        )
+        _SUB_INFLIGHT[pkey] = fut
+        fut.add_done_callback(lambda _f, k=pkey: _SUB_INFLIGHT.pop(k, None))
+    if state.get("error") and state.get("done"):
+        raise HTTPException(status_code=502, detail=f"gagal memproses subtitle: {state['error']}")
+    resp = Response(content=state.get("vtt") or "WEBVTT\n", media_type="text/vtt")
+    resp.headers["X-Translate-Progress"] = str(state.get("pct", 0))
+    resp.headers["X-Translate-Done"] = "1" if state.get("done") else "0"
+    if state.get("level"):
+        resp.headers["X-Translate-Tier"] = str(state["level"])
+    return resp
+
 @app.post("/api/player/sub_custom")
 async def upload_custom_sub(body: dict = None):
     """Menerima subtitle kustom (.srt atau .vtt) dari teks upload atau URL eksternal,
