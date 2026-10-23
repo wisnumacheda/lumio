@@ -1,9 +1,9 @@
 {
-  "version": 4,
-  "label": "Gaya subtitle di player: ukuran + latar",
-  "notes": "Panel Subtitle di player kini membuka dengan seksi Gaya Subtitle paling atas: ukuran teks (Kecil/Sedang/Besar/Jumbo) dan latar (Kotak Gelap/Tipis/Tanpa Kotak). Panel juga tidak lagi tertutup otomatis selagi dibaca.",
+  "version": 5,
+  "label": "Jalur masukan aktif",
+  "notes": "Kolom Kirim Masukan di Pengaturan sekarang beneran terkirim: masukan dari aplikasi langsung masuk sebagai tiket yang bisa ditindaklanjuti. Tidak ada perubahan tampilan.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-4/lumio-payload.zip",
-  "sha256": "c372d61613f2a6d15ef1a8fea27f447464d4bdbb1318607c5ccf402bb9d87507",
-  "size": 984006
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-5/lumio-payload.zip",
+  "sha256": "fc7428ec2ed65564f51b6072231b6e380971f1ccdc9d0166285e1b3fd36e40db",
+  "size": 984417
 }
