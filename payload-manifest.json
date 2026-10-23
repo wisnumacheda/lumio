@@ -1,9 +1,9 @@
 {
-  "version": 10,
-  "label": "Pop-up info pembaruan",
-  "notes": "Baru: sekarang setiap ada pembaruan isi yang terpasang, kamu dikabari lewat jendela info seperti ini pas aplikasi dibuka, lengkap dengan catatan perubahannya. Tidak ada lagi pembaruan diam-diam — selamat menikmati!",
+  "version": 11,
+  "label": "Sub dua baris tidak lagi melebur",
+  "notes": "Perbaikan subtitle: dialog dua baris (dua orang bicara dalam satu teks) sekarang tampil tetap dua baris, tidak lagi melebur jadi satu baris raksasa yang menutupi layar. Posisi teks juga naik otomatis saat bar kontrol tampil, jadi tidak tertabrak garis geser lagi.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-10/lumio-payload.zip",
-  "sha256": "83e5b51322b9fd1f3f607c541636e5c3a08a1938ec07be537bc2102affc067b6",
-  "size": 986362
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-11/lumio-payload.zip",
+  "sha256": "39d57c61ce956a437b5f0acdec5fae95fdb753c5b26b47b7e1fa9a7604f0debd",
+  "size": 986550
 }
