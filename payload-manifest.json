@@ -1,9 +1,9 @@
 {
-  "version": 11,
-  "label": "Sub dua baris tidak lagi melebur",
-  "notes": "Perbaikan subtitle: dialog dua baris (dua orang bicara dalam satu teks) sekarang tampil tetap dua baris, tidak lagi melebur jadi satu baris raksasa yang menutupi layar. Posisi teks juga naik otomatis saat bar kontrol tampil, jadi tidak tertabrak garis geser lagi.",
+  "version": 12,
+  "label": "Sub di belakang bar kontrol",
+  "notes": "Koreksi posisi subtitle: teks sub sekarang tampil DI BELAKANG bar kontrol — garis geser dan tombol-tombol berada di depannya, jadi sub tidak lagi menutupi kontrol. Perbaikan sub dua baris dari pembaruan sebelumnya tetap ada.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-11/lumio-payload.zip",
-  "sha256": "39d57c61ce956a437b5f0acdec5fae95fdb753c5b26b47b7e1fa9a7604f0debd",
-  "size": 986550
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-12/lumio-payload.zip",
+  "sha256": "1b3a2412fd353e4a07fc6754e91e9ddcb10bcecf3a51d2152ecf7b88151d3d89",
+  "size": 986572
 }
