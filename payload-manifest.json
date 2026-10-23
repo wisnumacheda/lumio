@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "label": "Mesin Update Isi + kolom masukan",
+  "notes": "Payload perdana: isi yang sama dengan APK v2.25.0 (mesin OTA, Kirim Masukan, double-tap seek, layar tahan nyala). Membuktikan jalur update isi end-to-end.",
+  "min_app": "2.25.0",
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-1/lumio-payload.zip",
+  "sha256": "f95f3b832fbfc9d2ab1934c9d97ccb198df7526bbff8b36b1c49ec5d81afa60f",
+  "size": 983477
+}
