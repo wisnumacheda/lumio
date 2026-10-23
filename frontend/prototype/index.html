@@ -1656,6 +1656,7 @@ async function playEpisode(slug, ep, fromAuto){
   window._outro = data.outro && data.outro.end > data.outro.start ? {...data.outro, label: "outro"} : null;
 
   attachSubtitle(data, referer);
+  warmNextEpisode();
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({maxBufferLength: 30});
     hls.loadSource(proxied);
@@ -1679,6 +1680,25 @@ async function playEpisode(slug, ep, fromAuto){
   } else {
     setPlayerStatus("❌ Browser ini tidak mendukung pemutaran HLS.");
   }
+}
+function warmNextEpisode(){
+  try {
+    if (!SETTINGS.autoNext) return;
+    const nxt = (window._curEp || 0) + 1;
+    const slug = window._curSlug;
+    if (!slug || nxt < 2 || !(window._epsNums || []).includes(nxt)) return;
+    const key = slug + "#" + nxt;
+    window._subWarmed = window._subWarmed || new Set();
+    if (window._subWarmed.has(key)) return;
+    window._subWarmed.add(key);
+    api(`/api/stream/resolve?slug=${encodeURIComponent(slug)}&ep=${nxt}&mode=${SETTINGS.audio}`).then(d => {
+      const subs = (d.subtitles || []).filter(s => s && s.url);
+      const en = subs.find(s => (s.lang || "").startsWith("en")) || subs.find(s => !(s.lang || "").startsWith("id"));
+      if (!en) return;
+      const sl = (en.lang || "en").slice(0, 2);
+      fetch("/api/player/sub?url=" + encodeURIComponent(en.url) + "&referer=" + encodeURIComponent(d.referer || "") + "&lang=id&src=" + sl + "&mode=gtx").catch(() => {});
+    }).catch(() => {});
+  } catch (e) {}
 }
 function updateSubInfo(txt){ const el = $("#subInfo"); if (el) el.textContent = txt; }
 async function selectSubtitle(opt, refresh){
@@ -1734,6 +1754,11 @@ async function attachSubtitle(data, referer){
   if (SETTINGS.subLang === "id") def = opts.find(o => o.id === "id-gtx") || opts.find(o => o.srclang === "id") || opts[0];
   else def = opts.find(o => o.id.startsWith("raw-") && o.srclang === SETTINGS.subLang) || opts.find(o => o.id === "raw-0") || opts[0];
   if (def) selectSubtitle(def);
+  // Pemanasan latar: tier GTX+ ikut diterjemahkan selagi menonton (server men-dedupe
+  // pekerjaan yang sama & menyimpan hasilnya 7 hari), jadi mengganti tier terjemahan
+  // di tengah episode terasa instan.
+  const plus = opts.find(o => o.id === "id-gtxplus");
+  if (plus && (!def || def.id !== plus.id)) fetch(plus.fetchUrl).catch(() => {});
 }
 
 /* ---------------- Pengaturan ---------------- */

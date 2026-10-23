@@ -28,6 +28,11 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.19.1] - 2026-10-23
+
+### Diubah
+- **Subtitle terjemahan terasa instan**: tier GTX+ kini ikut diterjemahkan di latar selagi episode berjalan, dan subtitle Indonesia (GTX) untuk **episode berikutnya** dipanaskan lebih dulu saat "Putar Berikutnya Otomatis" aktif — berpindah episode/tier tidak lagi menunggu pekerjaan terjemahan dari nol. Hasil terjemahan memang tersimpan di cache server perangkat selama 7 hari (panggilan cache terukur ±0,03 detik); yang tersisa hanya satu lintasan terjemahan pertama untuk episode yang benar-benar baru (±7 detik di server uji, bergantung jaringan & panjang episode).
+
 ## [2.19.0] - 2026-10-23
 
 ### Ditambahkan
