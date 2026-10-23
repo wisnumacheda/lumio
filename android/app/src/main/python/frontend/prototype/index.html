@@ -1561,6 +1561,23 @@ video.addEventListener("loadedmetadata", () => {
     toast("⏩ Melanjutkan dari " + fmtClock(pos));
   }
 });
+video.addEventListener("loadedmetadata", () => {
+  // Interval OP/ED presisi memakai durasi asli video (AniSkip mencocokkan
+  // berdasarkan panjang episode); data resolve awal hanya perkiraan kasar.
+  const slug = window._curSlug, ep = window._curEp || 0;
+  if (!slug || !ep) return;
+  const key = slug + "#" + ep;
+  if (window._skipFetched === key) return;
+  window._skipFetched = key;
+  const needIn = !window._intro || !(window._intro.end > window._intro.start);
+  const needOut = !window._outro || !(window._outro.end > window._outro.start);
+  if (!needIn && !needOut) return;
+  api(`/api/anime/${encodeURIComponent(slug)}/skiptimes?ep=${ep}&length=${Math.round(video.duration || 0)}`).then(d => {
+    if (window._curSlug !== slug || (window._curEp || 0) !== ep) return;
+    if (needIn && d.intro && d.intro.end > d.intro.start) window._intro = {...d.intro, label: "intro"};
+    if (needOut && d.outro && d.outro.end > d.outro.start) window._outro = {...d.outro, label: "outro"};
+  }).catch(() => {});
+});
 video.addEventListener("ended", () => {
   const s = window._curSlug, e = window._curEp || 0; if (!s) return;
   if ((window._epsNums || []).includes(e + 1)) histProgress(s, e, 0, 0); else histRemove(s);
@@ -1612,6 +1629,7 @@ function ctlPanelShow(kind){
     html = `<div class="ph">Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
     if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
     if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
+    html += `<div class="ph">Ukuran Teks Subtitle</div>` + [["size:s", "Kecil"], ["size:m", "Sedang"], ["size:l", "Besar"], ["size:xl", "Besar Sekali"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("");
   }
   panel.innerHTML = html;
   $$("button[data-v]", panel).forEach(b => b.addEventListener("click", () => {
@@ -1619,7 +1637,8 @@ function ctlPanelShow(kind){
     if (kind === "server") { const s = $("#serverSel"); s.value = v; s.dispatchEvent(new Event("change")); }
     else if (kind === "quality") { const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change")); }
     else if (kind === "sub") {
-      if (v === "off") selectSubtitle(null);
+      if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
+      else if (v === "off") selectSubtitle(null);
       else if (v === "refresh") { const cur2 = (window._subOptions || []).find(o => o.id === window._subActiveId); if (cur2) { selectSubtitle(cur2, true); toast("🔄 Menerjemahkan ulang subtitle…"); } }
       else selectSubtitle((window._subOptions || []).find(o => o.id === v) || null);
     }

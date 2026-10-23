@@ -1334,6 +1334,51 @@ async def browse_ep(
     except Exception as e:
         return fail(str(e))
 
+@app.get("/api/anime/{slug}/skiptimes")
+async def anime_skiptimes(slug: str, ep: int = Query(1), length: float = Query(0)):
+    """Interval OP/ED presisi untuk pemutar: klien mengirim durasi asli video
+    (AniSkip mencocokkan kiriman berdasarkan episodeLength, jadi hasilnya jauh
+    lebih akurat daripada tebakan saat resolve). mal_id dicari dari cache
+    episode lebih dulu, lalu dari AniList (idMal)."""
+    try:
+        if "hentai" in (slug or "").lower():
+            return fail("Konten genre Hentai diblokir")
+        loop = asyncio.get_running_loop()
+        mal_id = ""
+        for cand_slug in (slug, f"otakudesu:{slug}", f"anichan:{slug}"):
+            for md in ("sub", "dub"):
+                try:
+                    hit = await get_episode_cache(cand_slug, ep, md)
+                except Exception:
+                    hit = None
+                if hit and hit.get("mal_id"):
+                    mal_id = str(hit["mal_id"])
+                    break
+            if mal_id:
+                break
+        title_guess = re.sub(r"-\d+$", "", slug).replace("-", " ").strip()
+        if not mal_id:
+            try:
+                meta = await loop.run_in_executor(None, lambda: al.search_anime_metadata(title_guess, per_page=3))
+                for m in (meta or []):
+                    if m.get("idMal"):
+                        mal_id = str(m["idMal"])
+                        break
+            except Exception:
+                pass
+        if not mal_id:
+            return ok({"intro": {"start": 0, "end": 0}, "outro": {"start": 0, "end": 0}, "mal_id": ""})
+        sk = await loop.run_in_executor(None, lambda: aniskip.get_skip_times(mal_id, ep, length))
+        intro = (sk or {}).get("intro") or {"start": 0, "end": 0}
+        outro = (sk or {}).get("outro") or {"start": 0, "end": 0}
+        try:
+            aniskip.store_skip_times(mal_id=mal_id, title=title_guess, ep=ep, intro=intro, outro=outro)
+        except Exception:
+            pass
+        return ok({"intro": intro, "outro": outro, "mal_id": mal_id})
+    except Exception as e:
+        return fail(str(e))
+
 @app.get("/api/anime/{slug}/episodes")
 async def episodes(slug: str):
     try:
@@ -1693,12 +1738,24 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 if hit["outro"].get("end", 0) == 0 and cached_sk.get("outro", {}).get("end", 0) > 0:
                     hit["outro"] = cached_sk["outro"]
 
+            if not hit.get("mal_id"):
+                # mal_id bawaan cache/resolver sering kosong; isi dari AniList (idMal).
+                try:
+                    loop = asyncio.get_running_loop()
+                    _meta2 = await loop.run_in_executor(None, lambda: al.search_anime_metadata(raw_title_hit or clean_slug_hit, per_page=3))
+                    for _m in (_meta2 or []):
+                        if _m.get("idMal"):
+                            hit["mal_id"] = str(_m["idMal"])
+                            break
+                except Exception:
+                    pass
+
             if (hit["intro"].get("end", 0) == 0 or hit["outro"].get("end", 0) == 0) and hit.get("mal_id"):
                 try:
                     loop = asyncio.get_running_loop()
                     sk = await asyncio.wait_for(
                         loop.run_in_executor(None, lambda: aniskip.get_skip_times(hit["mal_id"], ep)),
-                        timeout=1.2
+                        timeout=4.0
                     )
                     if sk.get("intro", {}).get("end", 0) > 0 and hit["intro"].get("end", 0) == 0:
                         hit["intro"] = sk["intro"]
@@ -1833,11 +1890,22 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 got["outro"] = cached_sk["outro"]
 
         mal_id = got.get("mal_id") or ""
+        if not mal_id:
+            # mal_id dari resolver sering kosong; isi dari AniList (idMal).
+            try:
+                _meta = await loop.run_in_executor(None, lambda: al.search_anime_metadata(raw_title or clean_slug, per_page=3))
+                for _m in (_meta or []):
+                    if _m.get("idMal"):
+                        mal_id = str(_m["idMal"])
+                        got["mal_id"] = mal_id
+                        break
+            except Exception:
+                pass
         if (got["intro"].get("end", 0) == 0 or got["outro"].get("end", 0) == 0) and mal_id:
             try:
                 sk = await asyncio.wait_for(
                     loop.run_in_executor(None, lambda: aniskip.get_skip_times(mal_id, ep)),
-                    timeout=1.2
+                    timeout=4.0
                 )
                 if sk.get("intro", {}).get("end", 0) > 0 and got["intro"].get("end", 0) == 0:
                     got["intro"] = sk["intro"]

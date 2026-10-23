@@ -183,6 +183,17 @@ public class WebUiActivity extends Activity {
     /** Jembatan JS -> native: unduh & pasang APK update (dari banner UI web). */
     public class UpdateBridge {
         @JavascriptInterface
+        public void setKeepAwake(final boolean on) {
+            handler.post(() -> {
+                if (on) {
+                    getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                } else {
+                    getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void installUpdate(final String apkUrl) {
             handler.post(() -> {
                 if (android.os.Build.VERSION.SDK_INT >= 26

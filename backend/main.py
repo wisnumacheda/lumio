@@ -21,6 +21,19 @@ frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "f
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # OTA: payload yang sedang jalan terbukti sehat (server hidup) -> tandai,
+    # agar boot berikutnya tidak me-rollback-nya.
+    try:
+        _pv = int(os.environ.get("LUMIO_PAYLOAD_VERSION") or 0)
+        if _pv > 0 and ota_core is not None and os.environ.get("LUMIO_DATA_DIR"):
+            ota_core.mark_boot_ok(os.environ["LUMIO_DATA_DIR"], _pv)
+    except Exception:
+        pass
+    # Kirim antrean masukan pengguna yang belum terkirim (bila token ada).
+    try:
+        asyncio.create_task(_feedback_flush_bg())
+    except Exception:
+        pass
     yield
     # Graceful shutdown: tutup connection pool video dan persistent client API
     global _direct_client
@@ -56,6 +69,26 @@ from version import __version__ as CURRENT_VERSION
 # Repo rilis resmi fork Lumio (sumber cek update dalam aplikasi)
 UPDATE_REPO = "wisnumacheda/lumio"
 UPDATE_REPO_URL = f"https://github.com/{UPDATE_REPO}"
+
+# --- OTA payload (update isi tanpa update APK) + masukan pengguna ---
+PAYLOAD_MANIFEST_URL = "https://raw.githubusercontent.com/wisnumacheda/lumio/main/payload-manifest.json"
+# Token GitHub (fine-grained, khusus Issues repo ini) untuk meneruskan masukan
+# pengguna menjadi GitHub Issue. Kosong = masukan hanya diantrekan di perangkat.
+FEEDBACK_GITHUB_TOKEN = os.environ.get("LUMIO_FEEDBACK_TOKEN", "")
+try:
+    import ota_core
+except Exception:
+    ota_core = None
+
+
+def _ver_tuple(v):
+    parts = []
+    for chunk in str(v or "").replace("-", ".").split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple((parts + [0, 0, 0])[:3])
+
+
 app = FastAPI(title="Tatap", version=CURRENT_VERSION, lifespan=lifespan)
 
 def ok(data):
@@ -283,6 +316,229 @@ async def check_update(force: bool = False):
         return ok(out_payload)
 
     return fail(f"Gagal memeriksa update ({err_detail or 'Periksa koneksi internet Anda'}).")
+
+"""OTA payload + masukan pengguna (blok ditempatkan sebelum /api/health)."""
+
+def _payload_active():
+    try:
+        return int(os.environ.get("LUMIO_PAYLOAD_VERSION") or 0)
+    except Exception:
+        return 0
+
+
+def _payload_data_dir():
+    return os.environ.get("LUMIO_DATA_DIR") or ""
+
+
+def _fetch_payload_manifest():
+    import time as _t
+    import httpx as _httpx
+    url = PAYLOAD_MANIFEST_URL + f"?t={int(_t.time())}"
+    with _httpx.Client(timeout=10, follow_redirects=True) as c:
+        r = c.get(url, headers={"User-Agent": "Lumio"})
+        r.raise_for_status()
+        return r.json()
+
+
+@app.get("/api/payload/info")
+async def payload_info():
+    dd = _payload_data_dir()
+    info = {"enabled": bool(dd) and ota_core is not None,
+            "active": _payload_active(), "pending": None, "label": ""}
+    if dd and ota_core is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            st = await loop.run_in_executor(None, lambda: ota_core.load_state(ota_core.ota_dir(dd)))
+            info["pending"] = st.get("pending")
+            if info["active"]:
+                meta = await loop.run_in_executor(
+                    None, lambda: ota_core.payload_meta(os.path.join(ota_core.ota_dir(dd), "payload")))
+                if meta:
+                    info["label"] = meta.get("label", "")
+        except Exception:
+            pass
+    return ok(info)
+
+
+@app.get("/api/payload/check")
+async def payload_check():
+    dd = _payload_data_dir()
+    base = {"has_update": False, "active": _payload_active(), "latest": 0,
+            "label": "", "notes": "", "needs_app": False}
+    if not dd or ota_core is None:
+        return ok({**base, "reason": "OTA tidak aktif di perangkat ini"})
+    try:
+        loop = asyncio.get_running_loop()
+        man = await loop.run_in_executor(None, _fetch_payload_manifest)
+        latest = int(man.get("version") or 0)
+        base["latest"] = latest
+        base["label"] = man.get("label", "")
+        base["notes"] = man.get("notes", "")
+        if _ver_tuple(man.get("min_app") or "0") > _ver_tuple(CURRENT_VERSION):
+            base["needs_app"] = True
+            return ok(base)
+        st = await loop.run_in_executor(None, lambda: ota_core.load_state(ota_core.ota_dir(dd)))
+        if latest in (st.get("blacklist") or []):
+            return ok({**base, "reason": "Versi isi itu bermasalah dan dilewati"})
+        pend = st.get("pending") or 0
+        base["has_update"] = latest > max(base["active"], pend)
+        return ok(base)
+    except Exception as e:
+        return ok({**base, "reason": f"Gagal memeriksa: {e}"})
+
+
+@app.post("/api/payload/update")
+async def payload_update():
+    dd = _payload_data_dir()
+    if not dd or ota_core is None:
+        return fail("OTA tidak aktif di perangkat ini")
+    loop = asyncio.get_running_loop()
+    try:
+        man = await loop.run_in_executor(None, _fetch_payload_manifest)
+    except Exception as e:
+        return fail(f"Manifest tidak terjangkau: {e}")
+    latest = int(man.get("version") or 0)
+    if latest <= _payload_active():
+        return ok({"ok": False, "error": "Sudah versi isi terbaru"})
+    if _ver_tuple(man.get("min_app") or "0") > _ver_tuple(CURRENT_VERSION):
+        return fail("Isi ini butuh update aplikasi lebih dulu")
+
+    def _dl():
+        import httpx as _httpx
+        with _httpx.Client(timeout=90, follow_redirects=True) as c:
+            r = c.get(man["url"], headers={"User-Agent": "Lumio"})
+            r.raise_for_status()
+            return r.content
+
+    try:
+        blob = await loop.run_in_executor(None, _dl)
+    except Exception as e:
+        return fail(f"Unduhan gagal: {e}")
+    res = await loop.run_in_executor(
+        None, lambda: ota_core.stage_payload(dd, blob, man.get("sha256", ""), latest))
+    if not res.get("ok"):
+        return fail(res.get("error", "Staging payload gagal"))
+    return ok({"ok": True, "version": latest, "label": res.get("label", ""), "pending": True})
+
+
+# ---------------- Masukan pengguna ----------------
+
+def _fb_db():
+    import sqlite3
+    from config import DATABASE_PATH
+    conn = sqlite3.connect(DATABASE_PATH, timeout=10)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feedback_queue ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, category TEXT, "
+        "message TEXT, contact TEXT, app_version TEXT, payload_version INTEGER, "
+        "sent INTEGER DEFAULT 0, issue_url TEXT DEFAULT '')")
+    return conn
+
+
+def _fb_insert(category, message, contact):
+    import time as _t
+    conn = _fb_db()
+    try:
+        conn.execute(
+            "INSERT INTO feedback_queue (ts, category, message, contact, app_version, payload_version, sent) "
+            "VALUES (?,?,?,?,?,?,0)",
+            (int(_t.time()), category, message, contact, CURRENT_VERSION, _payload_active()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _fb_flush_sync(limit=5):
+    """Teruskan antrean masukan menjadi GitHub Issue (bila token tersedia).
+    Mengembalikan jumlah yang terkirim."""
+    token = FEEDBACK_GITHUB_TOKEN
+    if not token:
+        return 0
+    conn = _fb_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, category, message, contact, app_version, payload_version "
+            "FROM feedback_queue WHERE sent=0 ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return 0
+    import httpx as _httpx
+    sent = 0
+    for rid, cat, msg, contact, appv, payv in rows:
+        first_line = (msg.strip().split("\n")[0] or "tanpa judul")[:60]
+        payload_json = {
+            "title": f"[Masukan] {cat} — {first_line}",
+            "body": (f"**Kategori:** {cat}\n**Aplikasi:** Lumio v{appv}\n"
+                     f"**Versi isi:** {('v' + str(payv)) if payv else 'bawaan APK'}\n"
+                     f"**Kontak:** {contact or '-'}\n\n---\n\n{msg}"),
+            "labels": ["masukan"],
+        }
+        try:
+            with _httpx.Client(timeout=20) as c:
+                r = c.post(
+                    f"https://api.github.com/repos/{UPDATE_REPO}/issues",
+                    headers={"Authorization": f"Bearer {token}",
+                             "Accept": "application/vnd.github+json",
+                             "X-GitHub-Api-Version": "2022-11-28",
+                             "User-Agent": "Lumio-Feedback"},
+                    json=payload_json)
+                if r.status_code == 422:
+                    payload_json.pop("labels", None)
+                    r = c.post(
+                        f"https://api.github.com/repos/{UPDATE_REPO}/issues",
+                        headers={"Authorization": f"Bearer {token}",
+                                 "Accept": "application/vnd.github+json",
+                                 "X-GitHub-Api-Version": "2022-11-28",
+                                 "User-Agent": "Lumio-Feedback"},
+                        json=payload_json)
+            if r.status_code == 201:
+                url = (r.json() or {}).get("html_url", "")
+                conn = _fb_db()
+                try:
+                    conn.execute("UPDATE feedback_queue SET sent=1, issue_url=? WHERE id=?", (url, rid))
+                    conn.commit()
+                finally:
+                    conn.close()
+                sent += 1
+            else:
+                break
+        except Exception:
+            break
+    return sent
+
+
+async def _feedback_flush_bg():
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, _fb_flush_sync)
+    except Exception:
+        pass
+
+
+@app.post("/api/feedback")
+async def feedback_submit(body: dict = None):
+    body = body or {}
+    cat = str(body.get("category") or "Lainnya").strip()
+    if cat not in ("Bug", "Usulan Fitur", "Konten", "Lainnya"):
+        cat = "Lainnya"
+    msg = str(body.get("message") or "").strip()
+    contact = str(body.get("contact") or "").strip()[:200]
+    if len(msg) < 3:
+        return fail("Masukan terlalu pendek")
+    if len(msg) > 4000:
+        msg = msg[:4000]
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(None, lambda: _fb_insert(cat, msg, contact))
+    except Exception as e:
+        return fail(f"Gagal menyimpan masukan: {e}")
+    sent = 0
+    try:
+        sent = await loop.run_in_executor(None, _fb_flush_sync)
+    except Exception:
+        pass
+    return ok({"sent": sent > 0, "queued": sent == 0})
+
 
 @app.get("/api/health")
 async def health():

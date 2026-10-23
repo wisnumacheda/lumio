@@ -28,6 +28,16 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.25.0] - 2026-10-23
+
+### Added
+- **Update Isi (OTA) — perbaikan & fitur kini sampai tanpa update APK.** Backend + antarmuka dibundel sebagai "payload isi" yang diunduh aplikasi dari rilis GitHub, diverifikasi (SHA-256 + uji kompilasi semua modul), diterapkan saat aplikasi dibuka lagi, dan otomatis di-rollback ke isi sebelumnya/bawaan bila gagal hidup dua kali (versi bermasalah masuk blacklist). Pengaturan mendapat seksi "🧩 Isi Aplikasi" (versi isi aktif + tombol Periksa Isi); pemeriksaaan juga berjalan otomatis saat aplikasi dibuka. APK selanjutnya hanya untuk perubahan native.
+- **Kolom 💬 Kirim Masukan di Pengaturan**: kategori (Bug/Usulan Fitur/Konten/Lainnya), pesan, kontak opsional. Masukan diantrekan di perangkat dan diteruskan menjadi GitHub Issue begitu token penerus dipasang (lewat payload, tanpa APK).
+- **Double-tap seek di pemutar**: ketuk dua kali/beruntun sisi kanan = maju 10 detik, sisi kiri = mundur 10 detik, menumpuk per ketukan, dengan indikator animasi; ketuk sekali tetap untuk control bar.
+
+### Fixed
+- **Layar mati/redup sendiri saat menonton**: layar kini ditahan menyala hanya selama video berputar (jembatan native FLAG_KEEP_SCREEN_ON + Screen Wake Lock API), dan dilepas lagi saat jeda/selesai/tutup pemutar.
+
 ## [2.24.0] - 2026-10-23
 
 ### Added

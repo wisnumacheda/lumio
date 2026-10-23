@@ -19,6 +19,27 @@ def start_server(data_dir=None, is_tv=False):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         backend_dir = os.path.join(base_dir, "backend")
         frontend_dir = os.path.join(base_dir, "frontend")
+        if base_dir not in sys.path:
+            sys.path.insert(0, base_dir)
+
+        # --- OTA payload: isi unduhan (backend+frontend dari rilis GitHub)
+        # menimpa isi bawaan APK bila ada dan sehat; gagal -> bawaan. ---
+        payload_version = 0
+        if data_dir:
+            try:
+                import ota_core
+                sel = ota_core.prepare_boot(data_dir)
+                if sel:
+                    backend_dir = sel["backend_dir"]
+                    frontend_dir = sel["frontend_dir"]
+                    payload_version = int(sel["version"])
+                    print(f"[LUMIO-OTA] Memakai payload isi v{payload_version}", flush=True)
+            except Exception as ota_err:
+                print(f"[LUMIO-OTA] Lewati payload ({ota_err}); pakai bawaan APK", flush=True)
+        os.environ["LUMIO_PAYLOAD_VERSION"] = str(payload_version)
+        if data_dir:
+            os.environ["LUMIO_DATA_DIR"] = data_dir
+
         if backend_dir not in sys.path:
             sys.path.insert(0, backend_dir)
 
