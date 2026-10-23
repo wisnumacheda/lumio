@@ -192,6 +192,11 @@
   .modal .x{position:absolute;top:14px;right:14px;width:38px;height:38px;border-radius:50%;
     background:rgba(10,8,20,.75);border:1px solid var(--line);font-size:16px;z-index:5;transition:.18s}
   .modal .x:hover{background:var(--bad);color:#fff}
+  .upd-box{max-width:420px;width:100%;padding:22px}
+  .upd-title{font-size:19px;font-weight:800;margin-bottom:2px}
+  .upd-ver{color:var(--gold,#e8b34b);font-weight:700;font-size:13px;margin-bottom:10px}
+  .upd-notes{white-space:pre-line;line-height:1.55;font-size:14.5px}
+  .upd-btn{margin-top:16px;width:100%}
   .detail-box{max-width:880px;position:relative}
   .detail-top{display:grid;grid-template-columns:220px 1fr;gap:26px;padding:28px}
   .detail-top .dposter{border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line);
@@ -572,6 +577,14 @@
 </div>
 
 <!-- ============ PLAYER MODAL ============ -->
+<div class="modal hidden" id="updModal">
+  <div class="box upd-box">
+    <div class="upd-title">✨ Yang Baru di Lumio</div>
+    <div class="upd-ver" id="updVer"></div>
+    <div class="upd-notes" id="updNotes"></div>
+    <button class="btn-reset upd-btn" id="updOk" type="button">Siap, Mengerti 👍</button>
+  </div>
+</div>
 <div class="modal hidden" id="playerModal">
   <div class="box player-box">
     <div class="player-head">
@@ -2220,6 +2233,20 @@ loadGenres();
 loadFilterGenres();
 checkUpdate();
 refreshPayloadInfo();
+async function maybeShowUpdatePopup(){
+  try {
+    const d = await api("/api/payload/info");
+    if (!d || !d.enabled || !(d.active > 0) || !d.notes) return;
+    const seen = parseInt(localStorage.getItem("lumio_seen_payload") || "0", 10) || 0;
+    if (d.active <= seen) return;
+    $("#updVer").textContent = "Isi v" + d.active + (d.label ? " — " + d.label : "");
+    $("#updNotes").textContent = d.notes;
+    $("#updModal").classList.remove("hidden");
+    localStorage.setItem("lumio_seen_payload", String(d.active));
+  } catch (e) {}
+}
+$("#updOk").addEventListener("click", () => $("#updModal").classList.add("hidden"));
+maybeShowUpdatePopup();
 checkPayload(false);
 ["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
 $("#dFavBtn").addEventListener("click", async () => {

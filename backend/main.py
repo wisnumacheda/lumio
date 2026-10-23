@@ -366,7 +366,7 @@ def _fetch_payload_manifest():
 async def payload_info():
     dd = _payload_data_dir()
     info = {"enabled": bool(dd) and ota_core is not None,
-            "active": _payload_active(), "pending": None, "label": ""}
+            "active": _payload_active(), "pending": None, "label": "", "notes": ""}
     if dd and ota_core is not None:
         try:
             loop = asyncio.get_running_loop()
@@ -377,6 +377,7 @@ async def payload_info():
                     None, lambda: ota_core.payload_meta(os.path.join(ota_core.ota_dir(dd), "payload")))
                 if meta:
                     info["label"] = meta.get("label", "")
+                    info["notes"] = meta.get("notes", "")
         except Exception:
             pass
     return ok(info)
