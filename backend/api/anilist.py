@@ -487,6 +487,7 @@ query ($search: String, $perPage: Int) {
   Page(page: 1, perPage: $perPage) {
     media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
       id
+      idMal
       title { romaji english native }
       season
       seasonYear

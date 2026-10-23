@@ -28,6 +28,14 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.24.0] - 2026-10-23
+
+### Added
+- **Pengaturan ukuran teks subtitle kini ada di dalam player**: panel 💬 Subtitle memuat seksi "Ukuran Teks Subtitle" (Kecil/Sedang/Besar/Besar Sekali) yang langsung diterapkan ke overlay dan tersimpan — tidak perlu keluar ke Pengaturan utama.
+
+### Fixed
+- **Tombol Lewati Opening/Ending tidak pernah muncul — diperbaiki dari akarnya.** API AniSkip ternyata kini mewajibkan parameter `episodeLength` (tanpa itu balasannya 400 dan interval selalu kosong), dan ID MyAnimeList dari resolver sering kosong. Sekarang: `episodeLength` selalu dikirim; ID dilengkapi dari AniList (idMal) di kedua jalur resolve; batas tunggu AniSkip dilonggarkan 1,2 → 4 detik; dan pemutar mengambil interval presisi lewat endpoint baru `/api/anime/{slug}/skiptimes` memakai durasi asli video begitu metadata termuat, jadi tombol Lewati Opening/Ending muncul pada waktunya dengan interval yang akurat.
+
 ## [2.23.0] - 2026-10-23
 
 ### Changed

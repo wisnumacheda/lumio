@@ -319,16 +319,16 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
     client = _get_otaku_client()
     headers = {"Referer": ep_url, "X-Requested-With": "XMLHttpRequest"}
     try:
-        r = client.post(ajax_url, data={"action": act_n[0]}, headers=headers)
+        r = client.post(ajax_url, data={"action": act_n[0]}, headers=headers, timeout=8)
         nonce = (r.json() or {}).get("data")
     except Exception:
         nonce = None
     if not nonce:
         return None, ""
-    for m in mirrors[:4]:
+    for m in mirrors[:3]:
         try:
             data = dict(m["payload"]); data["nonce"] = nonce; data["action"] = act_m.group(1)
-            r = client.post(ajax_url, data=data, headers=headers)
+            r = client.post(ajax_url, data=data, headers=headers, timeout=8)
             embed_html = _b64.b64decode((r.json() or {}).get("data") or "").decode("utf-8", "replace")
         except Exception:
             continue
@@ -341,7 +341,7 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
         if "maintenance" in embed_url or "mega" in embed_url:
             continue
         try:
-            player = _fetch(embed_url, referer=OTAKU_BASE + "/", timeout=12)
+            player = _fetch(embed_url, referer=OTAKU_BASE + "/", timeout=5)
         except Exception:
             continue
         stream = None

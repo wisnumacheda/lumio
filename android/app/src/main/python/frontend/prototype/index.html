@@ -247,6 +247,8 @@
   .video-wrap{position:relative;background:#000}
   .video-wrap video{width:100%;aspect-ratio:16/9;background:#000}
   .video-wrap video::cue{background:rgba(0,0,0,.72);color:#fff;font-size:1.02em}
+  .sub-overlay{position:absolute;left:0;right:0;bottom:9%;display:flex;justify-content:center;pointer-events:none;z-index:6;padding:0 12px}
+  .sub-overlay span{background:rgba(0,0,0,.62);color:#fff;padding:2px 10px;border-radius:6px;text-align:center;line-height:1.35;text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:pre-line}
   .skip-btn{position:absolute;right:18px;bottom:74px;z-index:7;padding:10px 20px;border-radius:99px;
     background:rgba(10,8,20,.85);border:1px solid var(--amber);color:#fde68a;font-weight:700;font-size:13.5px;
     backdrop-filter:blur(4px);transition:.18s}
@@ -577,6 +579,7 @@
     </div>
     <div class="video-wrap">
       <video id="video" controls playsinline crossorigin="anonymous"></video>
+      <div class="sub-overlay hidden" id="subOverlay"></div>
       <button class="skip-btn hidden" id="skipBtn">⏭ Lewati Opening</button>
       <div class="ctl off" id="ctlBar">
         <div class="ctl-top">
@@ -1513,6 +1516,7 @@ function stopPlayer(){
   video.removeAttribute("src");
   window._subToken = (window._subToken || 0) + 1;
   window._subOptions = []; window._subActiveId = null;
+  clearSubCues();
   $$("track", video).forEach(t => { if (t.src && t.src.startsWith("blob:")) URL.revokeObjectURL(t.src); t.remove(); });
   if (subBlobUrl) { URL.revokeObjectURL(subBlobUrl); subBlobUrl = null; }
   skipRange = null;
@@ -1702,7 +1706,10 @@ async function playEpisode(slug, ep, fromAuto){
   setPlayerStatus(`<span><span class="spin"></span>Menghubungi server stream (mode ${esc(SETTINGS.audio.toUpperCase())})…</span>`);
   let data;
   try {
-    data = await api(`/api/stream/resolve?slug=${encodeURIComponent(slug)}&ep=${ep}&mode=${SETTINGS.audio}` + (effSource !== "auto" ? `&source=${effSource}` : ""));
+    data = await Promise.race([
+      api(`/api/stream/resolve?slug=${encodeURIComponent(slug)}&ep=${ep}&mode=${SETTINGS.audio}` + (effSource !== "auto" ? `&source=${effSource}` : "")),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("Server terlalu lama merespons (batas 90 detik)")), 90000)),
+    ]);
   } catch (e) {
     if (effSource !== "auto") {
       window._sourceOnce = "auto";
@@ -1797,10 +1804,51 @@ function warmNextEpisode(){
   } catch (e) {}
 }
 function updateSubInfo(txt){ const el = $("#subInfo"); if (el) el.textContent = txt; }
+/* Renderer subtitle overlay: teks digambar aplikasi sendiri di atas video.
+   Jalur <track> bawaan WebView terbukti tidak andal untuk trek blob di atas
+   stream HLS/MSE (di beberapa HP teks tidak pernah digambar walau trek
+   berstatus showing), jadi seluruh subtitle kini lewat overlay ini. */
+window._subCues = null; window._subCueText = "__init__";
+function parseVttCues(vtt){
+  const out = [];
+  const t2s = (s) => { const p = s.split(":"); if (p.length === 2) p.unshift("0"); const sec = (p[2] || "0").split("."); return (+p[0]) * 3600 + (+p[1]) * 60 + (+sec[0]) + (+(sec[1] || 0)) / 1000; };
+  for (const b of String(vtt || "").replace(/\r\n/g, "\n").split(/\n\n+/)) {
+    const lines = b.split("\n").filter(x => x.trim() !== "");
+    const ti = lines.findIndex(l => l.includes("-->"));
+    if (ti < 0) continue;
+    const m = lines[ti].match(/(\d+:\d+:\d+[.,]\d+|\d+:\d+[.,]\d+)\s*-->\s*(\d+:\d+:\d+[.,]\d+|\d+:\d+[.,]\d+)/);
+    if (!m) continue;
+    const text = lines.slice(ti + 1).join("\n").replace(/<[^>]+>/g, "").trim();
+    if (text) out.push({start: t2s(m[1].replace(",", ".")), end: t2s(m[2].replace(",", ".")), text});
+  }
+  return out;
+}
+function setSubCues(vtt){ window._subCues = parseVttCues(vtt); window._subCueText = "__init__"; renderSubOverlay(); }
+function clearSubCues(){ window._subCues = null; window._subCueText = "__init__"; const ov = $("#subOverlay"); if (ov) ov.classList.add("hidden"); }
+function renderSubOverlay(){
+  const ov = $("#subOverlay"); if (!ov) return;
+  const cues = window._subCues;
+  if (!cues || !cues.length) { ov.classList.add("hidden"); window._subCueText = ""; return; }
+  const t = video.currentTime || 0;
+  let lo = 0, hi = cues.length - 1, cur = null;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (cues[mid].start <= t) { cur = cues[mid]; lo = mid + 1; } else hi = mid - 1; }
+  const txt = (cur && t <= cur.end) ? cur.text : "";
+  if (txt === window._subCueText) return;
+  window._subCueText = txt;
+  if (!txt) { ov.classList.add("hidden"); return; }
+  ov.innerHTML = "";
+  const sp = document.createElement("span");
+  sp.style.fontSize = ({s: "14px", m: "18px", l: "23px", xl: "29px"}[SETTINGS.subSize] || "18px");
+  sp.textContent = txt;
+  ov.appendChild(sp);
+  ov.classList.remove("hidden");
+}
+video.addEventListener("timeupdate", renderSubOverlay);
+video.addEventListener("seeked", renderSubOverlay);
+
 async function runLiveSubtitle(opt, refresh, token){
   const alive = () => token === window._subToken && window._subActiveId === opt.id;
   const liveUrl = opt.fetchUrl.replace("/api/player/sub?", "/api/player/sub_live?");
-  let blobUrl = null;
   let first = true, announced = false, errStreak = 0;
   for (let i = 0; i < 110; i++) {
     if (!alive()) return;
@@ -1820,20 +1868,7 @@ async function runLiveSubtitle(opt, refresh, token){
     let vtt = "";
     try { vtt = await r.text(); } catch (e) { await new Promise(res => setTimeout(res, 1200)); continue; }
     if (!alive()) return;
-    if (/WEBVTT/.test(vtt.slice(0, 200)) && vtt.indexOf("-->") >= 0) {
-      const nb = URL.createObjectURL(new Blob([vtt], {type: "text/vtt"}));
-      let t = [...video.querySelectorAll("track")].find(x => x.dataset.subid === opt.id);
-      if (!t) {
-        t = document.createElement("track");
-        t.kind = "subtitles"; t.label = opt.label; t.srclang = opt.srclang; t.dataset.subid = opt.id;
-        video.appendChild(t);
-      }
-      const old = blobUrl;
-      blobUrl = nb;
-      t.src = nb;
-      const show = () => { if (t.track) t.track.mode = "showing"; if (old) URL.revokeObjectURL(old); };
-      if (t.readyState === 2) show(); else t.addEventListener("load", show, {once: true});
-    }
+    if (/WEBVTT/.test(vtt.slice(0, 200)) && vtt.indexOf("-->") >= 0) setSubCues(vtt);
     if (done) { if (announced) toast("💬 Subtitle selesai diterjemahkan ✓"); updateSubInfo("Subtitle: " + opt.label); return; }
     if (!announced) { announced = true; toast("💬 Subtitle sedang diterjemahkan — bagian awal tampil duluan"); }
     updateSubInfo("Subtitle: " + opt.label + " — menerjemahkan " + pct + "%…");
@@ -1844,34 +1879,24 @@ async function runLiveSubtitle(opt, refresh, token){
 async function selectSubtitle(opt, refresh){
   window._subToken = (window._subToken || 0) + 1;
   const token = window._subToken;
-  [...video.textTracks].forEach(t => { try { t.mode = "disabled"; } catch (e) {} });
+  clearSubCues();
   window._subActiveId = opt ? opt.id : null;
   if (!opt) { updateSubInfo("Subtitle: mati."); return; }
   if (opt.id && opt.id.startsWith("id-")) { runLiveSubtitle(opt, refresh, token); return; }
-  let t = [...video.querySelectorAll("track")].find(x => x.dataset.subid === opt.id);
-  if (t && refresh) { if (t.src && t.src.startsWith("blob:")) URL.revokeObjectURL(t.src); t.remove(); t = null; }
-  if (!t) {
-    updateSubInfo("Subtitle: memuat " + opt.label + "…");
-    try {
-      const r = await fetch(opt.fetchUrl + (refresh ? "&refresh=1" : ""));
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const vtt = await r.text();
-      if (!/WEBVTT/.test(vtt.slice(0, 200))) throw new Error("respons bukan WebVTT");
-      t = document.createElement("track");
-      t.kind = "subtitles"; t.label = opt.label; t.srclang = opt.srclang;
-      t.dataset.subid = opt.id;
-      t.src = URL.createObjectURL(new Blob([vtt], {type: "text/vtt"}));
-      video.appendChild(t);
-    } catch (e) {
-      window._subActiveId = null;
-      updateSubInfo("Subtitle gagal dimuat (" + e.message + ") — video tetap diputar.");
-      toast("💬 Subtitle gagal dimuat: " + opt.label, true);
-      return;
-    }
+  updateSubInfo("Subtitle: memuat " + opt.label + "…");
+  try {
+    const r = await fetch(opt.fetchUrl + (refresh ? "&refresh=1" : ""));
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const vtt = await r.text();
+    if (!/WEBVTT/.test(vtt.slice(0, 200))) throw new Error("respons bukan WebVTT");
+    if (window._subActiveId !== opt.id) return;
+    setSubCues(vtt);
+    updateSubInfo("Subtitle: " + opt.label);
+  } catch (e) {
+    window._subActiveId = null;
+    updateSubInfo("Subtitle gagal dimuat (" + e.message + ") — video tetap diputar.");
+    toast("💬 Subtitle gagal dimuat: " + opt.label, true);
   }
-  const show = () => { if (t.track) t.track.mode = "showing"; updateSubInfo("Subtitle: " + opt.label); };
-  if (t.readyState === 2) show();
-  else t.addEventListener("load", show, {once: true});
 }
 async function attachSubtitle(data, referer){
   window._subToken = (window._subToken || 0) + 1;

@@ -138,14 +138,15 @@ def get_skip_times(mal_id, episode_num: int, episode_length: float = 0, timeout:
             if now - ts < ttl:
                 return entry
 
-    # Jangan sertakan episodeLength jika 0
-    url = f"https://api.aniskip.com/v2/skip-times/{mal_int}/{ep_int}?types=op&types=ed&types=mixed-op&types=mixed-ed"
+    # episodeLength WAJIB dikirim: API menolak 400 tanpanya. Nilai 0 diterima
+    # (API memilih kiriman terdekat); durasi asli memberi hasil paling akurat.
     try:
         ep_len_val = float(episode_length or 0)
-        if ep_len_val > 0:
-            url += f"&episodeLength={round(ep_len_val, 2)}"
     except Exception:
-        pass
+        ep_len_val = 0
+    if ep_len_val < 0:
+        ep_len_val = 0
+    url = f"https://api.aniskip.com/v2/skip-times/{mal_int}/{ep_int}?types=op&types=ed&types=mixed-op&types=mixed-ed&episodeLength={round(ep_len_val, 2)}"
 
     headers = {
         "User-Agent": "Tatap/2.5.0 (https://github.com/asfaraguest/tatap)",
