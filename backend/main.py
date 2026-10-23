@@ -496,7 +496,8 @@ def _fb_token():
     return _fb_token_info().get("_token", "")
 
 
-_FB_LAST = {"at": "", "sent": 0, "error": ""}
+_FB_LAST = {"at": "", "sent": 0, "error": "", "rows": -1, "db": ""}
+_BOOT_ID = str(int(time.time()))[-6:]
 
 
 def _fb_flush_sync(limit=5):
@@ -507,13 +508,22 @@ def _fb_flush_sync(limit=5):
     if not token:
         _FB_LAST["error"] = "token tidak ditemukan di perangkat"
         return 0
+    try:
+        from config import DATABASE_PATH as _dbp
+        _FB_LAST["db"] = _dbp
+    except Exception:
+        pass
     conn = _fb_db()
     try:
         rows = conn.execute(
             "SELECT id, category, message, contact, app_version, payload_version "
             "FROM feedback_queue WHERE sent=0 ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
+    except Exception as e:
+        _FB_LAST["error"] = f"DB: {type(e).__name__}: {str(e)[:120]}"
+        return 0
     finally:
         conn.close()
+    _FB_LAST["rows"] = len(rows)
     if not rows:
         return 0
     import httpx as _httpx
@@ -572,6 +582,13 @@ async def _feedback_flush_bg():
         await asyncio.get_running_loop().run_in_executor(None, _fb_flush_sync)
     except Exception:
         pass
+    # Ulangi sekali 25 detik kemudian — jaga-jaga percobaan pertama saat boot
+    # berbenturan dengan inisialisasi basis data aplikasi.
+    try:
+        await asyncio.sleep(25)
+        await asyncio.get_running_loop().run_in_executor(None, _fb_flush_sync)
+    except Exception:
+        pass
 
 
 @app.post("/api/feedback")
@@ -617,7 +634,18 @@ async def feedback_status():
         pass
     return ok({"token_found": info["found"], "token_length": info["length"],
                "token_source": info["source"], "pending": pending,
-               "sent_total": sent_total, "last": _FB_LAST})
+               "sent_total": sent_total, "last": _FB_LAST, "boot": _BOOT_ID})
+
+
+@app.post("/api/feedback/flush")
+async def feedback_flush_now():
+    loop = asyncio.get_running_loop()
+    sent = 0
+    try:
+        sent = await loop.run_in_executor(None, _fb_flush_sync)
+    except Exception as e:
+        _FB_LAST["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+    return ok({"sent": sent, "last": _FB_LAST, "boot": _BOOT_ID})
 
 
 @app.get("/api/health")

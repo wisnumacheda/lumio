@@ -778,6 +778,7 @@
         <button class="btn-reset" id="btnSendFeedback">📨 Kirim Masukan</button>
         <div class="desc" id="fbStatus"></div>
         <div class="desc" id="fbDiag"></div>
+        <button class="btn-reset" id="btnFlushFb" style="margin-top:6px;padding:7px 12px;font-size:12.5px;width:auto">↻ Kirim Ulang Antrean</button>
       </div>
     </div>
   </aside>
@@ -2288,10 +2289,20 @@ async function showFbDiag() {
     const last = (s && s.last) || {};
     el.textContent = "🔍 Jalur: token " + (s.token_found ? "terdeteksi (" + s.token_length + " karakter, dari " + (s.token_source || "?") + ")" : "TIDAK terdeteksi")
       + " • antrean " + s.pending + " • terkirim " + s.sent_total
-      + (last.error ? " • error terakhir: " + last.error : (last.at ? " • percobaan terakhir " + last.at + " bersih" : ""));
+      + (last.error ? " • error terakhir: " + last.error : (last.at ? " • percobaan terakhir " + last.at + " bersih" : ""))
+      + (last.rows >= 0 ? " • flush melihat " + last.rows + " antrean" : "")
+      + (s.boot ? " • boot " + s.boot : "");
   } catch (e) { el.textContent = "🔍 Jalur: status tidak terbaca (" + e.message + ")"; }
 }
 showFbDiag();
+$("#btnFlushFb").addEventListener("click", async () => {
+  const b = $("#btnFlushFb"); b.disabled = true;
+  try {
+    const r = await apiSend("POST", "/api/feedback/flush", {});
+    toast(r && r.sent > 0 ? "💬 " + r.sent + " masukan terkirim ✓" : "Belum terkirim — lihat baris 🔍");
+  } catch (e) { toast("Gagal: " + e.message, true); }
+  showFbDiag(); b.disabled = false;
+});
 $("#btnSendFeedback").addEventListener("click", async () => {
   const msg = $("#fbMessage").value.trim();
   const st = $("#fbStatus");
