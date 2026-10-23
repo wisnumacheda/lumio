@@ -593,6 +593,7 @@
       <button class="skip-btn hidden" id="skipBtn">⏭ Lewati Opening</button>
       <div class="ctl off" id="ctlBar">
         <div class="ctl-top">
+          <button class="ctl-btn" id="ctlBackBtn" type="button" aria-label="Kembali">←</button>
           <span class="ctl-title" id="ctlTitle">—</span>
           <button class="ctl-btn" id="ctlServerBtn" type="button">🌐 Server</button>
           <button class="ctl-btn" id="ctlQualityBtn" type="button">🎚️ Kualitas</button>
@@ -1681,6 +1682,7 @@ function ctlPanelShow(kind){
     html = `<div class="ph">🎨 Gaya Subtitle</div>`
       + [["size:s", "Ukuran: Kecil"], ["size:m", "Ukuran: Sedang"], ["size:l", "Ukuran: Besar"], ["size:xl", "Ukuran: Jumbo"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("")
       + [["bg:box", "Latar: Kotak Gelap"], ["bg:thin", "Latar: Tipis"], ["bg:none", "Latar: Tanpa Kotak"]].map(([v, l]) => opt(v, l, (SETTINGS.subBg || "box") === v.slice(3))).join("")
+      + [["color:putih", "Warna: Putih"], ["color:kuning", "Warna: Kuning"], ["color:cyan", "Warna: Cyan"], ["color:hijau", "Warna: Hijau"]].map(([v, l]) => opt(v, l, (SETTINGS.subColor || "putih") === v.slice(6))).join("")
       + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
     if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
     if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
@@ -1693,6 +1695,7 @@ function ctlPanelShow(kind){
     else if (kind === "sub") {
       if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
       else if (v.startsWith("bg:")) { SETTINGS.subBg = v.slice(3); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Latar subtitle diubah"); }
+      else if (v.startsWith("color:")) { SETTINGS.subColor = v.slice(6); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Warna subtitle diubah"); }
       else if (v === "off") selectSubtitle(null);
       else if (v === "refresh") { const cur2 = (window._subOptions || []).find(o => o.id === window._subActiveId); if (cur2) { selectSubtitle(cur2, true); toast("🔄 Menerjemahkan ulang subtitle…"); } }
       else selectSubtitle((window._subOptions || []).find(o => o.id === v) || null);
@@ -1797,6 +1800,7 @@ function tryFullscreen(){
   } catch (e) {}
 }
 function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
+$("#ctlBackBtn").addEventListener("click", (e) => { e.stopPropagation(); closeModal("playerModal"); });
 async function playEpisode(slug, ep, fromAuto){
   const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
@@ -1954,6 +1958,8 @@ function renderSubOverlay(){
   const bgMap = {box: "rgba(0,0,0,.62)", thin: "rgba(0,0,0,.28)", none: "transparent"};
   sp.style.background = bgMap[SETTINGS.subBg] || bgMap.box;
   if (SETTINGS.subBg === "none") sp.style.textShadow = "0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.9)";
+  const colMap = {putih: "#ffffff", kuning: "#ffe14d", cyan: "#5ee7ff", hijau: "#8dff6a"};
+  sp.style.color = colMap[SETTINGS.subColor] || "#ffffff";
   sp.textContent = txt;
   ov.appendChild(sp);
   ov.classList.remove("hidden");
@@ -2047,7 +2053,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
