@@ -123,7 +123,7 @@ async def get_version():
 async def check_update(force: bool = False):
     """Pemeriksaan pembaruan versi Tatap secara on-demand via GitHub Releases API & Multi-Tier Fallback.
     Memfilter 4 berkas resmi sesuai aturan paten agent.md:
-    1. tatap-release-v<VER>.apk (Official Signed Mobile APK)
+    1. Lumio-v<VER>.apk (APK resmi; nama lama tatap-release-v<VER>.apk tetap dikenali sebagai cadangan)
     2. tatap-tv-release-v<VER>.apk (Official Signed Android/Google TV APK)
     3. tatap-windows-x64-portable.zip (Windows Portable)
     4. Tatap-x86_64.AppImage (Linux AppImage)
@@ -158,7 +158,7 @@ async def check_update(force: bool = False):
         tag = f"v{ver_clean}" if not ver_clean.startswith("v") else ver_clean
         base = f"{UPDATE_REPO_URL}/releases/download/{tag}"
         return {
-            "android": f"{base}/tatap-release-{tag}.apk",
+            "android": f"{base}/Lumio-v{ver_clean}.apk",
             "android_tv": f"{base}/tatap-tv-release-{tag}.apk",
             "windows": f"{base}/tatap-windows-x64-portable.zip",
             "linux": f"{base}/Tatap-x86_64.AppImage"
@@ -181,6 +181,10 @@ async def check_update(force: bool = False):
         if resp.status_code == 200:
             rel_data = resp.json()
             tag_name = (rel_data.get("tag_name") or "").strip()
+            if not re.match(r"^v\d+\.\d+\.\d+$", tag_name):
+                # Rilis terbaru bukan rilis APK (mis. payload isi bertag
+                # payload-N) — jangan dipakai; lanjut ke tier berikutnya.
+                raise ValueError(f"Rilis terbaru bukan rilis APK ({tag_name})")
             latest_clean = re.sub(r"^v", "", tag_name)
             has_update = False
             try:
@@ -194,18 +198,26 @@ async def check_update(force: bool = False):
                 "windows": "",
                 "linux": ""
             }
+            android_lumio = ""
+            android_legacy = ""
             raw_assets = rel_data.get("assets") or []
             for a in raw_assets:
                 fname = (a.get("name") or "").lower()
                 dl_url = a.get("browser_download_url") or ""
                 if "tatap-tv-release-" in fname and fname.endswith(".apk") and not fname.endswith(".idsig"):
                     assets_out["android_tv"] = dl_url
+                elif "lumio-v" in fname and fname.endswith(".apk") and not fname.endswith(".idsig"):
+                    android_lumio = dl_url
                 elif "tatap-release-" in fname and fname.endswith(".apk") and not fname.endswith(".idsig"):
-                    assets_out["android"] = dl_url
+                    android_legacy = dl_url
                 elif "windows" in fname and fname.endswith(".zip"):
                     assets_out["windows"] = dl_url
                 elif fname.endswith(".appimage"):
                     assets_out["linux"] = dl_url
+            # Nama resmi sekarang Lumio-v<VER>.apk; nama lama hanya cadangan
+            # untuk rilis transisi. "Lumio.apk" (tautan bagikan) tidak berpola
+            # versi sehingga tidak akan terpilih di sini.
+            assets_out["android"] = android_lumio or android_legacy
 
             if not assets_out["android"]:
                 assets_out = build_official_assets(latest_clean)
@@ -333,9 +345,19 @@ def _payload_data_dir():
 def _fetch_payload_manifest():
     import time as _t
     import httpx as _httpx
-    url = PAYLOAD_MANIFEST_URL + f"?t={int(_t.time())}"
-    with _httpx.Client(timeout=10, follow_redirects=True) as c:
-        r = c.get(url, headers={"User-Agent": "Lumio"})
+    # Utama: GitHub API (kanal yang sama dengan pemeriksa update APK — terbukti
+    # lolos di jaringan yang memblokir raw.githubusercontent.com).
+    api_url = f"https://api.github.com/repos/{UPDATE_REPO}/contents/payload-manifest.json?t={int(_t.time())}"
+    try:
+        with _httpx.Client(timeout=12, follow_redirects=True) as c:
+            r = c.get(api_url, headers={"User-Agent": "Lumio", "Accept": "application/vnd.github.raw+json"})
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        pass
+    # Cadangan: raw langsung.
+    with _httpx.Client(timeout=12, follow_redirects=True) as c:
+        r = c.get(PAYLOAD_MANIFEST_URL + f"?t={int(_t.time())}", headers={"User-Agent": "Lumio"})
         r.raise_for_status()
         return r.json()
 
@@ -448,19 +470,68 @@ def _fb_insert(category, message, contact):
         conn.close()
 
 
+def _fb_token_info():
+    """Cari token penerus masukan dari beberapa lokasi yang masuk akal.
+    Mengembalikan {found, length, source} (+ _token internal). Token TIDAK
+    ikut git — ia hanya hidup di perangkat/payload, tidak di repo publik."""
+    if FEEDBACK_GITHUB_TOKEN:
+        return {"found": True, "length": len(FEEDBACK_GITHUB_TOKEN),
+                "source": "env", "_token": FEEDBACK_GITHUB_TOKEN}
+    cands = []
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        cands.append(("sebelah main.py", os.path.join(here, "feedback_token.txt")))
+        cands.append(("satu tingkat di atas main.py",
+                      os.path.join(here, "..", "feedback_token.txt")))
+    except Exception:
+        pass
+    dd = os.environ.get("LUMIO_DATA_DIR", "")
+    if dd:
+        cands.append(("folder data aplikasi", os.path.join(dd, "feedback_token.txt")))
+    cands.append(("folder kerja", os.path.join(os.getcwd(), "feedback_token.txt")))
+    for src, p in cands:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                t = f.read().strip()
+            if t:
+                return {"found": True, "length": len(t), "source": src, "_token": t}
+        except Exception:
+            continue
+    return {"found": False, "length": 0, "source": "", "_token": ""}
+
+
+def _fb_token():
+    return _fb_token_info().get("_token", "")
+
+
+_FB_LAST = {"at": "", "sent": 0, "error": "", "rows": -1, "db": ""}
+_BOOT_ID = str(int(time.time()))[-6:]
+
+
 def _fb_flush_sync(limit=5):
     """Teruskan antrean masukan menjadi GitHub Issue (bila token tersedia).
     Mengembalikan jumlah yang terkirim."""
-    token = FEEDBACK_GITHUB_TOKEN
+    token = _fb_token()
+    _FB_LAST["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     if not token:
+        _FB_LAST["error"] = "token tidak ditemukan di perangkat"
         return 0
+    try:
+        from config import DATABASE_PATH as _dbp
+        _FB_LAST["db"] = _dbp
+    except Exception:
+        pass
     conn = _fb_db()
     try:
         rows = conn.execute(
             "SELECT id, category, message, contact, app_version, payload_version "
             "FROM feedback_queue WHERE sent=0 ORDER BY id ASC LIMIT ?", (limit,)).fetchall()
+    except Exception as e:
+        _FB_LAST["error"] = f"DB: {type(e).__name__}: {str(e)[:120]}"
+        return 0
     finally:
         conn.close()
+    _FB_LAST["rows"] = len(rows)
     if not rows:
         return 0
     import httpx as _httpx
@@ -502,14 +573,27 @@ def _fb_flush_sync(limit=5):
                     conn.close()
                 sent += 1
             else:
+                _FB_LAST["error"] = (f"GitHub menjawab HTTP {r.status_code}: "
+                                     f"{(r.text or '')[:140]}")
                 break
-        except Exception:
+        except Exception as e:
+            _FB_LAST["error"] = f"{type(e).__name__}: {str(e)[:140]}"
             break
+    _FB_LAST["sent"] = sent
+    if sent:
+        _FB_LAST["error"] = ""
     return sent
 
 
 async def _feedback_flush_bg():
     try:
+        await asyncio.get_running_loop().run_in_executor(None, _fb_flush_sync)
+    except Exception:
+        pass
+    # Ulangi sekali 25 detik kemudian — jaga-jaga percobaan pertama saat boot
+    # berbenturan dengan inisialisasi basis data aplikasi.
+    try:
+        await asyncio.sleep(25)
         await asyncio.get_running_loop().run_in_executor(None, _fb_flush_sync)
     except Exception:
         pass
@@ -538,6 +622,38 @@ async def feedback_submit(body: dict = None):
     except Exception:
         pass
     return ok({"sent": sent > 0, "queued": sent == 0})
+
+
+@app.get("/api/feedback/status")
+async def feedback_status():
+    info = _fb_token_info()
+    pending = -1
+    sent_total = -1
+    try:
+        conn = _fb_db()
+        try:
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM feedback_queue WHERE sent=0").fetchone()[0]
+            sent_total = conn.execute(
+                "SELECT COUNT(*) FROM feedback_queue WHERE sent=1").fetchone()[0]
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return ok({"token_found": info["found"], "token_length": info["length"],
+               "token_source": info["source"], "pending": pending,
+               "sent_total": sent_total, "last": _FB_LAST, "boot": _BOOT_ID})
+
+
+@app.post("/api/feedback/flush")
+async def feedback_flush_now():
+    loop = asyncio.get_running_loop()
+    sent = 0
+    try:
+        sent = await loop.run_in_executor(None, _fb_flush_sync)
+    except Exception as e:
+        _FB_LAST["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+    return ok({"sent": sent, "last": _FB_LAST, "boot": _BOOT_ID})
 
 
 @app.get("/api/health")

@@ -283,7 +283,7 @@ public class AppUpdateManager {
 
             JSONObject assets = new JSONObject();
             String base = UPDATE_REPO_URL + "/releases/download/" + tag;
-            assets.put("android", base + "/tatap-release-" + tag + ".apk");
+            assets.put("android", base + "/Lumio-v" + latestVer + ".apk");
             assets.put("android_tv", base + "/tatap-tv-release-" + tag + ".apk");
             assets.put("windows", base + "/tatap-windows-x64-portable.zip");
             assets.put("linux", base + "/Tatap-x86_64.AppImage");

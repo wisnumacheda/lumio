@@ -39,6 +39,11 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
 - **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
 
+## [2.26.0] - 2026-10-23
+
+### Changed
+- **Nama aset rilis resmi kini `Lumio-v<VERSI>.apk`.** Pemeriksa update (backend + native) mengutamakan nama Lumio dan hanya memakai nama lama `tatap-release-v<VERSI>.apk` sebagai cadangan transisi — rilis ini masih menyertakan nama lama satu kali terakhir agar pengguna 2.25.0 tetap menerima update; mulai rilis berikutnya nama lama tidak dipakai lagi. Tautan bagikan tetap `Lumio.apk` (selalu versi terbaru).
+
 ## [2.25.0] - 2026-10-23
 
 ### Added

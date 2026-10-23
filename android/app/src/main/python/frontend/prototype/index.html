@@ -593,6 +593,7 @@
       <button class="skip-btn hidden" id="skipBtn">⏭ Lewati Opening</button>
       <div class="ctl off" id="ctlBar">
         <div class="ctl-top">
+          <button class="ctl-btn" id="ctlBackBtn" type="button" aria-label="Kembali">←</button>
           <span class="ctl-title" id="ctlTitle">—</span>
           <button class="ctl-btn" id="ctlServerBtn" type="button">🌐 Server</button>
           <button class="ctl-btn" id="ctlQualityBtn" type="button">🎚️ Kualitas</button>
@@ -717,6 +718,14 @@
           <button data-val="xl">Jumbo</button>
         </div>
       </div>
+      <div class="set-row">
+        <div class="lbl">Latar belakang subtitle</div>
+        <div class="seg" id="setSubBg">
+          <button data-val="box">Kotak</button>
+          <button data-val="thin">Tipis</button>
+          <button data-val="none">Tanpa</button>
+        </div>
+      </div>
     </div>
 
     <div class="set-sec">
@@ -769,6 +778,8 @@
         <input id="fbContact" class="fb-field" type="text" maxlength="200" placeholder="Nama / kontak (opsional, biar bisa dibalas)">
         <button class="btn-reset" id="btnSendFeedback">📨 Kirim Masukan</button>
         <div class="desc" id="fbStatus"></div>
+        <div class="desc" id="fbDiag"></div>
+        <button class="btn-reset" id="btnFlushFb" style="margin-top:6px;padding:7px 12px;font-size:12.5px;width:auto">↻ Kirim Ulang Antrean</button>
       </div>
     </div>
   </aside>
@@ -1641,7 +1652,11 @@ function showCtl(){
   const bar = $("#ctlBar"); if (!bar) return;
   bar.classList.remove("off");
   clearTimeout(ctlTimer);
-  ctlTimer = setTimeout(() => { if (ctlOn && !video.paused && !ctlSeeking) { bar.classList.add("off"); $("#ctlPanel").classList.add("hidden"); } }, 3200);
+  ctlTimer = setTimeout(() => {
+    if (!ctlOn || video.paused || ctlSeeking) return;
+    if (!$("#ctlPanel").classList.contains("hidden")) { showCtl(); return; }
+    bar.classList.add("off"); $("#ctlPanel").classList.add("hidden");
+  }, 3200);
 }
 function hideCtl(){ const bar = $("#ctlBar"); if (bar) bar.classList.add("off"); }
 function syncCtlPlay(){
@@ -1664,10 +1679,13 @@ function ctlPanelShow(kind){
   } else if (kind === "sub") {
     const subOpts = window._subOptions || [];
     const cur = window._subActiveId;
-    html = `<div class="ph">Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    html = `<div class="ph">🎨 Gaya Subtitle</div>`
+      + [["size:s", "Ukuran: Kecil"], ["size:m", "Ukuran: Sedang"], ["size:l", "Ukuran: Besar"], ["size:xl", "Ukuran: Jumbo"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("")
+      + [["bg:box", "Latar: Kotak Gelap"], ["bg:thin", "Latar: Tipis"], ["bg:none", "Latar: Tanpa Kotak"]].map(([v, l]) => opt(v, l, (SETTINGS.subBg || "box") === v.slice(3))).join("")
+      + [["color:putih", "Warna: Putih"], ["color:kuning", "Warna: Kuning"], ["color:cyan", "Warna: Cyan"], ["color:hijau", "Warna: Hijau"]].map(([v, l]) => opt(v, l, (SETTINGS.subColor || "putih") === v.slice(6))).join("")
+      + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
     if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
     if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
-    html += `<div class="ph">Ukuran Teks Subtitle</div>` + [["size:s", "Kecil"], ["size:m", "Sedang"], ["size:l", "Besar"], ["size:xl", "Besar Sekali"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("");
   }
   panel.innerHTML = html;
   $$("button[data-v]", panel).forEach(b => b.addEventListener("click", () => {
@@ -1676,6 +1694,8 @@ function ctlPanelShow(kind){
     else if (kind === "quality") { const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change")); }
     else if (kind === "sub") {
       if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
+      else if (v.startsWith("bg:")) { SETTINGS.subBg = v.slice(3); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Latar subtitle diubah"); }
+      else if (v.startsWith("color:")) { SETTINGS.subColor = v.slice(6); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Warna subtitle diubah"); }
       else if (v === "off") selectSubtitle(null);
       else if (v === "refresh") { const cur2 = (window._subOptions || []).find(o => o.id === window._subActiveId); if (cur2) { selectSubtitle(cur2, true); toast("🔄 Menerjemahkan ulang subtitle…"); } }
       else selectSubtitle((window._subOptions || []).find(o => o.id === v) || null);
@@ -1780,6 +1800,7 @@ function tryFullscreen(){
   } catch (e) {}
 }
 function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
+$("#ctlBackBtn").addEventListener("click", (e) => { e.stopPropagation(); closeModal("playerModal"); });
 async function playEpisode(slug, ep, fromAuto){
   const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
@@ -1934,6 +1955,11 @@ function renderSubOverlay(){
   ov.innerHTML = "";
   const sp = document.createElement("span");
   sp.style.fontSize = ({s: "14px", m: "18px", l: "23px", xl: "29px"}[SETTINGS.subSize] || "18px");
+  const bgMap = {box: "rgba(0,0,0,.62)", thin: "rgba(0,0,0,.28)", none: "transparent"};
+  sp.style.background = bgMap[SETTINGS.subBg] || bgMap.box;
+  if (SETTINGS.subBg === "none") sp.style.textShadow = "0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.9)";
+  const colMap = {putih: "#ffffff", kuning: "#ffe14d", cyan: "#5ee7ff", hijau: "#8dff6a"};
+  sp.style.color = colMap[SETTINGS.subColor] || "#ffffff";
   sp.textContent = txt;
   ov.appendChild(sp);
   ov.classList.remove("hidden");
@@ -2027,7 +2053,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
@@ -2036,6 +2062,7 @@ function syncSettingsUI(){
   segSync("setTheme", SETTINGS.theme);
   segSync("setAudio", SETTINGS.audio);
   segSync("setSubSize", SETTINGS.subSize);
+  segSync("setSubBg", SETTINGS.subBg || "box");
   segSync("gridSort", SETTINGS.sort);
   $("#setQuality").value = SETTINGS.quality;
   $("#setSubLang").value = SETTINGS.subLang;
@@ -2063,6 +2090,7 @@ function segWire(id, key){
 segWire("setTheme", "theme");
 segWire("setAudio", "audio");
 segWire("setSubSize", "subSize");
+segWire("setSubBg", "subBg");
 $$("#gridSort button").forEach(b => b.addEventListener("click", () => {
   if (SETTINGS.sort === b.dataset.val) return;
   SETTINGS.sort = b.dataset.val; applySettings(); loadHome();
@@ -2260,6 +2288,27 @@ async function checkPayload(manual){
 $("#btnCheckPayload").addEventListener("click", () => checkPayload(true));
 
 /* ---------------- Kirim masukan ---------------- */
+async function showFbDiag() {
+  const el = $("#fbDiag"); if (!el) return;
+  try {
+    const s = await api("/api/feedback/status");
+    const last = (s && s.last) || {};
+    el.textContent = "🔍 Jalur: token " + (s.token_found ? "terdeteksi (" + s.token_length + " karakter, dari " + (s.token_source || "?") + ")" : "TIDAK terdeteksi")
+      + " • antrean " + s.pending + " • terkirim " + s.sent_total
+      + (last.error ? " • error terakhir: " + last.error : (last.at ? " • percobaan terakhir " + last.at + " bersih" : ""))
+      + (last.rows >= 0 ? " • flush melihat " + last.rows + " antrean" : "")
+      + (s.boot ? " • boot " + s.boot : "");
+  } catch (e) { el.textContent = "🔍 Jalur: status tidak terbaca (" + e.message + ")"; }
+}
+showFbDiag();
+$("#btnFlushFb").addEventListener("click", async () => {
+  const b = $("#btnFlushFb"); b.disabled = true;
+  try {
+    const r = await apiSend("POST", "/api/feedback/flush", {});
+    toast(r && r.sent > 0 ? "💬 " + r.sent + " masukan terkirim ✓" : "Belum terkirim — lihat baris 🔍");
+  } catch (e) { toast("Gagal: " + e.message, true); }
+  showFbDiag(); b.disabled = false;
+});
 $("#btnSendFeedback").addEventListener("click", async () => {
   const msg = $("#fbMessage").value.trim();
   const st = $("#fbStatus");
@@ -2270,6 +2319,7 @@ $("#btnSendFeedback").addEventListener("click", async () => {
     const r = await apiSend("POST", "/api/feedback", {category: $("#fbCategory").value, message: msg, contact: $("#fbContact").value.trim()});
     if (r && r.sent) { st.textContent = "✓ Terkirim — terima kasih banyak!"; toast("💬 Masukan terkirim ✓"); }
     else { st.textContent = "✓ Tersimpan — terkirim otomatis saat server masukan aktif / ada internet."; toast("💬 Masukan tersimpan"); }
+    showFbDiag();
     $("#fbMessage").value = "";
   } catch (e) { st.textContent = "Gagal mengirim: " + e.message; }
   btn.disabled = false;

@@ -123,7 +123,7 @@ async def get_version():
 async def check_update(force: bool = False):
     """Pemeriksaan pembaruan versi Tatap secara on-demand via GitHub Releases API & Multi-Tier Fallback.
     Memfilter 4 berkas resmi sesuai aturan paten agent.md:
-    1. tatap-release-v<VER>.apk (Official Signed Mobile APK)
+    1. Lumio-v<VER>.apk (APK resmi; nama lama tatap-release-v<VER>.apk tetap dikenali sebagai cadangan)
     2. tatap-tv-release-v<VER>.apk (Official Signed Android/Google TV APK)
     3. tatap-windows-x64-portable.zip (Windows Portable)
     4. Tatap-x86_64.AppImage (Linux AppImage)
@@ -158,7 +158,7 @@ async def check_update(force: bool = False):
         tag = f"v{ver_clean}" if not ver_clean.startswith("v") else ver_clean
         base = f"{UPDATE_REPO_URL}/releases/download/{tag}"
         return {
-            "android": f"{base}/tatap-release-{tag}.apk",
+            "android": f"{base}/Lumio-v{ver_clean}.apk",
             "android_tv": f"{base}/tatap-tv-release-{tag}.apk",
             "windows": f"{base}/tatap-windows-x64-portable.zip",
             "linux": f"{base}/Tatap-x86_64.AppImage"
@@ -198,18 +198,26 @@ async def check_update(force: bool = False):
                 "windows": "",
                 "linux": ""
             }
+            android_lumio = ""
+            android_legacy = ""
             raw_assets = rel_data.get("assets") or []
             for a in raw_assets:
                 fname = (a.get("name") or "").lower()
                 dl_url = a.get("browser_download_url") or ""
                 if "tatap-tv-release-" in fname and fname.endswith(".apk") and not fname.endswith(".idsig"):
                     assets_out["android_tv"] = dl_url
+                elif "lumio-v" in fname and fname.endswith(".apk") and not fname.endswith(".idsig"):
+                    android_lumio = dl_url
                 elif "tatap-release-" in fname and fname.endswith(".apk") and not fname.endswith(".idsig"):
-                    assets_out["android"] = dl_url
+                    android_legacy = dl_url
                 elif "windows" in fname and fname.endswith(".zip"):
                     assets_out["windows"] = dl_url
                 elif fname.endswith(".appimage"):
                     assets_out["linux"] = dl_url
+            # Nama resmi sekarang Lumio-v<VER>.apk; nama lama hanya cadangan
+            # untuk rilis transisi. "Lumio.apk" (tautan bagikan) tidak berpola
+            # versi sehingga tidak akan terpilih di sini.
+            assets_out["android"] = android_lumio or android_legacy
 
             if not assets_out["android"]:
                 assets_out = build_official_assets(latest_clean)
