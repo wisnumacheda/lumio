@@ -30,6 +30,7 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 
 ## Payload Isi (OTA — tanpa rilis APK)
 
+- **Payload v9** - 2026-10-23: Pencocok update APK diperlebar — mengutamakan aset Lumio-v<VERSI>.apk, nama lama tatap-release-* hanya cadangan transisi (pendamping rilis APK 2.26.0).
 - **Payload v8** - 2026-10-23: Dari masukan pengguna (Issue #2/#3): pilihan WARNA teks subtitle (Putih/Kuning/Cyan/Hijau) di panel 🎨 Gaya Subtitle (pengaturan baru `subColor`) + tombol ← Kembali di bilah kontrol fullscreen player (menutup player, setara tombol kembali biasa).
 - **Payload v7** - 2026-10-23: Diagnostik jalur masukan lanjutan — flush mencatat baris antrean yang terlihat + jalur basis data + id boot, galat baca antrean kini tercatat (sebelumnya tertelan senyap), flush boot diulang +25 dtk, dan ada tombol "↻ Kirim Ulang Antrean" (POST /api/feedback/flush).
 - **Payload v6** - 2026-10-23: Diagnostik jalur masukan — endpoint status masukan (token terdeteksi/lokasi, antrean, error terakhir) + baris "🔍 Jalur" di Pengaturan; pencarian token multi-lokasi; error penerusan kini tercatat (tidak lagi senyap).
