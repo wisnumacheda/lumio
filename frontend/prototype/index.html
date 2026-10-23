@@ -219,6 +219,21 @@
   .eps-sec h3{font-size:17px;font-weight:800;margin-bottom:6px}
   .eps-sec .hint{color:var(--faint);font-size:12.5px;margin-bottom:14px}
   .eps-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:9px}
+  .eps-pills{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 10px}
+  .eps-pill{padding:6px 12px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--faint);font-size:12.5px;cursor:pointer}
+  .eps-pill.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:700}
+  .ep-btn.ep-new{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+  .ep-btn.ep-last{border-color:var(--amber)}
+  .hist-x{position:absolute;top:6px;right:6px;z-index:3;width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:rgba(10,10,16,.78);color:#fff;font-size:13px;line-height:1;cursor:pointer}
+  .hist-prog{position:absolute;left:0;right:0;bottom:0;height:5px;background:rgba(255,255,255,.25);z-index:2}
+  .hist-prog i{display:block;height:100%;background:var(--acc)}
+  .rel-row{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 8px}
+  .rel-card{flex:0 0 108px;cursor:pointer}
+  .rel-card .rposter{position:relative;border-radius:var(--r-sm);overflow:hidden;aspect-ratio:2/3;background:var(--panel)}
+  .rel-card img{width:100%;height:100%;object-fit:cover;display:block}
+  .rel-card .rlabel{position:absolute;left:0;right:0;bottom:0;padding:12px 6px 4px;font-size:10.5px;font-weight:700;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.85))}
+  .rel-card .rttl{font-size:11.5px;color:var(--faint);margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .d-sec-title{font-size:16px;font-weight:800;margin:0 0 8px}
   .ep-btn{padding:11px 0;border-radius:var(--r-sm);background:var(--panel);border:1px solid var(--line);
     font-weight:700;font-size:14px;text-align:center;transition:.15s}
   .ep-btn:hover{background:linear-gradient(135deg,var(--acc),#7c3aed);color:#fff;transform:translateY(-2px);
@@ -484,9 +499,14 @@
         <div class="gtags" id="dGenres"></div>
       </div>
     </div>
+    <div id="dSeasons" class="hidden" style="margin-top:18px">
+      <h3 class="d-sec-title">📺 Season &amp; Judul Terkait</h3>
+      <div class="rel-row" id="dSeasonsRow"></div>
+    </div>
     <div class="eps-sec">
       <h3>Pilih Episode</h3>
       <div class="hint" id="epsHint">Memuat daftar episode…</div>
+      <div class="eps-pills" id="epsRanges"></div>
       <div class="eps-grid" id="epsGrid"></div>
     </div>
   </div>
@@ -955,6 +975,7 @@ async function loadBaruRail(){
 async function loadHome(){
   hideState();
   $("#rails").innerHTML =
+    railSection("railHist", "▶️ Lanjut Nonton", "Terakhir kamu tonton — klik untuk melanjutkan", false) +
     railSection("railBaru", "🆕 Baru Diupdate", "Anime ongoing dengan episode paling segar dari sumber", true) +
     (SETTINGS.sort === "terbaru" ? railSection("railRilis", "📅 Jadwal Rilis", "Jadwal rilis minggu ini — hari ini paling atas, kemarin di bawahnya") : "") +
     railSection("railPopuler", "Populer Sekarang", "Paling banyak ditonton di katalog", true) +
@@ -971,6 +992,7 @@ async function loadHome(){
     setActiveTab("");
     openGrid(cfg.title, cfg.loader);
   }));
+  renderHistRail();
 
   let firstError = null;
   const jobs = [
@@ -1144,7 +1166,7 @@ let currentSlug = null, currentItem = null;
 function openModal(id){ document.getElementById(id).classList.remove("hidden"); document.body.style.overflow = "hidden"; }
 function closeModal(id){
   document.getElementById(id).classList.add("hidden");
-  if (id === "playerModal") stopPlayer();
+  if (id === "playerModal") { stopPlayer(); renderHistRail(); }
   if ($("#playerModal").classList.contains("hidden") && $("#detailModal").classList.contains("hidden"))
     document.body.style.overflow = "";
 }
@@ -1175,6 +1197,104 @@ async function refreshFavBtn(slug){
     if (d && d.bookmarked) { btn.classList.add("on"); btn.textContent = "❤️ Favorit Saya"; }
   } catch(_){}
 }
+/* ---------------- Lanjut Nonton (riwayat + resume) ---------------- */
+const HIST_KEY = "lumio_history_v1";
+function fmtClock(s){ s = Math.max(0, Math.floor(s || 0)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), d = s % 60; return (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(d).padStart(2, "0"); }
+function loadHist(){ try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch (e) { return []; } }
+function saveHist(h){ try { localStorage.setItem(HIST_KEY, JSON.stringify((h || []).slice(0, 24))); } catch (e) {} }
+function histGet(slug){ return loadHist().find(x => x.slug === slug) || null; }
+function histTouch(slug, ep){
+  const it = itemStore.get(slug) || currentItem || {};
+  const prev = histGet(slug);
+  const rest = loadHist().filter(x => x.slug !== slug);
+  rest.unshift({ slug, title: it.title || (prev && prev.title) || slug, poster: it.poster || (prev && prev.poster) || "",
+    ep, pos: prev && prev.ep === ep ? (prev.pos || 0) : 0, dur: prev && prev.ep === ep ? (prev.dur || 0) : 0, ts: Date.now() });
+  saveHist(rest);
+}
+function histProgress(slug, ep, pos, dur){
+  const h = loadHist(); const e = h.find(x => x.slug === slug); if (!e) return;
+  if (ep != null && e.ep !== ep) return;
+  e.pos = pos || 0; e.dur = dur || 0; e.ts = Date.now(); saveHist(h);
+}
+function histRemove(slug){ saveHist(loadHist().filter(x => x.slug !== slug)); renderHistRail(); }
+function histCardHTML(h){
+  const pct = h.dur > 0 && h.pos > 0 ? Math.min(100, Math.round(h.pos / h.dur * 100)) : 0;
+  const left = h.dur > 0 && h.pos > 15 && h.pos < h.dur - 20 ? `<span class="mini sub">⏩ sisa ${esc(fmtClock(h.dur - h.pos))}</span>` : "";
+  return `<article class="card hist-card" data-slug="${esc(h.slug)}" data-ep="${h.ep}" tabindex="0" role="button" aria-label="${esc(h.title)}">
+    <div class="poster">
+      <img loading="lazy" src="${esc(posterSrc(h.poster))}" data-proxy="${esc(posterSrc(h.poster))}" data-direct="${esc(h.poster || "")}" data-fb="0" alt="${esc(h.title)}" onerror="imgFallback(this)">
+      <button class="hist-x" data-hist-del="${esc(h.slug)}" title="Hapus dari riwayat" aria-label="Hapus dari riwayat">✕</button>
+      <span class="eps-badge">EP ${esc(h.ep)}</span>
+      ${pct ? `<div class="hist-prog"><i style="width:${pct}%"></i></div>` : ""}
+      <div class="play-ico">▶</div>
+    </div>
+    <div class="meta"><div class="ttl">${esc(h.title)}</div><div class="sub-meta">${left}</div></div>
+  </article>`;
+}
+function renderHistRail(){
+  const sec = document.getElementById("railHist"); if (!sec) return;
+  const rail = $(".rail", sec); if (!rail) return;
+  const h = loadHist();
+  if (!h.length) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  rail.innerHTML = h.map(histCardHTML).join("");
+  $$(".hist-card", rail).forEach(c => {
+    c.addEventListener("click", () => openDetail(c.dataset.slug, Number(c.dataset.ep)));
+    c.addEventListener("keydown", e => { if (e.key === "Enter") openDetail(c.dataset.slug, Number(c.dataset.ep)); });
+  });
+  $$("[data-hist-del]", rail).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); histRemove(b.dataset.histDel); }));
+}
+
+/* ---------------- Season terkait + grid episode berkelompok ---------------- */
+async function loadSeasons(slug, title){
+  const box = $("#dSeasons"), row = $("#dSeasonsRow");
+  if (!box || !row) return;
+  try {
+    const d = await api(`/api/anime/${encodeURIComponent(slug)}/relations?title=${encodeURIComponent(title || "")}`);
+    if (currentSlug !== slug) return;
+    const rels = (d.relations || []).filter(r => r.slug && r.slug !== slug).slice(0, 8);
+    if (!rels.length) { box.classList.add("hidden"); return; }
+    rels.forEach(r => itemStore.set(r.slug, {id: r.slug, title: r.title, poster: r.poster || "", type: r.format || ""}));
+    row.innerHTML = rels.map(r => `<div class="rel-card" data-slug="${esc(r.slug)}" role="button" tabindex="0" aria-label="${esc(r.title)}">
+      <div class="rposter"><img loading="lazy" src="${esc(posterSrc(r.poster))}" data-proxy="${esc(posterSrc(r.poster))}" data-direct="${esc(r.poster || "")}" data-fb="0" alt="${esc(r.title)}" onerror="imgFallback(this)"><span class="rlabel">${esc(r.label || "Terkait")}${r.year ? " • " + esc(r.year) : ""}</span></div>
+      <div class="rttl">${esc(r.title)}</div></div>`).join("");
+    $$(".rel-card", row).forEach(c => {
+      const go = () => openDetail(c.dataset.slug);
+      c.addEventListener("click", go);
+      c.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+    });
+    box.classList.remove("hidden");
+  } catch (e) { box.classList.add("hidden"); }
+}
+const EPS_CHUNK = 12;
+function renderEpisodeGrid(slug, focusEp){
+  const eps = window._epsAll || [];
+  const grid = $("#epsGrid"), pills = $("#epsRanges");
+  if (!grid || !pills) return;
+  const chunks = Math.max(1, Math.ceil(eps.length / EPS_CHUNK));
+  let def = 0;
+  const hist = histGet(slug);
+  const want = focusEp != null ? focusEp : (hist ? hist.ep : null);
+  if (want != null) { const i = eps.findIndex(e => e.ep === want); if (i >= 0) def = Math.floor(i / EPS_CHUNK); }
+  else if (window._epsOngoing) def = chunks - 1;
+  if (window._epsChunk == null || window._epsChunkSlug !== slug) window._epsChunk = def;
+  window._epsChunkSlug = slug;
+  const ci = Math.min(window._epsChunk, chunks - 1);
+  pills.innerHTML = chunks > 1 ? Array.from({length: chunks}, (_, i) => {
+    const a = eps[i * EPS_CHUNK].ep, b = eps[Math.min(eps.length, (i + 1) * EPS_CHUNK) - 1].ep;
+    return `<button class="eps-pill${i === ci ? " on" : ""}" data-chunk="${i}">EP ${a}–${b}</button>`;
+  }).join("") : "";
+  $$(".eps-pill", pills).forEach(b => b.addEventListener("click", () => { window._epsChunk = Number(b.dataset.chunk); renderEpisodeGrid(slug); }));
+  const newest = eps.length ? eps[eps.length - 1].ep : null;
+  const lastEp = hist ? hist.ep : null;
+  grid.innerHTML = eps.slice(ci * EPS_CHUNK, (ci + 1) * EPS_CHUNK).map(e => {
+    const isNew = window._epsOngoing && e.ep === newest, isLast = e.ep === lastEp;
+    const cls = ["ep-btn", isNew ? "ep-new" : "", isLast ? "ep-last" : ""].filter(Boolean).join(" ");
+    return `<button class="${cls}" data-ep="${e.ep}">${e.ep}${isNew ? " 🆕" : (isLast ? " ▶" : "")}</button>`;
+  }).join("");
+  $$("#epsGrid .ep-btn").forEach(b => b.addEventListener("click", () => playEpisode(slug, Number(b.dataset.ep))));
+}
+
 async function openDetail(slug, autoplayEp){
   currentSlug = slug;
   currentItem = itemStore.get(slug) || {id: slug, title: slug};
@@ -1182,6 +1302,8 @@ async function openDetail(slug, autoplayEp){
   const dp = $("#dPoster"); dp.dataset.direct = it.poster || ""; dp.dataset.proxy = posterSrc(it.poster); dp.dataset.fb = 0; dp.style.visibility = ""; dp.src = posterSrc(it.poster);
   $("#dTitle").textContent = it.title || slug;
   refreshFavBtn(slug);
+  const sBox = $("#dSeasons"); if (sBox) { sBox.classList.add("hidden"); $("#dSeasonsRow").innerHTML = ""; }
+  loadSeasons(slug, it.title || slug);
   $("#dSyn").textContent = "Memuat sinopsis…";
   $("#dSyn").classList.remove("clamp"); $("#dSynToggle").classList.add("hidden");
   $("#dGenres").innerHTML = "";
@@ -1224,14 +1346,14 @@ async function openDetail(slug, autoplayEp){
   try {
     const d = await api(`/api/anime/${encodeURIComponent(slug)}/episodes`);
     if (currentSlug !== slug) return;
-    const eps = d.episodes || [];
+    const eps = (d.episodes || []).slice().sort((a, b) => a.ep - b.ep);
     window._epsNums = eps.map(e => e.ep);
+    window._epsAll = eps;
+    window._epsOngoing = it.is_finished === false || /ongoing|releasing/i.test(it.status || "") || String(it.badge || "").toUpperCase() === "ONGOING";
     $("#epsHint").textContent = eps.length
-      ? `${d.total || eps.length} episode tersedia — klik nomor untuk langsung memutar.`
+      ? `${d.total || eps.length} episode tersedia — klik nomor untuk langsung memutar.` + (window._epsOngoing ? " 🆕 = episode terbaru." : "")
       : "Belum ada episode untuk judul ini.";
-    $("#epsGrid").innerHTML = eps.map(e =>
-      `<button class="ep-btn" data-ep="${e.ep}">${e.ep}</button>`).join("");
-    $$("#epsGrid .ep-btn").forEach(b => b.addEventListener("click", () => playEpisode(slug, Number(b.dataset.ep))));
+    renderEpisodeGrid(slug, autoplayEp);
     if (autoplayEp != null) playEpisode(slug, autoplayEp);
   } catch (e) {
     if (currentSlug === slug) $("#epsHint").textContent = "Daftar episode gagal dimuat: " + e.message;
@@ -1259,7 +1381,7 @@ video.addEventListener("ended", () => {
   const nxt = (window._curEp || 0) + 1;
   if (window._curSlug && (window._epsNums || []).includes(nxt)) {
     toast("▶ Lanjut otomatis ke Episode " + nxt);
-    playEpisode(window._curSlug, nxt);
+    playEpisode(window._curSlug, nxt, true);
   }
 });
 video.addEventListener("timeupdate", () => {
@@ -1271,6 +1393,28 @@ video.addEventListener("timeupdate", () => {
     btn.textContent = skipRange.label === "outro" ? "⏭ Lewati Ending" : "⏭ Lewati Opening";
     btn.classList.remove("hidden");
   } else btn.classList.add("hidden");
+});
+let lastHistSave = 0;
+video.addEventListener("timeupdate", () => {
+  const now = Date.now(); if (now - lastHistSave < 5000) return; lastHistSave = now;
+  if (window._curSlug && window._curEp && video.duration > 0 && !video.paused)
+    histProgress(window._curSlug, window._curEp, video.currentTime, video.duration);
+});
+video.addEventListener("pause", () => {
+  if (window._curSlug && window._curEp && video.duration > 0)
+    histProgress(window._curSlug, window._curEp, video.currentTime, video.duration);
+});
+video.addEventListener("loadedmetadata", () => {
+  const pos = window._resumePos || 0;
+  if (pos > 0 && window._resumeKey === (window._curSlug + "#" + window._curEp)) {
+    window._resumePos = 0;
+    try { video.currentTime = pos; } catch (e) {}
+    toast("⏩ Melanjutkan dari " + fmtClock(pos));
+  }
+});
+video.addEventListener("ended", () => {
+  const s = window._curSlug, e = window._curEp || 0; if (!s) return;
+  if ((window._epsNums || []).includes(e + 1)) histProgress(s, e, 0, 0); else histRemove(s);
 });
 $("#serverSel").addEventListener("change", e => {
   if (!window._curSlug || !window._curEp) return;
@@ -1287,10 +1431,24 @@ $("#qualitySel").addEventListener("change", e => {
   video.play().catch(() => {});
 });
 
-async function playEpisode(slug, ep){
+function tryFullscreen(){
+  try {
+    if (document.fullscreenElement) return;
+    const el = document.querySelector(".video-wrap") || video;
+    const p = el.requestFullscreen ? el.requestFullscreen() : null;
+    if (p && p.then) p.then(() => { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); } catch (e) {} }).catch(() => {});
+  } catch (e) {}
+}
+function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
+async function playEpisode(slug, ep, fromAuto){
   const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
+  histTouch(slug, ep);
+  const savedHist = histGet(slug);
+  window._resumePos = (savedHist && savedHist.ep === ep && savedHist.pos > 15 && (!savedHist.dur || savedHist.pos < savedHist.dur - 20)) ? savedHist.pos : 0;
+  window._resumeKey = slug + "#" + ep;
   openModal("playerModal");
+  if (!fromAuto) tryFullscreen();
   stopPlayer();
   $("#pTitle").textContent = `${it.title || slug} — Episode ${ep}`;
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
@@ -1302,12 +1460,13 @@ async function playEpisode(slug, ep){
   try {
     data = await api(`/api/stream/resolve?slug=${encodeURIComponent(slug)}&ep=${ep}&mode=${SETTINGS.audio}` + (effSource !== "auto" ? `&source=${effSource}` : ""));
   } catch (e) {
+    exitFs();
     setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(e.message) + (effSource !== "auto" ? "<br>Server pilihan tidak menyediakan judul ini — coba ganti ke <b>Server: Otomatis</b> di atas." : ""));
     toast("Stream gagal dimuat: " + e.message, true);
     return;
   }
   const master = data.master || (data.picked && data.picked.url) || "";
-  if (!master) { setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk episode ini."); return; }
+  if (!master) { exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk episode ini."); return; }
   const referer = data.referer || "";
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
 

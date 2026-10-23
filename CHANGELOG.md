@@ -28,6 +28,19 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.17.0] - 2026-10-23
+
+### Ditambahkan
+- **Lanjut Nonton**: rel "▶️ Lanjut Nonton" di Beranda berisi tontonan terakhir (maks 24, tersimpan di perangkat) dengan bilah progres, sisa waktu, dan tombol hapus per judul; player **mengingat posisi terakhir** — membuka episode yang sama melanjutkan dari posisi itu (toast "⏩ Melanjutkan dari …"); episode yang tamat otomatis dibersihkan dari riwayat.
+- **Bagian "📺 Season & Judul Terkait" di detail anime** (di atas pilihan episode): menampilkan season lanjutan/sebelumnya, movie, dan spesial terkait dari endpoint relasi franchise (`/api/anime/{slug}/relations`, AniList + fallback pencarian), lengkap dengan label ("Season 2", "Movie", dst) — klik untuk pindah judul.
+- **Pemutar langsung fullscreen landscape**: memilih episode langsung masuk mode fullscreen (tombol Lewati OP/ED tetap tampil), dan shell aplikasi mengunci orientasi landscape selama fullscreen (dilepas saat keluar). Lanjut-otomatis ke episode berikutnya tidak memaksa fullscreen. Bila stream gagal, fullscreen dibatalkan agar pesan error terlihat.
+
+### Diubah
+- **Daftar episode berkelompok**: episode ditampilkan per kelompok 12 dengan tombol rentang ("EP 1–12", "EP 13–24", …) agar tidak memenuhi layar; anime **ongoing otomatis membuka kelompok episode terbaru** dan episode terbarunya ditandai 🆕; episode terakhir ditonton ditandai ▶.
+
+### Diperbaiki
+- **Season lanjutan kini ditemukan pencarian**: `/api/search` menggabungkan varian kata kunci (bentuk ordinal "2nd season" + bentuk tempel kata awal) karena indeks HiAnime sensitif kata — "Ao Ashi Season 2" sebelumnya hanya menemukan Season 1, kini Season 2 ("Aoashi 2nd Season") ikut tampil. Fallback relasi franchise memakai varian tempel yang sama; kunci cache pencarian dinaikkan versinya agar hasil lama tidak menutupi gabungan baru.
+
 ## [2.16.0] - 2026-10-23
 
 ### Ditambahkan

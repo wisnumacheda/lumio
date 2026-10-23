@@ -411,6 +411,31 @@ async def _enrich_search_results_with_metadata(items: list, al_meta_list: list):
                 if not it.get("season"):
                     it["season"] = str(it["year"])
 
+def _search_query_variants(q: str):
+    """Varian kata kunci untuk mengakali indeks pencarian HiAnime yang sensitif kata:
+    bentuk ordinal ("2nd season") dan bentuk tempel kata awal ("Aoashi")."""
+    import re as _re
+    words = (q or "").split()
+    out = []
+    def _suf(n):
+        return "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    def add(v):
+        v = " ".join((v or "").split()).strip()
+        if v and v.lower() != (q or "").lower() and v not in out:
+            out.append(v)
+    m = _re.search(r"(?i)\bseason\s*(\d{1,2})\b", q or "")
+    if m:
+        n = int(m.group(1))
+        add(_re.sub(r"(?i)\bseason\s*\d{1,2}\b", f"{n}{_suf(n)} season", q))
+    if len(words) >= 2 and len(words[0]) <= 5 and len(words[1]) <= 6:
+        joined = " ".join([words[0] + words[1]] + words[2:])
+        add(joined)
+        if m:
+            n = int(m.group(1))
+            add(_re.sub(r"(?i)\bseason\s*\d{1,2}\b", f"{n}{_suf(n)} season", joined))
+    return out[:3]
+
+
 @app.get("/api/search")
 async def search(q: str = Query(""), page: int = Query(1, ge=1, le=100), limit: int = 24, source: str = Query(""), safe_mode: int = Query(1)):
     q = (q if isinstance(q, str) else "").strip()
@@ -428,7 +453,7 @@ async def search(q: str = Query(""), page: int = Query(1, ge=1, le=100), limit: 
     src = (source if isinstance(source, str) else "").strip().lower()
     c_page = page if isinstance(page, int) and page >= 1 else 1
     c_limit = limit if isinstance(limit, int) and limit >= 1 else 24
-    cache_key = f"{src}|{q.lower()}|p{c_page}|l{c_limit}" if src else f"{q.lower()}|p{c_page}|l{c_limit}"
+    cache_key = f"v2|{src}|{q.lower()}|p{c_page}|l{c_limit}" if src else f"v2|{q.lower()}|p{c_page}|l{c_limit}"
     try:
         hit = await get_search_cache(cache_key)
         if hit:
@@ -485,6 +510,20 @@ async def search(q: str = Query(""), page: int = Query(1, ge=1, le=100), limit: 
             except Exception:
                 pass
             
+        # Gabung varian pencarian (HiAnime, halaman 1): indeksnya sensitif kata -
+        # "Ao Ashi Season 2" hanya menemukan S1, sedangkan "Aoashi Season 2" /
+        # "Ao Ashi 2nd Season" menemukan S2. Varian digabung agar sekuel tidak tersembunyi.
+        if src != "otakudesu" and c_page == 1 and paged_res and paged_res.get("results"):
+            try:
+                seen_ids = {r.get("id") for r in paged_res["results"] if r.get("id")}
+                for variant in _search_query_variants(q):
+                    vres = await loop.run_in_executor(None, lambda v=variant: hi.hianime_search_page(v, limit=c_limit, page=1))
+                    for r in (vres or {}).get("results") or []:
+                        if r.get("id") and r["id"] not in seen_ids:
+                            seen_ids.add(r["id"])
+                            paged_res["results"].append(r)
+            except Exception:
+                pass
         paged_res["cached"] = False
         if paged_res.get("results"):
             await set_search_cache(cache_key, paged_res)
@@ -1397,6 +1436,21 @@ async def anime_relations_endpoint(slug: str, title: str = Query("")):
             hi_candidates = await loop.run_in_executor(None, lambda: hi.hianime_search(franchise_q, limit=20))
             if not hi_candidates and franchise_q != search_query:
                 hi_candidates = await loop.run_in_executor(None, lambda: hi.hianime_search(search_query, limit=20))
+            # Indeks HiAnime sensitif kata: judul tempel ("Aoashi") menemukan sekuel yang
+            # tidak ditemukan bentuk spasi ("Ao Ashi"). Gabung hasil varian tempelnya.
+            hi_candidates = hi_candidates or []
+            _fw = franchise_q.split()
+            if len(_fw) >= 2 and len(_fw[0]) <= 5 and len(_fw[1]) <= 6:
+                _sq = " ".join([_fw[0] + _fw[1]] + _fw[2:])
+                if _sq.lower() != franchise_q.lower():
+                    try:
+                        _extra = await loop.run_in_executor(None, lambda: hi.hianime_search(_sq, limit=20))
+                        _have = {(c.get("id") or "") for c in hi_candidates}
+                        for _c in (_extra or []):
+                            if (_c.get("id") or "") not in _have:
+                                hi_candidates.append(_c)
+                    except Exception:
+                        pass
             
             seen_cand = set()
             for cand in (hi_candidates or []):

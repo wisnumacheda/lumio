@@ -2,6 +2,7 @@ package id.tatap.app;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.SharedPreferences;
 import android.util.Log;
 import android.graphics.Color;
@@ -93,6 +94,7 @@ public class WebUiActivity extends Activity {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
                 fullContainer.setVisibility(View.VISIBLE);
                 web.setVisibility(View.INVISIBLE);
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
                 getWindow().getDecorView().setSystemUiVisibility(
                         View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
@@ -107,6 +109,7 @@ public class WebUiActivity extends Activity {
                 }
                 fullContainer.setVisibility(View.GONE);
                 web.setVisibility(View.VISIBLE);
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
                 getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
                 if (customCallback != null) {
                     customCallback.onCustomViewHidden();
