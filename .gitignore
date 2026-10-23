@@ -25,6 +25,7 @@ local.properties
 
 # Lokal Muse (jangan commit)
 .preview-token
+feedback_token.txt
 *.apk
 build*.log
 preview_gateway.py

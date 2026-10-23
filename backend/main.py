@@ -462,10 +462,24 @@ def _fb_insert(category, message, contact):
         conn.close()
 
 
+def _fb_token():
+    """Token penerus masukan: env lebih dulu, lalu berkas feedback_token.txt
+    di samping main.py (berkas itu TIDAK ikut git — token hanya hidup di
+    perangkat/payload, tidak di repo publik)."""
+    if FEEDBACK_GITHUB_TOKEN:
+        return FEEDBACK_GITHUB_TOKEN
+    try:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "feedback_token.txt")
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
 def _fb_flush_sync(limit=5):
     """Teruskan antrean masukan menjadi GitHub Issue (bila token tersedia).
     Mengembalikan jumlah yang terkirim."""
-    token = FEEDBACK_GITHUB_TOKEN
+    token = _fb_token()
     if not token:
         return 0
     conn = _fb_db()
