@@ -181,6 +181,10 @@ async def check_update(force: bool = False):
         if resp.status_code == 200:
             rel_data = resp.json()
             tag_name = (rel_data.get("tag_name") or "").strip()
+            if not re.match(r"^v\d+\.\d+\.\d+$", tag_name):
+                # Rilis terbaru bukan rilis APK (mis. payload isi bertag
+                # payload-N) — jangan dipakai; lanjut ke tier berikutnya.
+                raise ValueError(f"Rilis terbaru bukan rilis APK ({tag_name})")
             latest_clean = re.sub(r"^v", "", tag_name)
             has_update = False
             try:
