@@ -30,6 +30,8 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 
 ## Payload Isi (OTA — tanpa rilis APK)
 
+- **Payload v6** - 2026-10-23: Diagnostik jalur masukan — endpoint status masukan (token terdeteksi/lokasi, antrean, error terakhir) + baris "🔍 Jalur" di Pengaturan; pencarian token multi-lokasi; error penerusan kini tercatat (tidak lagi senyap).
+- **Payload v5** - 2026-10-23: Jalur masukan aktif — token penerus tertanam via berkas di luar git (feedback_token.txt); masukan dari aplikasi diteruskan menjadi GitHub Issue berlabel "masukan".
 - **Payload v4** - 2026-10-23: Panel 💬 Subtitle di player direstruktur — seksi "🎨 Gaya Subtitle" kini PALING ATAS (sebelumnya pengaturan ukuran terkubur di bawah daftar trek yang panjang): pilihan Ukuran (Kecil/Sedang/Besar/Jumbo) + Latar (Kotak Gelap/Tipis/Tanpa Kotak, pengaturan baru `subBg` yang juga tersedia di Pengaturan utama). Panel kontrol tidak lagi auto-sembunyi selama panel opsi terbuka.
 - **Payload v3** - 2026-10-23: Pemeriksa update APK mengabaikan rilis non-APK (tag payload-N).
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
