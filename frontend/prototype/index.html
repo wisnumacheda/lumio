@@ -777,6 +777,7 @@
         <input id="fbContact" class="fb-field" type="text" maxlength="200" placeholder="Nama / kontak (opsional, biar bisa dibalas)">
         <button class="btn-reset" id="btnSendFeedback">📨 Kirim Masukan</button>
         <div class="desc" id="fbStatus"></div>
+        <div class="desc" id="fbDiag"></div>
       </div>
     </div>
   </aside>
@@ -2280,6 +2281,17 @@ async function checkPayload(manual){
 $("#btnCheckPayload").addEventListener("click", () => checkPayload(true));
 
 /* ---------------- Kirim masukan ---------------- */
+async function showFbDiag() {
+  const el = $("#fbDiag"); if (!el) return;
+  try {
+    const s = await api("/api/feedback/status");
+    const last = (s && s.last) || {};
+    el.textContent = "🔍 Jalur: token " + (s.token_found ? "terdeteksi (" + s.token_length + " karakter, dari " + (s.token_source || "?") + ")" : "TIDAK terdeteksi")
+      + " • antrean " + s.pending + " • terkirim " + s.sent_total
+      + (last.error ? " • error terakhir: " + last.error : (last.at ? " • percobaan terakhir " + last.at + " bersih" : ""));
+  } catch (e) { el.textContent = "🔍 Jalur: status tidak terbaca (" + e.message + ")"; }
+}
+showFbDiag();
 $("#btnSendFeedback").addEventListener("click", async () => {
   const msg = $("#fbMessage").value.trim();
   const st = $("#fbStatus");
@@ -2290,6 +2302,7 @@ $("#btnSendFeedback").addEventListener("click", async () => {
     const r = await apiSend("POST", "/api/feedback", {category: $("#fbCategory").value, message: msg, contact: $("#fbContact").value.trim()});
     if (r && r.sent) { st.textContent = "✓ Terkirim — terima kasih banyak!"; toast("💬 Masukan terkirim ✓"); }
     else { st.textContent = "✓ Tersimpan — terkirim otomatis saat server masukan aktif / ada internet."; toast("💬 Masukan tersimpan"); }
+    showFbDiag();
     $("#fbMessage").value = "";
   } catch (e) { st.textContent = "Gagal mengirim: " + e.message; }
   btn.disabled = false;

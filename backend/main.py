@@ -462,25 +462,50 @@ def _fb_insert(category, message, contact):
         conn.close()
 
 
-def _fb_token():
-    """Token penerus masukan: env lebih dulu, lalu berkas feedback_token.txt
-    di samping main.py (berkas itu TIDAK ikut git — token hanya hidup di
-    perangkat/payload, tidak di repo publik)."""
+def _fb_token_info():
+    """Cari token penerus masukan dari beberapa lokasi yang masuk akal.
+    Mengembalikan {found, length, source} (+ _token internal). Token TIDAK
+    ikut git — ia hanya hidup di perangkat/payload, tidak di repo publik."""
     if FEEDBACK_GITHUB_TOKEN:
-        return FEEDBACK_GITHUB_TOKEN
+        return {"found": True, "length": len(FEEDBACK_GITHUB_TOKEN),
+                "source": "env", "_token": FEEDBACK_GITHUB_TOKEN}
+    cands = []
     try:
-        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "feedback_token.txt")
-        with open(p, "r", encoding="utf-8") as f:
-            return f.read().strip()
+        here = os.path.dirname(os.path.abspath(__file__))
+        cands.append(("sebelah main.py", os.path.join(here, "feedback_token.txt")))
+        cands.append(("satu tingkat di atas main.py",
+                      os.path.join(here, "..", "feedback_token.txt")))
     except Exception:
-        return ""
+        pass
+    dd = os.environ.get("LUMIO_DATA_DIR", "")
+    if dd:
+        cands.append(("folder data aplikasi", os.path.join(dd, "feedback_token.txt")))
+    cands.append(("folder kerja", os.path.join(os.getcwd(), "feedback_token.txt")))
+    for src, p in cands:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                t = f.read().strip()
+            if t:
+                return {"found": True, "length": len(t), "source": src, "_token": t}
+        except Exception:
+            continue
+    return {"found": False, "length": 0, "source": "", "_token": ""}
+
+
+def _fb_token():
+    return _fb_token_info().get("_token", "")
+
+
+_FB_LAST = {"at": "", "sent": 0, "error": ""}
 
 
 def _fb_flush_sync(limit=5):
     """Teruskan antrean masukan menjadi GitHub Issue (bila token tersedia).
     Mengembalikan jumlah yang terkirim."""
     token = _fb_token()
+    _FB_LAST["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     if not token:
+        _FB_LAST["error"] = "token tidak ditemukan di perangkat"
         return 0
     conn = _fb_db()
     try:
@@ -530,9 +555,15 @@ def _fb_flush_sync(limit=5):
                     conn.close()
                 sent += 1
             else:
+                _FB_LAST["error"] = (f"GitHub menjawab HTTP {r.status_code}: "
+                                     f"{(r.text or '')[:140]}")
                 break
-        except Exception:
+        except Exception as e:
+            _FB_LAST["error"] = f"{type(e).__name__}: {str(e)[:140]}"
             break
+    _FB_LAST["sent"] = sent
+    if sent:
+        _FB_LAST["error"] = ""
     return sent
 
 
@@ -566,6 +597,27 @@ async def feedback_submit(body: dict = None):
     except Exception:
         pass
     return ok({"sent": sent > 0, "queued": sent == 0})
+
+
+@app.get("/api/feedback/status")
+async def feedback_status():
+    info = _fb_token_info()
+    pending = -1
+    sent_total = -1
+    try:
+        conn = _fb_db()
+        try:
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM feedback_queue WHERE sent=0").fetchone()[0]
+            sent_total = conn.execute(
+                "SELECT COUNT(*) FROM feedback_queue WHERE sent=1").fetchone()[0]
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return ok({"token_found": info["found"], "token_length": info["length"],
+               "token_source": info["source"], "pending": pending,
+               "sent_total": sent_total, "last": _FB_LAST})
 
 
 @app.get("/api/health")
