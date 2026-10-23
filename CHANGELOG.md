@@ -28,6 +28,18 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.22.0] - 2026-10-23
+
+### Added
+- **Otakudesu hidup lagi**: situsnya pindah ke otakudesu.blog dengan tema baru — basis diperbarui (+ rotasi mirror otomatis bila domain berganti lagi), parser pencarian & daftar episode ditulis ulang mengikuti tema WordPress/Animestream, pencocokan judul dijembatani lewat judul romaji AniList (mis. "Attack on Titan" → "Shingeki no Kyojin"), dan stream diambil lewat mekanisme mirror ajax situsnya (jalur putarin lama tetap dicoba lebih dulu bila ada).
+
+### Changed
+- **Urutan "Rilisan Terbaru" sekarang benar-benar tanggal rilis**: daftar telusur memakai urutan tanggal rilis dari sumbernya (sebelumnya token urutan yang dikirim tidak dihiraukan sumber sehingga sama persis dengan "Populer"); grid Baru Diupdate mengikuti mode urutan yang dipilih; "Musim Ini" mode terbaru kini diurutkan AniList dari tanggal tayang perdana (START_DATE), bukan tanggal pembaruan.
+- **Subtitle terjemahan tampil lebih cepat**: potongan pertama kini hanya 12 dialog (sebelumnya 50) sehingga teks pertama muncul dalam hitungan detik, potongan berikutnya 60; ada pemberitahuan saat terjemahan mulai/selesai.
+
+### Fixed
+- Pemungutan suara subtitle progresif tidak lagi berhenti total saat server membalas galat sesaat (HTTP 5xx): dicoba ulang sampai 6 kali sebelum menyerah, dan kegagalan membaca respons tidak lagi membunuh prosesnya diam-diam.
+
 ## [2.21.0] - 2026-10-23
 
 ### Ditambahkan

@@ -40,7 +40,7 @@ def close_otaku_client():
             pass
         _otaku_client = None
 
-def _fetch(url: str, referer: str = None, timeout: int = 12) -> str:
+def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
     """Fetch helper menggunakan curl_cffi dengan fallback httpx pool dan TLS desync."""
     h = dict(HEADERS)
     if referer:
@@ -74,6 +74,29 @@ def _fetch(url: str, referer: str = None, timeout: int = 12) -> str:
     raise RuntimeError(f"Gagal memuat URL dari Otakudesu: {url}")
 
 
+_OTAKU_MIRRORS = ["https://otakudesu.blog", "https://otakudesu.best", "https://ww2.otakudesu.biz"]
+
+
+def _fetch(url: str, referer: str = None, timeout: int = 12) -> str:
+    """Fetch dengan rotasi mirror: domain Otakudesu terkenal sering berganti;
+    bila URL milik salah satu basis yang dikenal gagal dimuat, coba basis lain
+    dengan path yang sama sebelum menyerah."""
+    try:
+        return _fetch_once(url, referer=referer, timeout=timeout)
+    except RuntimeError:
+        for base in _OTAKU_MIRRORS:
+            if url.startswith(base):
+                for alt in _OTAKU_MIRRORS:
+                    if alt == base:
+                        continue
+                    try:
+                        return _fetch_once(url.replace(base, alt, 1), referer=referer, timeout=min(timeout, 8))
+                    except RuntimeError:
+                        continue
+                break
+        raise
+
+
 def search(query: str, limit: int = 10) -> list:
     """Cari anime di Otakudesu. Return [{title, url, id, poster}]."""
     clean_q = re.sub(r"[^\w\s-]", "", query).strip()
@@ -84,6 +107,13 @@ def search(query: str, limit: int = 10) -> list:
     
     # Format kartu di otakudesu: <a class="ot-k" href="..."> ... <h2 class="ot-k-j">Title</h2>
     cards = re.findall(r'<a class="ot-k"\s+href="([^"]+)">.*?<img[^>]*src="([^"]+)".*?<h2 class="ot-k-j">([^<]+)</h2>', html, re.S)
+    if not cards:
+        # Tema WordPress/Animestream (otakudesu.blog): <li><img POSTER><h2><a href="/anime/SLUG/">Judul</a></h2>
+        wp = []
+        for m in re.finditer(r'<h2><a href="([^"]+/anime/[^"]+)"[^>]*>([^<]+)</a></h2>', html):
+            imgs = re.findall(r'<img[^>]*src="([^"]+)"', html[max(0, m.start() - 1200):m.start()])
+            wp.append((m.group(1), imgs[-1] if imgs else "", m.group(2)))
+        cards = wp
     results = []
     for href, poster, title in cards[:limit]:
         title = htmlmod.unescape(title.strip())
@@ -124,6 +154,19 @@ def get_episodes(anime_url_or_slug: str) -> list:
             "title": title.strip(),
             "url": href
         })
+
+    if not out:
+        # Tema Animestream: episode adalah tautan /episode/<slug>; nomor ada di slug.
+        seen2 = set()
+        for href in re.findall(r'href="([^"]+/episode/[^"]+)"', html):
+            if href in seen2:
+                continue
+            seen2.add(href)
+            ep_m = re.search(r'episode[- ]?(\d+)', href, re.I)
+            if not ep_m:
+                continue
+            n = int(ep_m.group(1))
+            out.append({"ep": n, "title": f"Episode {n}", "url": href})
 
     # Urutkan episode dari yang terkecil
     out.sort(key=lambda x: x["ep"])
@@ -178,6 +221,7 @@ def _extract_season_num(t: str) -> int:
 
 def _clean_title_tokens(t: str) -> set:
     t = (t or "").replace("&", " and ")
+    t = re.sub(r"\([^)]*\)", " ", t)  # buang sisipan "(Episode 1 - 24)" khas judul otakudesu.blog
     t = re.sub(r"\b(?:season\s*\d+|\d+(?:nd|rd|th|st)\s*season|part\s*\d+|s\d+|saishuushou\s*\d+|finale\s*\d+)\b|(?:\b|\s)\d+$", "", t, flags=re.I)
     t = re.sub(r"[^a-zA-Z0-9\s]", " ", t)
     tokens = set()
@@ -187,6 +231,11 @@ def _clean_title_tokens(t: str) -> set:
         elif tok == "movies": tok = "movie"
         elif tok == "finale": tok = "saishuushou"
         tokens.add(tok)
+    # Kata sisa khas postingan otakudesu.blog bukan identitas judul.
+    tokens -= {"episode", "subtitle", "indonesia", "batch"}
+    non_digit = {tok for tok in tokens if not tok.isdigit()}
+    if non_digit:
+        tokens = non_digit
     return tokens
 
 
@@ -235,6 +284,77 @@ def _is_title_match(target_title: str, candidate_title: str) -> bool:
 
     overlap = len(sig_common) / max(len(sig_a), len(sig_b))
     return overlap >= 0.55
+
+
+def _extract_animestream_stream(ep_html: str, ep_url: str):
+    """Ekstrak stream dari mirror tema Animestream (otakudesu.blog): mirror
+    dipilih lewat ajax WordPress (nonce + data-content base64 per mirror),
+    embed-nya berisi iframe pemutar yang digali untuk URL m3u8/mp4.
+    Return (stream_url, quality) atau (None, "")."""
+    import base64 as _b64
+    mirrors = []
+    for b64, dflt, name in re.findall(r'data-content="([A-Za-z0-9+/=]+)"( data-default="true")?>([^<]+)</a>', ep_html):
+        try:
+            payload = json.loads(_b64.b64decode(b64))
+        except Exception:
+            continue
+        mirrors.append({"payload": payload, "name": (name or "").strip().lower(), "default": bool(dflt)})
+    if not mirrors:
+        return None, ""
+    act_m = re.search(r'\{\.\.\.e,nonce:[^,]+,action:"([a-f0-9]{32})"', ep_html)
+    act_n = re.findall(r'data:\{action:"([a-f0-9]{32})"\}', ep_html)
+    if not act_m or not act_n:
+        return None, ""
+    def _pref(m):
+        nm = m["name"]
+        if "mega" in nm:
+            return 90
+        head = nm.split()[0] if nm else ""
+        score = {"moedesu": 0, "nekoclouds": 1, "yourupload": 2}.get(head, 5)
+        q = str(m["payload"].get("q") or "")
+        qscore = 0 if "720" in q else (1 if "480" in q else 2)
+        return (0 if m["default"] else 10) + qscore * 3 + score
+    mirrors.sort(key=_pref)
+    ajax_url = OTAKU_BASE + "/wp-admin/admin-ajax.php"
+    client = _get_otaku_client()
+    headers = {"Referer": ep_url, "X-Requested-With": "XMLHttpRequest"}
+    try:
+        r = client.post(ajax_url, data={"action": act_n[0]}, headers=headers)
+        nonce = (r.json() or {}).get("data")
+    except Exception:
+        nonce = None
+    if not nonce:
+        return None, ""
+    for m in mirrors[:4]:
+        try:
+            data = dict(m["payload"]); data["nonce"] = nonce; data["action"] = act_m.group(1)
+            r = client.post(ajax_url, data=data, headers=headers)
+            embed_html = _b64.b64decode((r.json() or {}).get("data") or "").decode("utf-8", "replace")
+        except Exception:
+            continue
+        src_m = re.search(r'<iframe[^>]*src="([^"]+)"', embed_html)
+        if not src_m:
+            continue
+        embed_url = src_m.group(1)
+        if embed_url.startswith("//"):
+            embed_url = "https:" + embed_url
+        if "maintenance" in embed_url or "mega" in embed_url:
+            continue
+        try:
+            player = _fetch(embed_url, referer=OTAKU_BASE + "/", timeout=12)
+        except Exception:
+            continue
+        stream = None
+        for pat in (r'https?://[^"\'\s]+\.m3u8[^"\'\s]*', r'file\s*:\s*["\']([^"\']+)', r'<source[^>]+src="([^"]+)"', r'https?://[^"\'\s]+\.mp4[^"\'\s]*'):
+            mm = re.search(pat, player)
+            if mm:
+                stream = mm.group(1) if mm.lastindex else mm.group(0)
+                break
+        if stream:
+            if stream.startswith("//"):
+                stream = "https:" + stream
+            return stream, str(m["payload"].get("q") or "720p")
+    return None, ""
 
 
 def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
@@ -286,6 +406,37 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
                     break
 
             if not matched_item:
+                # Judul Otakudesu umumnya romaji ("Shingeki no Kyojin") sementara
+                # slug HiAnime memakai judul Inggris ("Attack on Titan").
+                # Jembatani lewat metadata AniList: cocokkan romaji ke hasil yang
+                # ada; bila belum ketemu, cari ulang memakai romaji.
+                try:
+                    from api import anilist as _al
+                    _meta = _al.search_anime_metadata(clean_title, per_page=3) or []
+                except Exception:
+                    _meta = []
+                for _m in _meta:
+                    _romaji = ((_m.get("title") or {}).get("romaji") or "").strip()
+                    if not _romaji or _romaji.lower() == clean_title.lower():
+                        continue
+                    for cand in search_res:
+                        if _is_title_match(_romaji, cand.get("title", "")):
+                            matched_item = cand
+                            break
+                    if matched_item:
+                        break
+                    try:
+                        _res2 = search(_romaji)
+                    except Exception:
+                        _res2 = []
+                    for cand in _res2:
+                        if _is_title_match(_romaji, cand.get("title", "")):
+                            matched_item = cand
+                            break
+                    if matched_item:
+                        break
+
+            if not matched_item:
                 raise RuntimeError(f"Anime '{title_or_slug}' tidak memiliki judul yang cocok di Otakudesu")
 
             # Ambil episode dari hasil pencarian yang terverifikasi cocok
@@ -304,31 +455,35 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
         else:
             raise RuntimeError(f"Episode {ep} belum rilis di Otakudesu")
 
-    # 2. Ambil halaman episode dan ekstrak embed putarin
+    # 2. Ambil halaman episode dan ekstrak stream dari pemutarnya
     ep_html = _fetch(target_ep["url"], referer=OTAKU_BASE + "/")
+    hls_master = None
+    origin = OTAKU_BASE
+    quality_label = "720p"
     iframe_m = re.search(r'<iframe[^>]*src="([^"]*putarin\.[a-z]+/e/[^"]+)"', ep_html)
-    if not iframe_m:
-        # Fallback regex untuk iframe apapun di dalam .ot-player
-        iframe_m = re.search(r'<div class="ot-player"[^>]*>.*?<iframe[^>]*src="([^"]+)"', ep_html, re.S)
-    if not iframe_m:
-        raise RuntimeError("Iframe embed pemutar Otakudesu tidak ditemukan")
-
-    embed_url = iframe_m.group(1)
-    if embed_url.startswith("//"):
-        embed_url = "https:" + embed_url
-
-    # 3. Dekripsi player config putarin
-    cfg = _decrypt_putarin_config(embed_url)
-    origin = cfg.get("_origin", "https://putarin.xyz")
-    hls_rel = cfg.get("file") or (cfg.get("sources") or [{}])[0].get("file")
-    if not hls_rel:
-        raise RuntimeError("File stream tidak ditemukan di konfigurasi putarin")
-
-    hls_master = urllib.parse.urljoin(origin, hls_rel)
+    if iframe_m:
+        # Jalur lama (putarin) - tetap dicoba lebih dulu bila embed-nya ada.
+        embed_url = iframe_m.group(1)
+        if embed_url.startswith("//"):
+            embed_url = "https:" + embed_url
+        try:
+            cfg = _decrypt_putarin_config(embed_url)
+            origin = cfg.get("_origin", "https://putarin.xyz")
+            hls_rel = cfg.get("file") or (cfg.get("sources") or [{}])[0].get("file")
+            if hls_rel:
+                hls_master = urllib.parse.urljoin(origin, hls_rel)
+        except Exception:
+            hls_master = None
+    if not hls_master:
+        # Tema Animestream (otakudesu.blog): mirror dipilih lewat ajax WordPress.
+        hls_master, quality_label = _extract_animestream_stream(ep_html, target_ep["url"])
+        origin = OTAKU_BASE
+    if not hls_master:
+        raise RuntimeError("Stream Otakudesu tidak ditemukan dari pemutar mana pun")
 
     # 4. Validasi master playlist & ekstrak variants
     variants = [
-        {"q": "720p", "url": hls_master},
+        {"q": quality_label, "url": hls_master},
         {"q": "auto", "url": hls_master}
     ]
 
