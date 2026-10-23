@@ -28,6 +28,12 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.18.1] - 2026-10-23
+
+### Diperbaiki
+- **Layar tersentuh langsung pause**: bar kontrol custom kini aktif di seluruh sesi player (popup maupun fullscreen) menggantikan kontrol bawaan video — mengetuk layar hanya memunculkan/menyembunyikan bar; pause hanya lewat tombol putar/jeda. Tombol ⛶ pada bar kini berfungsi dua arah (masuk/keluar fullscreen).
+- **Server pilihan gagal tidak lagi mentok error**: bila server yang dipilih manual (mis. Otakudesu) gagal menyelesaikan stream atau tidak punya judulnya, pemutar otomatis memutar ulang lewat mode **Otomatis** (dengan pemberitahuan) alih-alih berhenti di pesan error; pesan error lama yang menyuruh ganti server manual sudah tidak dipakai.
+
 ## [2.18.0] - 2026-10-23
 
 ### Ditambahkan

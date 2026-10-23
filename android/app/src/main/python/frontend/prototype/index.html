@@ -1410,6 +1410,9 @@ let hls = null, skipRange = null, subBlobUrl = null;
 const video = $("#video");
 function setPlayerStatus(html){ $("#playerStatus").innerHTML = html; }
 function stopPlayer(){
+  ctlOn = false; video.controls = true; hideCtl();
+  const csp0 = $("#ctlSpin"); if (csp0) csp0.classList.add("hidden");
+  const cpn0 = $("#ctlPanel"); if (cpn0) cpn0.classList.add("hidden");
   try { video.pause(); } catch (e) {}
   if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
   video.removeAttribute("src");
@@ -1477,12 +1480,12 @@ $("#qualitySel").addEventListener("change", e => {
 });
 
 /* ---------------- Bar kontrol custom (mode fullscreen) ---------------- */
-let ctlActive = false, ctlTimer = null, ctlSeeking = false;
+let ctlOn = false, ctlTimer = null, ctlSeeking = false;
 function showCtl(){
   const bar = $("#ctlBar"); if (!bar) return;
   bar.classList.remove("off");
   clearTimeout(ctlTimer);
-  ctlTimer = setTimeout(() => { if (ctlActive && !video.paused && !ctlSeeking) { bar.classList.add("off"); $("#ctlPanel").classList.add("hidden"); } }, 3200);
+  ctlTimer = setTimeout(() => { if (ctlOn && !video.paused && !ctlSeeking) { bar.classList.add("off"); $("#ctlPanel").classList.add("hidden"); } }, 3200);
 }
 function hideCtl(){ const bar = $("#ctlBar"); if (bar) bar.classList.add("off"); }
 function syncCtlPlay(){
@@ -1521,38 +1524,35 @@ function ctlPanelShow(kind){
 }
 document.addEventListener("fullscreenchange", () => {
   const wrap = document.querySelector(".video-wrap");
-  ctlActive = !!wrap && document.fullscreenElement === wrap;
-  if (ctlActive) {
-    video.controls = false;
-    $("#ctlTitle").textContent = $("#pTitle").textContent || "";
+  if (document.fullscreenElement === video) video.controls = true;
+  else if (document.fullscreenElement === wrap) video.controls = false;
+  else if (!ctlOn) video.controls = true;
+  if (document.fullscreenElement && ctlOn) {
+    const t = $("#ctlTitle"); if (t) t.textContent = $("#pTitle").textContent || "";
     syncCtlPlay(); showCtl();
-  } else {
-    video.controls = true;
-    const p = $("#ctlPanel"); if (p) p.classList.add("hidden");
-    hideCtl();
   }
 });
 $("#ctlPlay").addEventListener("click", togglePlay);
 $("#ctlPlayBig").addEventListener("click", togglePlay);
 $("#ctlBack10").addEventListener("click", () => { try { video.currentTime = Math.max(0, video.currentTime - 10); } catch (e) {} showCtl(); });
 $("#ctlFwd10").addEventListener("click", () => { try { video.currentTime = Math.min(video.duration || 1e18, video.currentTime + 10); } catch (e) {} showCtl(); });
-$("#ctlFsBtn").addEventListener("click", () => { exitFs(); });
+$("#ctlFsBtn").addEventListener("click", () => { if (document.fullscreenElement) exitFs(); else tryFullscreen(); });
 $("#ctlServerBtn").addEventListener("click", () => ctlPanelShow("server"));
 $("#ctlQualityBtn").addEventListener("click", () => ctlPanelShow("quality"));
 $("#ctlSubBtn").addEventListener("click", () => ctlPanelShow("sub"));
 $("#ctlSeek").addEventListener("input", e => { ctlSeeking = true; $("#ctlTime").textContent = fmtClock(Number(e.target.value)) + " / " + fmtClock(video.duration || 0); showCtl(); });
 $("#ctlSeek").addEventListener("change", e => { try { video.currentTime = Number(e.target.value); } catch (err) {} ctlSeeking = false; showCtl(); });
 video.addEventListener("click", () => {
-  if (!ctlActive) return;
+  if (!ctlOn) return;
   const bar = $("#ctlBar");
   if (bar.classList.contains("off")) showCtl(); else hideCtl();
 });
 video.addEventListener("play", syncCtlPlay);
-video.addEventListener("pause", () => { syncCtlPlay(); if (ctlActive) showCtl(); });
-video.addEventListener("waiting", () => { if (ctlActive) $("#ctlSpin").classList.remove("hidden"); });
+video.addEventListener("pause", () => { syncCtlPlay(); if (ctlOn) showCtl(); });
+video.addEventListener("waiting", () => { if (ctlOn) $("#ctlSpin").classList.remove("hidden"); });
 video.addEventListener("playing", () => { $("#ctlSpin").classList.add("hidden"); });
 video.addEventListener("timeupdate", () => {
-  if (!ctlActive || ctlSeeking) return;
+  if (!ctlOn || ctlSeeking) return;
   const d = video.duration || 0, c = video.currentTime || 0;
   const sk = $("#ctlSeek"); if (!sk) return;
   sk.max = d || 0; sk.value = c;
@@ -1564,7 +1564,7 @@ function tryFullscreen(){
     if (document.fullscreenElement) return;
     const lockLand = () => { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); } catch (e) {} };
     // Fullscreen-kan PEMBUNGKUS video: di dalamnya tinggal bar kontrol custom Lumio
-    // (fullscreenchange menyalakan ctlActive + mematikan kontrol bawaan video).
+    // (fullscreenchange menjaga status kontrol selama fullscreen).
     // Bila ditolak WebView, jatuh ke fullscreen elemen video (kontrol bawaan).
     const wrap = document.querySelector(".video-wrap");
     if (wrap && wrap.requestFullscreen) {
@@ -1589,6 +1589,8 @@ async function playEpisode(slug, ep, fromAuto){
   openModal("playerModal");
   if (!fromAuto) tryFullscreen();
   stopPlayer();
+  video.controls = false; ctlOn = true; showCtl();
+  const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
   $("#pTitle").textContent = `${it.title || slug} — Episode ${ep}`;
   const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
@@ -1600,13 +1602,26 @@ async function playEpisode(slug, ep, fromAuto){
   try {
     data = await api(`/api/stream/resolve?slug=${encodeURIComponent(slug)}&ep=${ep}&mode=${SETTINGS.audio}` + (effSource !== "auto" ? `&source=${effSource}` : ""));
   } catch (e) {
+    if (effSource !== "auto") {
+      window._sourceOnce = "auto";
+      setPlayerStatus("<span><span class='spin'></span>Server pilihan gagal — mengalihkan ke Otomatis…</span>");
+      toast("🔁 Server pilihan gagal — dialihkan ke Otomatis");
+      return playEpisode(slug, ep, fromAuto);
+    }
     exitFs();
-    setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(e.message) + (effSource !== "auto" ? "<br>Server pilihan tidak menyediakan judul ini — coba ganti ke <b>Server: Otomatis</b> di atas." : ""));
+    setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(e.message));
     toast("Stream gagal dimuat: " + e.message, true);
     return;
   }
   const master = data.master || (data.picked && data.picked.url) || "";
-  if (!master) { exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk episode ini."); return; }
+  if (!master) {
+    if (effSource !== "auto") {
+      window._sourceOnce = "auto";
+      toast("🔁 Server pilihan kosong — dialihkan ke Otomatis");
+      return playEpisode(slug, ep, fromAuto);
+    }
+    exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk episode ini."); return;
+  }
   const referer = data.referer || "";
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
 
