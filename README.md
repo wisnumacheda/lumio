@@ -1,6 +1,6 @@
 <div align="center">
   <img src="assets/tatap_icon_512.png" width="112" height="112" alt="Tatap Logo">
-  <h1>Tatap</h1>
+  <h1>Lumio</h1>
   <p>Pemutar dan agregator anime mandiri multiplatform (Android Mobile, Android TV, Windows, Linux, Web) yang ringan, bebas iklan, tanpa registrasi akun, dan menjaga privasi data di penyimpanan lokal.</p>
 
   <p>
