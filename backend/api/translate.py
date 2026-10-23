@@ -1792,7 +1792,16 @@ async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"
     import urllib.parse as _up
     
     BATCH_SIZE = 25
-    batches = [cues[i:i + BATCH_SIZE] for i in range(0, len(cues), BATCH_SIZE)]
+    # Pecah setiap cue menjadi baris-barisnya: struktur multi-baris (mis. dua
+    # pembicara dalam satu cue) TIDAK boleh dilebur menjadi satu baris
+    # raksasa. Baris diterjemahkan terpisah, lalu disatukan lagi dengan \n.
+    flat_texts = []
+    cue_line_counts = []
+    for c in cues:
+        parts = (c["text"] or "").split("\n")
+        cue_line_counts.append(len(parts))
+        flat_texts.extend(parts)
+    batches = [flat_texts[i:i + BATCH_SIZE] for i in range(0, len(flat_texts), BATCH_SIZE)]
     all_translated = []
     t_start = _time.time()
     log_translate(f"Mulai translate Google (POST/Multi-Client): {len(cues)} cues | {len(batches)} batches | mode={mode}")
@@ -1935,7 +1944,7 @@ async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"
             clean = _pre_normalize_en_slang(clean)
         return clean
 
-    batch_lines_list = [[_prep_line(cue["text"]) for cue in b] for b in batches]
+    batch_lines_list = [[_prep_line(t) for t in b] for b in batches]
     with ThreadPoolExecutor(max_workers=3) as executor:
         tasks = [loop.run_in_executor(executor, lambda b=bl: _fetch_batch_sync(b)) for bl in batch_lines_list]
         batch_results = await _asyncio.gather(*tasks)
@@ -1958,8 +1967,12 @@ async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"
         raise RuntimeError(f"Semua endpoint Google Translate gagal atau terblokir (0/{len(batches)} batch berhasil).")
 
     out = []
+    _pos = 0
     for i, c in enumerate(cues):
-        tr_text = all_translated[i] if i < len(all_translated) else c["text"]
+        _n = cue_line_counts[i]
+        _seg = all_translated[_pos:_pos + _n]
+        _pos += _n
+        tr_text = "\n".join(_seg) if _seg else c["text"]
         if (tgt or "").lower() == "id":
             if mode in ("pure", "pure_gtx", "gtx"):
                 pass
