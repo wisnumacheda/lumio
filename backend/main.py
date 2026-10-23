@@ -333,9 +333,19 @@ def _payload_data_dir():
 def _fetch_payload_manifest():
     import time as _t
     import httpx as _httpx
-    url = PAYLOAD_MANIFEST_URL + f"?t={int(_t.time())}"
-    with _httpx.Client(timeout=10, follow_redirects=True) as c:
-        r = c.get(url, headers={"User-Agent": "Lumio"})
+    # Utama: GitHub API (kanal yang sama dengan pemeriksa update APK — terbukti
+    # lolos di jaringan yang memblokir raw.githubusercontent.com).
+    api_url = f"https://api.github.com/repos/{UPDATE_REPO}/contents/payload-manifest.json?t={int(_t.time())}"
+    try:
+        with _httpx.Client(timeout=12, follow_redirects=True) as c:
+            r = c.get(api_url, headers={"User-Agent": "Lumio", "Accept": "application/vnd.github.raw+json"})
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        pass
+    # Cadangan: raw langsung.
+    with _httpx.Client(timeout=12, follow_redirects=True) as c:
+        r = c.get(PAYLOAD_MANIFEST_URL + f"?t={int(_t.time())}", headers={"User-Agent": "Lumio"})
         r.raise_for_status()
         return r.json()
 

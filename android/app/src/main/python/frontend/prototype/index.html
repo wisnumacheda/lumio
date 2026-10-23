@@ -390,6 +390,14 @@
     background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.35);color:#fca5a5;transition:.18s}
   .btn-reset:hover{background:rgba(248,113,113,.2)}
   .about-box{font-size:12.5px;color:var(--faint);line-height:1.7}
+  .fb-field{width:100%;margin-top:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:10px;color:inherit;padding:9px 11px;font:inherit;font-size:13.5px}
+  textarea.fb-field{resize:vertical;line-height:1.5}
+  .seek-fx{position:absolute;top:0;bottom:0;width:38%;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:8;opacity:0}
+  .seek-fx.left{left:0}
+  .seek-fx.right{right:0}
+  .seek-fx span{background:rgba(0,0,0,.55);color:#fff;font-weight:800;font-size:15px;padding:10px 16px;border-radius:99px}
+  .seek-fx.show{animation:seekFx .55s ease-out}
+  @keyframes seekFx{0%{opacity:0;transform:scale(.92)}18%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.04)}}
   .about-box b{color:var(--muted)}
 
   @media (max-width:900px){
@@ -580,6 +588,8 @@
     <div class="video-wrap">
       <video id="video" controls playsinline crossorigin="anonymous"></video>
       <div class="sub-overlay hidden" id="subOverlay"></div>
+      <div class="seek-fx left" id="seekFxL"><span>⏪ 10 detik</span></div>
+      <div class="seek-fx right" id="seekFxR"><span>⏩ 10 detik</span></div>
       <button class="skip-btn hidden" id="skipBtn">⏭ Lewati Opening</button>
       <div class="ctl off" id="ctlBar">
         <div class="ctl-top">
@@ -731,6 +741,34 @@
         <div class="desc" id="updStatus">Ketuk tombol di bawah untuk memeriksa versi terbaru.</div>
         <button class="btn-reset" id="btnCheckUpdate">🔍 Periksa Update</button>
         <button class="btn-reset hidden" id="btnInstallUpdate" style="margin-top:8px">⬇️ Update Sekarang</button>
+      </div>
+    </div>
+
+    <div class="set-sec">
+      <h4>🧩 Isi Aplikasi</h4>
+      <div class="set-row">
+        <div class="lbl">Versi isi (konten &amp; perbaikan)</div>
+        <div class="desc" id="payloadInfo">Memuat…</div>
+        <div class="desc">Isi diperiksa &amp; diunduh otomatis tanpa update APK — perbaikan kecil langsung sampai. Isi baru diterapkan saat aplikasi dibuka lagi.</div>
+        <button class="btn-reset" id="btnCheckPayload">🔍 Periksa Isi</button>
+      </div>
+    </div>
+
+    <div class="set-sec">
+      <h4>💬 Kirim Masukan</h4>
+      <div class="set-row">
+        <div class="lbl">Bantu Lumio jadi lebih baik</div>
+        <div class="desc">Nemu bug atau punya usulan? Tulis di sini — masukanmu terkirim langsung ke pengembang buat diperbaiki.</div>
+        <select id="fbCategory" class="fb-field">
+          <option value="Bug">🐞 Bug / Error</option>
+          <option value="Usulan Fitur">💡 Usulan Fitur</option>
+          <option value="Konten">🎬 Konten / Anime</option>
+          <option value="Lainnya">💬 Lainnya</option>
+        </select>
+        <textarea id="fbMessage" class="fb-field" rows="4" maxlength="4000" placeholder="Tulis masukanmu di sini…"></textarea>
+        <input id="fbContact" class="fb-field" type="text" maxlength="200" placeholder="Nama / kontak (opsional, biar bisa dibalas)">
+        <button class="btn-reset" id="btnSendFeedback">📨 Kirim Masukan</button>
+        <div class="desc" id="fbStatus"></div>
       </div>
     </div>
   </aside>
@@ -1667,11 +1705,49 @@ $("#ctlQualityBtn").addEventListener("click", () => ctlPanelShow("quality"));
 $("#ctlSubBtn").addEventListener("click", () => ctlPanelShow("sub"));
 $("#ctlSeek").addEventListener("input", e => { ctlSeeking = true; $("#ctlTime").textContent = fmtClock(Number(e.target.value)) + " / " + fmtClock(video.duration || 0); showCtl(); });
 $("#ctlSeek").addEventListener("change", e => { try { video.currentTime = Number(e.target.value); } catch (err) {} ctlSeeking = false; showCtl(); });
-video.addEventListener("click", () => {
+/* Ketuk: sekali = tampil/sembunyi control bar; dua kali/beruntun di sisi
+   kanan = maju 10 detik, sisi kiri = mundur 10 detik (menumpuk). */
+let _tapFx = {side: "", t: 0, count: 0, timer: null};
+function showSeekFx(side, secs){
+  const el = side === "R" ? $("#seekFxR") : $("#seekFxL");
+  if (!el) return;
+  el.querySelector("span").textContent = side === "R" ? `⏩ ${secs} detik` : `⏪ ${secs} detik`;
+  el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
+}
+video.addEventListener("click", (ev) => {
   if (!ctlOn) return;
-  const bar = $("#ctlBar");
-  if (bar.classList.contains("off")) showCtl(); else hideCtl();
+  const now = Date.now();
+  const rect = video.getBoundingClientRect();
+  const side = (ev.clientX - rect.left) < rect.width / 2 ? "L" : "R";
+  if (_tapFx.side === side && now - _tapFx.t < 320) {
+    if (_tapFx.timer) { clearTimeout(_tapFx.timer); _tapFx.timer = null; }
+    _tapFx.count++;
+    try { video.currentTime = Math.max(0, Math.min(video.duration || 1e18, video.currentTime + (side === "R" ? 10 : -10))); } catch (e) {}
+    showSeekFx(side, 10 * _tapFx.count);
+    _tapFx.t = now;
+    showCtl();
+    return;
+  }
+  _tapFx = {side, t: now, count: 0, timer: setTimeout(() => {
+    const bar = $("#ctlBar");
+    if (bar.classList.contains("off")) showCtl(); else hideCtl();
+  }, 300)};
 });
+
+/* Layar tahan nyala HANYA selama video berputar (jembatan native + Wake Lock). */
+let _wakeLock = null;
+function setAwake(on){
+  try { if (window.LumioNative && LumioNative.setKeepAwake) LumioNative.setKeepAwake(!!on); } catch (e) {}
+  try {
+    if (on && navigator.wakeLock && !_wakeLock) {
+      navigator.wakeLock.request("screen").then(w => { _wakeLock = w; w.addEventListener("release", () => { _wakeLock = null; }); }).catch(() => {});
+    } else if (!on && _wakeLock) { _wakeLock.release().catch(() => {}); _wakeLock = null; }
+  } catch (e) {}
+}
+video.addEventListener("play", () => setAwake(true));
+video.addEventListener("pause", () => setAwake(false));
+video.addEventListener("ended", () => setAwake(false));
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !video.paused && !video.ended) setAwake(true); });
 video.addEventListener("play", syncCtlPlay);
 video.addEventListener("pause", () => { syncCtlPlay(); if (ctlOn) showCtl(); });
 video.addEventListener("waiting", () => { if (ctlOn) $("#ctlSpin").classList.remove("hidden"); });
@@ -2115,6 +2191,8 @@ loadHome();
 loadGenres();
 loadFilterGenres();
 checkUpdate();
+refreshPayloadInfo();
+checkPayload(false);
 ["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
 $("#dFavBtn").addEventListener("click", async () => {
   const btn = $("#dFavBtn");
@@ -2155,6 +2233,46 @@ $("#btnCheckUpdate").addEventListener("click", async () => {
     st.textContent = "✓ Sudah versi terbaru (v" + info.running + ").";
     $("#btnInstallUpdate").classList.add("hidden");
   }
+});
+
+/* ---------------- Isi aplikasi (OTA) ---------------- */
+async function refreshPayloadInfo(){
+  const el = $("#payloadInfo"); if (!el) return;
+  try {
+    const d = await api("/api/payload/info");
+    if (!d.enabled) { el.textContent = "Isi bawaan APK."; return; }
+    el.textContent = (d.active > 0 ? "Isi unduhan v" + d.active + (d.label ? " — " + d.label : "") : "Isi bawaan APK")
+      + (d.pending ? " · 📦 v" + d.pending + " siap — tutup & buka lagi aplikasi untuk menerapkan." : "");
+  } catch (e) { el.textContent = "—"; }
+}
+async function checkPayload(manual){
+  try {
+    const d = await api("/api/payload/check");
+    if (d.needs_app) { if (manual) toast("Isi terbaru butuh update aplikasi dulu"); return; }
+    if (!d.has_update) { if (manual) toast("✓ Isi sudah yang terbaru"); refreshPayloadInfo(); return; }
+    toast("📦 Isi baru v" + d.latest + " — mengunduh…");
+    const r = await apiSend("POST", "/api/payload/update", {});
+    if (r && r.ok) toast("📦 Isi v" + d.latest + " siap — tutup & buka lagi aplikasi untuk menerapkan");
+    else toast("Isi baru gagal diunduh — coba lagi nanti", true);
+    refreshPayloadInfo();
+  } catch (e) { if (manual) toast("Gagal memeriksa isi: " + e.message, true); }
+}
+$("#btnCheckPayload").addEventListener("click", () => checkPayload(true));
+
+/* ---------------- Kirim masukan ---------------- */
+$("#btnSendFeedback").addEventListener("click", async () => {
+  const msg = $("#fbMessage").value.trim();
+  const st = $("#fbStatus");
+  if (msg.length < 3) { st.textContent = "Tulis dulu masukannya ya (minimal 3 karakter)."; return; }
+  const btn = $("#btnSendFeedback");
+  btn.disabled = true; st.textContent = "Mengirim…";
+  try {
+    const r = await apiSend("POST", "/api/feedback", {category: $("#fbCategory").value, message: msg, contact: $("#fbContact").value.trim()});
+    if (r && r.sent) { st.textContent = "✓ Terkirim — terima kasih banyak!"; toast("💬 Masukan terkirim ✓"); }
+    else { st.textContent = "✓ Tersimpan — terkirim otomatis saat server masukan aktif / ada internet."; toast("💬 Masukan tersimpan"); }
+    $("#fbMessage").value = "";
+  } catch (e) { st.textContent = "Gagal mengirim: " + e.message; }
+  btn.disabled = false;
 });
 </script>
 </body>
