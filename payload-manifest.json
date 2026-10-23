@@ -1,9 +1,9 @@
 {
-  "version": 8,
-  "label": "Warna subtitle + tombol kembali",
-  "notes": "Dua usulan yang masuk lewat kolom masukan: (1) pilihan warna teks subtitle (Putih/Kuning/Cyan/Hijau) di panel Gaya Subtitle saat menonton; (2) tombol panah kembali di bilah kontrol layar penuh. Terima kasih masukannya!",
+  "version": 9,
+  "label": "Pencocok update nama Lumio",
+  "notes": "Menyiapkan aplikasi menerima APK bernama Lumio-v (mulai 2.26.0); nama berkas lama tetap dikenali selama masa transisi. Tidak ada perubahan tampilan.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-8/lumio-payload.zip",
-  "sha256": "3355a1b638a8e0942aadbe780af8195b0c4278778645da7d475a0a20d80b2db9",
-  "size": 985766
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-9/lumio-payload.zip",
+  "sha256": "fe45a321ab62ccc0553a60770e9d166e48aa3481eed40862d0275156e598aa38",
+  "size": 985925
 }
