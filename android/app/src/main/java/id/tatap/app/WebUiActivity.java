@@ -205,43 +205,66 @@ public class WebUiActivity extends Activity {
     }
 
     private void downloadAndInstall(String apkUrl) {
-        File out = null;
-        try {
-            File dir = getExternalCacheDir();
-            if (dir == null) dir = getCacheDir();
-            out = new File(dir, "lumio-update.apk");
-            HttpURLConnection c = (HttpURLConnection) new URL(apkUrl).openConnection();
-            c.setConnectTimeout(15000);
-            c.setReadTimeout(30000);
-            c.setRequestProperty("User-Agent", "Lumio-Android");
-            c.connect();
-            if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
-            InputStream in = c.getInputStream();
-            FileOutputStream fos = new FileOutputStream(out);
-            byte[] buf = new byte[65536];
-            int n;
-            while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
-            fos.flush();
-            fos.close();
-            in.close();
-            c.disconnect();
-            final File apkFile = out;
-            handler.post(() -> {
-                try {
-                    Uri uri = FileProvider.getUriForFile(WebUiActivity.this,
-                            getPackageName() + ".fileprovider", apkFile);
-                    Intent it = new Intent(Intent.ACTION_VIEW);
-                    it.setDataAndType(uri, "application/vnd.android.package-archive");
-                    it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(it);
-                } catch (Exception e) {
-                    Toast.makeText(WebUiActivity.this,
-                            "Gagal membuka installer: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        // Unduh dengan verifikasi: ukuran harus persis Content-Length dan berkas
+        // harus terbaca sebagai APK paket ini dengan versi lebih baru SEBELUM
+        // installer dibuka — unduhan terpotong tak lagi berakhir di layar
+        // "App not installed" yang membingungkan. Gagal -> coba sekali lagi.
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                File dir = getExternalCacheDir();
+                if (dir == null) dir = getCacheDir();
+                File out = new File(dir, "lumio-update.apk");
+                if (out.exists()) out.delete();
+                HttpURLConnection c = (HttpURLConnection) new URL(apkUrl).openConnection();
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(60000);
+                c.setRequestProperty("User-Agent", "Lumio-Android");
+                c.connect();
+                if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
+                long expected = c.getContentLengthLong();
+                InputStream in = c.getInputStream();
+                FileOutputStream fos = new FileOutputStream(out);
+                byte[] buf = new byte[65536];
+                long got = 0;
+                int n;
+                while ((n = in.read(buf)) != -1) { fos.write(buf, 0, n); got += n; }
+                fos.flush();
+                fos.close();
+                in.close();
+                c.disconnect();
+                if (expected > 0 && got != expected)
+                    throw new Exception("unduhan tidak lengkap (" + got + " dari " + expected + " byte)");
+                android.content.pm.PackageInfo info =
+                        getPackageManager().getPackageArchiveInfo(out.getAbsolutePath(), 0);
+                if (info == null || !getPackageName().equals(info.packageName))
+                    throw new Exception("file update tidak valid / rusak");
+                android.content.pm.PackageInfo cur =
+                        getPackageManager().getPackageInfo(getPackageName(), 0);
+                if (info.versionCode <= cur.versionCode)
+                    throw new Exception("versi unduhan tidak lebih baru");
+                final File apkFile = out;
+                handler.post(() -> {
+                    try {
+                        Uri uri = FileProvider.getUriForFile(WebUiActivity.this,
+                                getPackageName() + ".fileprovider", apkFile);
+                        Intent it = new Intent(Intent.ACTION_VIEW);
+                        it.setDataAndType(uri, "application/vnd.android.package-archive");
+                        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(it);
+                    } catch (Exception e) {
+                        Toast.makeText(WebUiActivity.this,
+                                "Gagal membuka installer: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
+                return;
+            } catch (Exception e) {
+                if (attempt == 2) {
+                    final String msg = e.getMessage();
+                    handler.post(() -> Toast.makeText(WebUiActivity.this,
+                            "Unduh update gagal: " + msg + " — periksa koneksi lalu coba lagi",
+                            Toast.LENGTH_LONG).show());
                 }
-            });
-        } catch (Exception e) {
-            handler.post(() -> Toast.makeText(WebUiActivity.this,
-                    "Unduh update gagal: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
         }
     }
 

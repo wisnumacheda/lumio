@@ -363,6 +363,18 @@
   .seg button.active{background:linear-gradient(135deg,var(--acc),#7c3aed);color:#fff;border-color:transparent}
   .sortbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 14px}
   .sortbar-lbl{font-size:13px;font-weight:700;color:var(--dim)}
+  .fltbar{display:flex;gap:9px;align-items:center;margin:0 0 12px}
+  #fltCount{color:var(--acc);font-weight:800}
+  .fltpanel{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px 16px;margin:0 0 16px}
+  .flt-group{margin-bottom:12px}
+  .flt-group:last-child{margin-bottom:0}
+  .flt-lbl{font-size:11px;font-weight:800;letter-spacing:1.4px;color:var(--faint);text-transform:uppercase;margin-bottom:7px}
+  .flt-chips{display:flex;gap:7px;flex-wrap:wrap}
+  .fchip{padding:6px 13px;border-radius:99px;font-size:12.5px;font-weight:600;background:transparent;
+    color:var(--dim);border:1px solid var(--line);cursor:pointer;transition:.15s}
+  .fchip:hover{color:var(--txt);border-color:var(--acc)}
+  .fchip.active{background:linear-gradient(135deg,var(--acc),#7c3aed);color:#fff;border-color:transparent}
+  .flt-note{font-size:12.5px;color:var(--faint)}
   .set-select{width:100%;padding:10px 12px;border-radius:10px;background:var(--panel);
     border:1px solid var(--line);color:var(--txt);font-size:14px;outline:none}
   .set-select:focus{border-color:var(--acc)}
@@ -413,6 +425,7 @@
     <button data-tab="now">Musim Ini</button>
     <button data-tab="airing">Masih Tayang</button>
     <button data-tab="fav">❤ Favorit</button>
+    <button data-tab="jelajahi">🎛️ Jelajahi</button>
   </nav>
   <form class="search" id="searchForm">
     <span class="ico">🔍</span>
@@ -475,6 +488,18 @@
         <button data-val="terbaru">Rilisan Terbaru</button>
         <button data-val="az">Abjad A–Z</button>
       </div>
+    </div>
+    <div class="fltbar hidden" id="fltBar">
+      <button class="btn btn-ghost" id="fltToggle">🎛️ Filter <span id="fltCount"></span></button>
+      <button class="btn btn-ghost hidden" id="fltReset">↺ Reset Filter</button>
+    </div>
+    <div class="fltpanel hidden" id="fltPanel">
+      <div class="flt-group"><div class="flt-lbl">Genre</div><div class="flt-chips" id="fltGenres"><span class="flt-note">Memuat genre…</span></div></div>
+      <div class="flt-group"><div class="flt-lbl">Tahun Rilis</div><div class="flt-chips" id="fltYears"></div></div>
+      <div class="flt-group"><div class="flt-lbl">Tipe</div><div class="flt-chips" id="fltTypes"></div></div>
+      <div class="flt-group"><div class="flt-lbl">Status</div><div class="flt-chips" id="fltStatus"></div></div>
+      <div class="flt-group"><div class="flt-lbl">Musim</div><div class="flt-chips" id="fltSeasons"></div></div>
+      <div class="flt-group"><div class="flt-lbl">Skor Minimal</div><div class="flt-chips" id="fltScores"></div></div>
     </div>
     <div class="grid" id="grid"></div>
     <button class="load-more hidden" id="btnMore">Muat Lebih Banyak</button>
@@ -1090,12 +1115,71 @@ async function loadGenres(){
     $$(".gchip", row).forEach(ch => ch.addEventListener("click", () => {
       $$(".gchip", row).forEach(x => x.classList.remove("active"));
       ch.classList.add("active");
-      openGrid("Genre: " + ch.textContent, (page) => api(`/api/browse?genre=${encodeURIComponent(ch.dataset.genre)}&page=${page}`));
+      FLT.genre = ch.dataset.genre;
+      renderFilterPanel();
+      $("#fltPanel").classList.remove("hidden");
+      openGrid("🎛️ Jelajahi Anime", filterLoader);
     }));
   } catch (e) {
     row.innerHTML = `<span style="color:var(--faint);font-size:13px">Genre gagal dimuat (${esc(e.message)}).</span>`;
   }
 }
+
+/* ---------------- Filter / Jelajahi ---------------- */
+const FLT = {genre: "", year: "", type: "", status: "", season: "", score: ""};
+const FLT_YEARS = [["", "Semua"], ["2026", "2026"], ["2025", "2025"], ["2024", "2024"], ["2023", "2023"], ["2022", "2022"], ["2021", "2021"], ["2020", "2020"], ["2019", "2019"], ["2018", "2018"], ["2015-2017", "2015–2017"], ["2010-2014", "2010–2014"], ["2000-2009", "2000-an"], ["1990-1999", "1990-an"], ["<1990", "< 1990"]];
+const FLT_TYPES = [["", "Semua"], ["tv", "TV"], ["movie", "Movie"], ["ova", "OVA"], ["ona", "ONA"], ["special", "Special"], ["music", "Music"]];
+const FLT_STATUS = [["", "Semua"], ["releasing", "Masih Tayang"], ["completed", "Tamat"], ["not_yet_aired", "Belum Tayang"]];
+const FLT_SEASONS = [["", "Semua"], ["winter", "Winter"], ["spring", "Spring"], ["summer", "Summer"], ["fall", "Fall"]];
+const FLT_SCORES = [["", "Semua"], ["9", "9+"], ["8", "8+"], ["7", "7+"], ["6", "6+"]];
+function filterLoader(page){
+  const sortMap = {populer: "popularity", terbaru: "latest", az: "az"};
+  const q = new URLSearchParams();
+  if (FLT.genre) q.set("genre", FLT.genre);
+  if (FLT.year) q.set("year", FLT.year);
+  if (FLT.type) q.set("type", FLT.type);
+  if (FLT.status) q.set("status", FLT.status);
+  if (FLT.season) q.set("season", FLT.season);
+  if (FLT.score) q.set("score", FLT.score);
+  q.set("sort", sortMap[SETTINGS.sort] || "popularity");
+  q.set("page", String(page));
+  return api("/api/browse?" + q.toString());
+}
+function fltChips(el, options, key){
+  if (!el) return;
+  el.innerHTML = options.map(([v, lbl]) => `<button class="fchip${FLT[key] === v ? " active" : ""}" data-v="${esc(v)}">${esc(lbl)}</button>`).join("");
+  $$(".fchip", el).forEach(b => b.addEventListener("click", () => {
+    FLT[key] = (FLT[key] === b.dataset.v) ? "" : b.dataset.v;
+    renderFilterPanel();
+    openGrid("🎛️ Jelajahi Anime", filterLoader);
+  }));
+}
+function renderFilterPanel(){
+  const gl = window._fltGenreList;
+  if (gl) fltChips($("#fltGenres"), [["", "Semua"], ...gl.map(g => [g.slug, g.title])], "genre");
+  fltChips($("#fltYears"), FLT_YEARS, "year");
+  fltChips($("#fltTypes"), FLT_TYPES, "type");
+  fltChips($("#fltStatus"), FLT_STATUS, "status");
+  fltChips($("#fltSeasons"), FLT_SEASONS, "season");
+  fltChips($("#fltScores"), FLT_SCORES, "score");
+  const n = Object.values(FLT).filter(Boolean).length;
+  $("#fltCount").textContent = n ? "• " + n + " aktif" : "";
+  $("#fltReset").classList.toggle("hidden", !n);
+}
+async function loadFilterGenres(){
+  if (window._fltGenreList) { renderFilterPanel(); return; }
+  try {
+    const d = await api("/api/genres");
+    window._fltGenreList = (d.list || []).slice(0, 40);
+  } catch (e) { window._fltGenreList = []; }
+  renderFilterPanel();
+}
+$("#fltToggle").addEventListener("click", () => { renderFilterPanel(); $("#fltPanel").classList.toggle("hidden"); });
+$("#fltReset").addEventListener("click", () => {
+  Object.keys(FLT).forEach(k => FLT[k] = "");
+  renderFilterPanel();
+  openGrid("🎛️ Jelajahi Anime", filterLoader);
+});
 
 /* ---------------- Grid view (genre / cari / tab) ---------------- */
 let gridLoader = null, gridPage = 1, gridTotalPages = 1, gridBusy = false;
@@ -1111,6 +1195,7 @@ function setActiveTab(tab){
 }
 async function openGrid(title, loader, append){
   if (!append) { gridLoader = loader; gridPage = 1; gridTotalPages = 1; $("#grid").innerHTML = ""; }
+  if (!append) { const isF = (loader === filterLoader); $("#fltBar").classList.toggle("hidden", !isF); if (!isF) $("#fltPanel").classList.add("hidden"); }
   if (gridBusy) return;
   gridBusy = true;
   if (!append) showView("grid");
@@ -1190,6 +1275,7 @@ $$("#tabs button").forEach(b => b.addEventListener("click", () => {
   if (tab === "now") openGrid("Musim Ini", nowGridLoader);
   if (tab === "airing") openGrid("Masih Tayang", airingGridLoader);
   if (tab === "fav") openGrid("❤ Favorit Saya", favLoader);
+  if (tab === "jelajahi") { renderFilterPanel(); $("#fltPanel").classList.remove("hidden"); openGrid("🎛️ Jelajahi Anime", filterLoader); }
 }));
 
 /* ---------------- Pencarian ---------------- */
@@ -1381,8 +1467,17 @@ async function openDetail(slug, autoplayEp){
       `<button data-genrename="${esc(g)}">${esc(g)}</button>`).join("");
     $$("#dGenres button").forEach(b => b.addEventListener("click", () => {
       closeModal("detailModal");
-      openGrid("Genre: " + b.dataset.genrename,
-        p => api(`/api/browse?keyword=${encodeURIComponent(b.dataset.genrename)}&page=${p}`));
+      const name = b.dataset.genrename;
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if ((window._fltGenreList || []).some(g => g.slug === slug)) {
+        FLT.genre = slug;
+        renderFilterPanel();
+        $("#fltPanel").classList.remove("hidden");
+        openGrid("🎛️ Jelajahi Anime", filterLoader);
+      } else {
+        openGrid("Genre: " + name,
+          p => api(`/api/browse?keyword=${encodeURIComponent(name)}&page=${p}`));
+      }
     }));
   }).catch(() => {
     if (currentSlug === slug) { $("#dSyn").textContent = it.synopsis || "Sinopsis gagal dimuat dari server."; setupSynClamp(); }
@@ -1969,6 +2064,7 @@ window.LUMIO_back = function(){
 /* ---------------- Mulai ---------------- */
 loadHome();
 loadGenres();
+loadFilterGenres();
 checkUpdate();
 ["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
 $("#dFavBtn").addEventListener("click", async () => {

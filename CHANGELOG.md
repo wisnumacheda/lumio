@@ -28,6 +28,14 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.21.0] - 2026-10-23
+
+### Ditambahkan
+- **Tab 🎛️ Jelajahi + panel filter telusur**: saring katalog berdasarkan **Genre** (dari /api/genres), **Tahun Rilis** (2026–2018, rentang 2015–2017 / 2010–2014 / 2000-an / 1990-an / <1990), **Tipe** (TV/Movie/OVA/ONA/Special/Music), **Status** (Masih Tayang/Tamat/Belum Tayang), **Musim** (Winter/Spring/Summer/Fall), dan **Skor Minimal** — semua diteruskan ke /api/browse dan bisa dikombinasikan bebas, berdampingan dengan urutan yang sudah ada. Chip genre di Beranda dan genre di halaman detail kini membuka Jelajahi dengan genre itu aktif (genre adalah pilihan tunggal — gabungan koma terbukti tidak didukung sumber).
+
+### Diperbaiki
+- **Update dalam aplikasi gagal "App not installed"**: pengunduh di jembatan native tidak memverifikasi hasil unduhan sama sekali, sehingga berkas terpotong langsung diserahkan ke installer dan gagal tanpa penjelasan. Kini ukuran unduhan wajib persis Content-Length, berkas divalidasi sebagai APK paket ini dengan versi lebih baru sebelum installer dibuka, berkas lama dihapus dulu, dan kegagalan dicoba ulang sekali lalu dilaporkan dengan pesan yang jelas.
+
 ## [2.20.0] - 2026-10-23
 
 ### Ditambahkan
