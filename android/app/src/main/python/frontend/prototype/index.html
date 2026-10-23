@@ -1434,9 +1434,13 @@ $("#qualitySel").addEventListener("change", e => {
 function tryFullscreen(){
   try {
     if (document.fullscreenElement) return;
-    const el = document.querySelector(".video-wrap") || video;
-    const p = el.requestFullscreen ? el.requestFullscreen() : null;
-    if (p && p.then) p.then(() => { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); } catch (e) {} }).catch(() => {});
+    const lockLand = () => { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); } catch (e) {} };
+    // Fullscreen-kan elemen VIDEO-nya: WebView lalu memakai pemutar fullscreen bawaan
+    // (play/pause + bilah geser + menu CC/kecepatan). Membungkus div justru menghilangkan
+    // semua kontrol itu — hanya tersisa tombol play di tengah.
+    if (video.requestFullscreen) { const p = video.requestFullscreen(); if (p && p.then) p.then(lockLand).catch(() => {}); }
+    else if (video.webkitEnterFullscreen) { video.webkitEnterFullscreen(); lockLand(); }
+    else { const el = document.querySelector(".video-wrap"); if (el && el.requestFullscreen) el.requestFullscreen().catch(() => {}); }
   } catch (e) {}
 }
 function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
