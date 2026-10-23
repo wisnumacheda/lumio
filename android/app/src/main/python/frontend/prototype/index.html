@@ -1416,7 +1416,8 @@ function stopPlayer(){
   try { video.pause(); } catch (e) {}
   if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
   video.removeAttribute("src");
-  $$("track", video).forEach(t => t.remove());
+  window._subOptions = []; window._subActiveId = null;
+  $$("track", video).forEach(t => { if (t.src && t.src.startsWith("blob:")) URL.revokeObjectURL(t.src); t.remove(); });
   if (subBlobUrl) { URL.revokeObjectURL(subBlobUrl); subBlobUrl = null; }
   skipRange = null;
   window._intro = null; window._outro = null;
@@ -1506,17 +1507,22 @@ function ctlPanelShow(kind){
     const opts = [...$("#qualitySel").options];
     html = `<div class="ph">Kualitas</div>` + (opts.length ? opts.map(o => opt(o.value, o.textContent.replace(/^Kualitas: /, ""), $("#qualitySel").value === o.value)).join("") : `<div class="ph">Tidak tersedia</div>`);
   } else if (kind === "sub") {
-    const tracks = [...(video.textTracks || [])];
-    const cur = tracks.findIndex(t => t.mode === "showing");
-    html = `<div class="ph">Subtitle</div>` + opt("-1", "Mati", cur < 0) + tracks.map((t, i) => opt(String(i), t.label || t.language || ("Subtitle " + (i + 1)), i === cur)).join("");
-    if (!tracks.length) html += `<div class="ph">Belum ada track — tunggu stream siap</div>`;
+    const subOpts = window._subOptions || [];
+    const cur = window._subActiveId;
+    html = `<div class="ph">Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
+    if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
   }
   panel.innerHTML = html;
   $$("button[data-v]", panel).forEach(b => b.addEventListener("click", () => {
     const v = b.dataset.v;
     if (kind === "server") { const s = $("#serverSel"); s.value = v; s.dispatchEvent(new Event("change")); }
     else if (kind === "quality") { const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change")); }
-    else if (kind === "sub") { [...video.textTracks].forEach((t, i) => { t.mode = String(i) === v ? "showing" : "disabled"; }); }
+    else if (kind === "sub") {
+      if (v === "off") selectSubtitle(null);
+      else if (v === "refresh") { const cur2 = (window._subOptions || []).find(o => o.id === window._subActiveId); if (cur2) { selectSubtitle(cur2, true); toast("🔄 Menerjemahkan ulang subtitle…"); } }
+      else selectSubtitle((window._subOptions || []).find(o => o.id === v) || null);
+    }
     panel.classList.add("hidden"); showCtl();
   }));
   panel.classList.remove("hidden");
@@ -1674,37 +1680,60 @@ async function playEpisode(slug, ep, fromAuto){
     setPlayerStatus("❌ Browser ini tidak mendukung pemutaran HLS.");
   }
 }
-async function attachSubtitle(data, referer){
-  const el = $("#subInfo");
-  if (SETTINGS.subLang === "off") { if (el) el.textContent = "Subtitle: dimatikan di Pengaturan."; return; }
-  const subs = data.subtitles || [];
-  const pref = SETTINGS.subLang;
-  const track = subs.find(s => (s.lang || "").startsWith(pref)) || subs.find(s => s.default)
-    || subs.find(s => (s.lang || "").startsWith("id"))
-    || subs.find(s => (s.lang || "").startsWith("en")) || subs[0]
-    || (data.sub ? {label: data.sub_lang || "Subtitle", lang: "en", url: data.sub} : null);
-  if (!track || !track.url) { if (el) el.textContent = "Subtitle: tidak tersedia untuk episode ini."; return; }
-  try {
-    // Pola sama seperti player asli: ambil teks VTT lewat /api/player/sub,
-    // lalu pasang sebagai <track> (blob) agar selalu berformat WebVTT valid.
-    const subUrl = "/api/player/sub?url=" + encodeURIComponent(track.url) + "&referer=" + encodeURIComponent(referer || "");
-    const r = await fetch(subUrl);
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const vtt = await r.text();
-    if (!/WEBVTT/.test(vtt.slice(0, 200))) throw new Error("respons bukan WebVTT");
-    subBlobUrl = URL.createObjectURL(new Blob([vtt], {type: "text/vtt"}));
-    const t = document.createElement("track");
-    t.kind = "subtitles";
-    t.label = track.label || "Subtitle";
-    t.srclang = (track.lang || "en").slice(0, 2);
-    t.src = subBlobUrl;
-    t.default = true;
-    video.appendChild(t);
-    t.addEventListener("load", () => { if (t.track) t.track.mode = "showing"; });
-    if (el) el.textContent = "Subtitle: " + (track.label || t.srclang.toUpperCase()) + " (via proxy Lumio)";
-  } catch (e) {
-    if (el) el.textContent = "Subtitle gagal dimuat (" + e.message + ") — video tetap diputar tanpa subtitle.";
+function updateSubInfo(txt){ const el = $("#subInfo"); if (el) el.textContent = txt; }
+async function selectSubtitle(opt, refresh){
+  [...video.textTracks].forEach(t => { try { t.mode = "disabled"; } catch (e) {} });
+  window._subActiveId = opt ? opt.id : null;
+  if (!opt) { updateSubInfo("Subtitle: mati."); return; }
+  let t = [...video.querySelectorAll("track")].find(x => x.dataset.subid === opt.id);
+  if (t && refresh) { if (t.src && t.src.startsWith("blob:")) URL.revokeObjectURL(t.src); t.remove(); t = null; }
+  if (!t) {
+    updateSubInfo("Subtitle: memuat " + opt.label + "…");
+    try {
+      const r = await fetch(opt.fetchUrl + (refresh ? "&refresh=1" : ""));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const vtt = await r.text();
+      if (!/WEBVTT/.test(vtt.slice(0, 200))) throw new Error("respons bukan WebVTT");
+      t = document.createElement("track");
+      t.kind = "subtitles"; t.label = opt.label; t.srclang = opt.srclang;
+      t.dataset.subid = opt.id;
+      t.src = URL.createObjectURL(new Blob([vtt], {type: "text/vtt"}));
+      video.appendChild(t);
+    } catch (e) {
+      window._subActiveId = null;
+      updateSubInfo("Subtitle gagal dimuat (" + e.message + ") — video tetap diputar.");
+      toast("💬 Subtitle gagal dimuat: " + opt.label, true);
+      return;
+    }
   }
+  const show = () => { if (t.track) t.track.mode = "showing"; updateSubInfo("Subtitle: " + opt.label); };
+  if (t.readyState === 2) show();
+  else t.addEventListener("load", show, {once: true});
+}
+async function attachSubtitle(data, referer){
+  window._subOptions = []; window._subActiveId = null;
+  if (SETTINGS.subLang === "off") { updateSubInfo("Subtitle: dimatikan di Pengaturan."); return; }
+  let subs = (data.subtitles || []).filter(s => s && s.url);
+  if (!subs.length && data.sub) subs = [{label: data.sub_lang || "Subtitle", lang: "en", url: data.sub}];
+  if (!subs.length) { updateSubInfo("Subtitle: tidak tersedia untuk episode ini."); return; }
+  const mkUrl = (u, extra) => "/api/player/sub?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(referer || "") + (extra || "");
+  const opts = [];
+  const srcTrack = subs.find(s => (s.lang || "").startsWith("en")) || subs.find(s => !(s.lang || "").startsWith("id"));
+  if (srcTrack) {
+    const sl = (srcTrack.lang || "en").slice(0, 2);
+    opts.push({id: "id-gtx", label: "Indonesia (GTX — Cepat)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx"))});
+    opts.push({id: "id-gtxplus", label: "Indonesia (GTX+ — Smart Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx+"))});
+    opts.push({id: "id-ai", label: "Indonesia (AI Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("ai"))});
+  }
+  subs.forEach((s, i) => {
+    const isId = (s.lang || "").startsWith("id");
+    opts.push({id: "raw-" + i, label: isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1))), srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url)});
+  });
+  window._subOptions = opts;
+  let def = null;
+  if (SETTINGS.subLang === "id") def = opts.find(o => o.id === "id-gtx") || opts.find(o => o.srclang === "id") || opts[0];
+  else def = opts.find(o => o.id.startsWith("raw-") && o.srclang === SETTINGS.subLang) || opts.find(o => o.id === "raw-0") || opts[0];
+  if (def) selectSubtitle(def);
 }
 
 /* ---------------- Pengaturan ---------------- */

@@ -28,6 +28,11 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.19.0] - 2026-10-23
+
+### Ditambahkan
+- **Pilihan subtitle lengkap** (menyamai player bawaan): menu Subtitle kini berisi — **Indonesia (GTX — Cepat)**, **Indonesia (GTX+ — Smart Fansub)**, **Indonesia (AI Fansub)**, **Indonesia (Asli / Bawaan)** bila sumbernya punya track Indonesia, semua track asli dari sumber (mis. English), dan **Mati**. Terjemahan dibuat server lewat `/api/player/sub` (multi-tier + cache 7 hari) dan hanya dimuat saat dipilih; tersedia juga aksi **🔄 Terjemahkan Ulang (hapus cache)** untuk subtitle Indonesia yang sedang aktif. Pilihan bawaan dari Pengaturan (Indonesia) kini membuka varian GTX. Sebelumnya player hanya memasang satu track mentah sehingga menunya terasa sedikit.
+
 ## [2.18.1] - 2026-10-23
 
 ### Diperbaiki
