@@ -28,6 +28,14 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.18.0] - 2026-10-23
+
+### Ditambahkan
+- **Bar kontrol custom di fullscreen**: saat fullscreen, video memakai bar kontrol Lumio sendiri — putar/jeda (tombol tengah + bar bawah), lompat mundur/maju 10 detik, bilah geser + penanda waktu, judul episode, menu **Server**, **Kualitas**, dan **Subtitle** (track dari stream), penanda buffering, dan tombol keluar fullscreen. Bar muncul saat layar disentuh dan sembunyi otomatis setelah ±3 detik; tombol "Lewati OP/ED" kembali tampil di fullscreen. Fullscreen menargetkan pembungkus video agar bar ini tinggal di dalamnya (bila WebView menolak, jatuh ke fullscreen elemen video dengan kontrol bawaan); keluar fullscreen mengembalikan kontrol bawaan di mode popup seperti semula.
+
+### Diubah
+- **Tata letak info anime**: tombol Favorit, info (Skor/Status/Musim/Durasi/Studio/dll), sinopsis, dan genre dipindah dari kolom sempit di samping poster ke bawah judul (selebar area detail); info kini berupa **strip horizontal yang bisa digeser** (kartu ringkas), tidak lagi menumpuk vertikal sampai memanjang. Bagian "Season & Judul Terkait" juga mendapat padding samping yang semestinya.
+
 ## [2.17.1] - 2026-10-23
 
 ### Diperbaiki
