@@ -1,9 +1,9 @@
 {
-  "version": 2,
-  "label": "Manifest via GitHub API",
-  "notes": "Payload v2: pengambilan manifest isi kini lewat GitHub API (lebih tahan blokir jaringan), raw sebagai cadangan. Isi lain sama dengan v1.",
+  "version": 3,
+  "label": "Pemeriksa update APK kebal rilis payload",
+  "notes": "Payload v3: pemeriksa update aplikasi kini mengabaikan rilis non-APK (payload), jadi banner update aplikasi tidak akan pernah tertukar dengan rilis isi.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-2/lumio-payload.zip",
-  "sha256": "dbabe84af17ca583986323d7901f9dd4bcc9fd0175e40ab2010e2029702f777a",
-  "size": 983596
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-3/lumio-payload.zip",
+  "sha256": "c8ed6f8462cd29fc6cd56d33dc420ef5181962be0e9e6c15da96d3d99a897036",
+  "size": 983716
 }
