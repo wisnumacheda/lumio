@@ -1,9 +1,9 @@
 {
-  "version": 3,
-  "label": "Pemeriksa update APK kebal rilis payload",
-  "notes": "Payload v3: pemeriksa update aplikasi kini mengabaikan rilis non-APK (payload), jadi banner update aplikasi tidak akan pernah tertukar dengan rilis isi.",
+  "version": 4,
+  "label": "Gaya subtitle di player: ukuran + latar",
+  "notes": "Panel Subtitle di player kini membuka dengan seksi Gaya Subtitle paling atas: ukuran teks (Kecil/Sedang/Besar/Jumbo) dan latar (Kotak Gelap/Tipis/Tanpa Kotak). Panel juga tidak lagi tertutup otomatis selagi dibaca.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-3/lumio-payload.zip",
-  "sha256": "c8ed6f8462cd29fc6cd56d33dc420ef5181962be0e9e6c15da96d3d99a897036",
-  "size": 983716
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-4/lumio-payload.zip",
+  "sha256": "c372d61613f2a6d15ef1a8fea27f447464d4bdbb1318607c5ccf402bb9d87507",
+  "size": 984006
 }
