@@ -1,9 +1,9 @@
 {
-  "version": 9,
-  "label": "Pencocok update nama Lumio",
-  "notes": "Menyiapkan aplikasi menerima APK bernama Lumio-v (mulai 2.26.0); nama berkas lama tetap dikenali selama masa transisi. Tidak ada perubahan tampilan.",
+  "version": 10,
+  "label": "Pop-up info pembaruan",
+  "notes": "Baru: sekarang setiap ada pembaruan isi yang terpasang, kamu dikabari lewat jendela info seperti ini pas aplikasi dibuka, lengkap dengan catatan perubahannya. Tidak ada lagi pembaruan diam-diam — selamat menikmati!",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-9/lumio-payload.zip",
-  "sha256": "fe45a321ab62ccc0553a60770e9d166e48aa3481eed40862d0275156e598aa38",
-  "size": 985925
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-10/lumio-payload.zip",
+  "sha256": "83e5b51322b9fd1f3f607c541636e5c3a08a1938ec07be537bc2102affc067b6",
+  "size": 986362
 }
