@@ -126,7 +126,7 @@ FILTERS = {
     "score": ["10", "9", "8", "7", "6", "5", "4", "3", "2", "1"],
     "season": ["spring", "summer", "fall", "winter"],
     "language": ["sub", "dub"],
-    "sort": ["popularity", "trending", "score", "latest", "az", "most_favorite"],
+    "sort": ["popularity", "trending", "score", "latest", "az", "most_favorite", "release_date"],
 }
 
 

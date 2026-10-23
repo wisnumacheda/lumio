@@ -28,6 +28,15 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.23.0] - 2026-10-23
+
+### Changed
+- **Subtitle kini digambar oleh aplikasi sendiri (overlay)**, tidak lagi memakai trek teks bawaan WebView. Di beberapa HP trek blob di atas stream HLS tidak pernah digambar walau statusnya "showing" — subtitle terjemahan maupun bawaan kini dirender dari data VTT yang sama lewat lapisan teks di atas video, dengan ukuran mengikuti Pengaturan (Kecil/Sedang/Besar/Besar Sekali). Ini menutup keluhan "subtitle tidak muncul" yang bertahan lintas versi.
+
+### Fixed
+- Resolve stream kini berbatas waktu 90 detik di sisi aplikasi: server yang terlalu lama merespons memicu pengalihan ke Otomatis (atau pesan galat yang jelas), bukan layar "menghubungi server" tanpa akhir.
+- Jalur Otakudesu diperketat waktunya: maksimal 3 mirror dicoba, pengambilan halaman pemutar 5 detik, ajax mirror 8 detik — kegagalan kini tuntas dalam hitungan belasan detik, bukan menggantung.
+
 ## [2.22.0] - 2026-10-23
 
 ### Added

@@ -810,7 +810,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
 
         status_in = ["RELEASING"] if which == "now" else (None if is_future else ["RELEASING", "FINISHED"])
         page_data = await loop.run_in_executor(
-            None, lambda: al.season_page(season_name, season_year, page, 25, status_in=status_in, sort=("UPDATED_AT_DESC" if sort == "latest" else None)))
+            None, lambda: al.season_page(season_name, season_year, page, 25, status_in=status_in, sort=("START_DATE_DESC" if sort == "latest" else None)))
 
         # Kumpulkan judul dulu, lalu batch-match slug paralel dengan validasi judul & season.
         media_list = (page_data or {}).get("media") or []
@@ -2591,7 +2591,10 @@ async def _translate_sub_job_progressive(url, referer, src, lang, key_llm, key_g
         agg = {"level": "source", "llm_lines": 0, "gtx_lines": 0, "total": 0, "error": ""}
         pos = 0
         while pos < total:
-            part = [dict(c) for c in work[pos:pos + 50]]
+            # Potongan pertama kecil (12 dialog) agar teks pertama tampil dalam
+            # hitungan detik; potongan berikutnya 60 demi efisiensi.
+            step = 12 if pos == 0 else 60
+            part = [dict(c) for c in work[pos:pos + step]]
             tier_i = await _translate_with_fallback(part, src, lang, requested_mode=requested_mode)
             new_part = tier_i.get("cues") or part
             work[pos:pos + len(new_part)] = new_part
