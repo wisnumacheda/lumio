@@ -29,26 +29,28 @@
   ::-webkit-scrollbar-track{background:transparent}
 
   /* ---------- NAVBAR ---------- */
-  .nav{position:sticky;top:0;z-index:60;height:var(--nav-h);
-    display:flex;align-items:center;gap:22px;padding:0 28px;
+  .nav{position:sticky;top:0;z-index:60;
+    display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:12px 20px 12px;
     background:rgba(11,10,18,.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
     border-bottom:1px solid var(--line)}
+  .brand-row{position:relative;display:flex;align-items:center;justify-content:center;min-height:46px}
+  .brand-row .icon-btn{position:absolute;right:0;top:50%;transform:translateY(-50%)}
   .brand{display:flex;align-items:center;gap:12px;white-space:nowrap}
-  .brand .logo{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
-    background:linear-gradient(135deg,var(--acc),#6d28d9);font-size:19px;
+  .brand .logo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--acc),#6d28d9);font-size:23px;
     box-shadow:0 4px 18px rgba(139,92,246,.45)}
-  .brand .name{font-size:22px;font-weight:800;letter-spacing:.5px}
+  .brand .name{font-size:29px;font-weight:800;letter-spacing:.5px}
   .brand .name em{font-style:normal;color:var(--acc2)}
   .badge-proto{font-size:10px;font-weight:700;letter-spacing:.8px;color:#1a1207;
     background:linear-gradient(90deg,var(--amber),var(--amber-d));
     padding:4px 9px;border-radius:99px;white-space:nowrap}
-  .tabs{display:flex;gap:4px;margin-left:6px}
-  .tabs button{padding:9px 16px;border-radius:99px;color:var(--muted);font-weight:600;font-size:14px;
+  .tabs{display:flex;gap:6px;width:100%;max-width:680px;margin:0 auto}
+  .tabs button{flex:1;text-align:center;padding:10px 6px;border-radius:99px;color:var(--muted);font-weight:600;font-size:14px;
     transition:.2s}
   .tabs button:hover{color:var(--txt);background:rgba(255,255,255,.06)}
   .tabs button.active{color:#fff;background:linear-gradient(135deg,var(--acc),#7c3aed);
     box-shadow:0 4px 14px rgba(139,92,246,.4)}
-  .search{margin-left:auto;position:relative;flex:0 1 340px}
+  .search{position:relative;width:100%;max-width:680px;margin:0 auto}
   .search input{width:100%;padding:10px 16px 10px 40px;border-radius:99px;font-size:14px;
     background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--txt);outline:none;
     transition:.2s}
@@ -199,6 +201,11 @@
   .detail-top .score{color:var(--amber);font-weight:800}
   .detail-top .syn{color:#cfcbe8;font-size:14px;line-height:1.7;margin:14px 0 16px}
   .detail-top .syn.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .fav-btn{margin:2px 0 6px;background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--txt);
+    font-weight:700;font-size:13px;padding:9px 16px;border-radius:99px;cursor:pointer;font-family:inherit;transition:.2s}
+  .fav-btn:hover{border-color:var(--acc)}
+  .fav-btn.on{background:rgba(244,114,182,.16);border-color:#f472b6;color:#fda4af}
+  .fav-btn:disabled{opacity:.55;cursor:wait}
   .syn-toggle{margin:-8px 0 14px;background:none;border:0;color:var(--acc);font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;font-family:inherit}
   .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
   .kv div{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 12px}
@@ -355,22 +362,26 @@
 <body>
 
 <header class="nav">
+  <div class="brand-row">
   <div class="brand">
     <div class="logo">🎬</div>
     <div class="name">Lum<em>io</em></div>
+  </div>
+    <button class="icon-btn" id="btnSettings" title="Pengaturan" aria-label="Buka pengaturan">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
   </div>
   <nav class="tabs" id="tabs">
     <button data-tab="home" class="active">Beranda</button>
     <button data-tab="now">Musim Ini</button>
     <button data-tab="airing">Masih Tayang</button>
+    <button data-tab="fav">❤ Favorit</button>
   </nav>
   <form class="search" id="searchForm">
     <span class="ico">🔍</span>
     <input id="searchInput" type="search" placeholder="Cari judul anime… (Enter untuk mencari)" autocomplete="off">
   </form>
-  <button class="icon-btn" id="btnSettings" title="Pengaturan" aria-label="Buka pengaturan">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  </button>
+  
 </header>
 
 <main>
@@ -466,6 +477,7 @@
       <div>
         <h2 id="dTitle">—</h2>
         <div class="chips" id="dChips"></div>
+        <button class="fav-btn" id="dFavBtn" type="button">🤍 Tambah ke Favorit</button>
         <div class="kv" id="dKv"></div>
         <p class="syn" id="dSyn">Memuat sinopsis…</p>
         <button class="syn-toggle hidden" id="dSynToggle" type="button">📖 Lihat Selengkapnya</button>
@@ -678,6 +690,15 @@ async function api(path){
   return j.data;
 }
 
+async function apiSend(method, path, body){
+  const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
+    body: body ? JSON.stringify(body) : undefined});
+  if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+  const j = await r.json();
+  if (j && j.success === false) throw new Error(j.message || "API mengembalikan error");
+  return j.data;
+}
+
 /* ---------------- Kartu poster ---------------- */
 function posterSrc(u){
   if (!u) return "";
@@ -878,10 +899,41 @@ async function airingGridLoader(p){
   }
   return ongoingLatestLoader(p);
 }
+function nowGridLoader(p){
+  // Musim Ini: "Populer" = urutan popularitas AniList (bawaan server);
+  // "Rilisan Terbaru" = sort=latest (AniList UPDATED_AT_DESC) - beda beneran.
+  const latest = SETTINGS.sort === "terbaru" ? "&sort=latest" : "";
+  return api("/api/seasonal?which=now" + latest + "&page=" + p);
+}
+async function baruGridLoader(p){
+  // Grid "Lihat Semua" Baru Diupdate: umpan browse rilis-terbaru khusus ongoing,
+  // mandiri dari jalur Masih Tayang (2 halaman sumber per halaman grid).
+  const seen = new Set(); const out = [];
+  let tp = 1;
+  for (const bp of [2*p - 1, 2*p]) {
+    const d = await api("/api/browse?status=releasing&sort=latest&page=" + bp);
+    tp = d.total_pages || bp;
+    for (const it of (d.items || [])) {
+      if (!it.id || seen.has(it.id)) continue;
+      if ((it.badge || "") === "TAMAT") continue;
+      seen.add(it.id); out.push(it);
+    }
+  }
+  return {items: out, total_pages: Math.max(1, Math.ceil(tp / 2))};
+}
+async function favLoader(){
+  const d = await api("/api/bookmarks");
+  const rows = Array.isArray(d) ? d : (d.items || d.bookmarks || []);
+  const items = rows.map(r => ({
+    id: r.id || r.slug, title: r.title || r.slug || "-", poster: r.poster || "",
+    type: r.type || "", sub: r.sub || "", eps_counter: r.eps || "", score: r.score || 0,
+  }));
+  return {items, total_pages: 1};
+}
 const SEE_ALL = {
-  railBaru:    {title: "🆕 Baru Diupdate", loader: ongoingLatestLoader},
+  railBaru:    {title: "🆕 Baru Diupdate", loader: baruGridLoader},
   railPopuler: {title: "Populer Sekarang", loader: p => api("/api/catalog?page=" + p)},
-  railMusim:   {title: "Musim Ini", loader: p => api("/api/seasonal?which=now&page=" + p)},
+  railMusim:   {title: "Musim Ini", loader: nowGridLoader},
   railTayang:  {title: "Masih Tayang", loader: airingGridLoader},
 };
 async function loadBaruRail(){
@@ -928,7 +980,13 @@ async function loadHome(){
       fillRail("railPopuler", sortItems(items));
       if (items.length) {
         const pool = items.slice(0, 10);
-        fillHero(pool[Math.floor(Date.now() / 86400000) % pool.length]);
+        let pick = pool[Math.floor(Math.random() * pool.length)];
+        try {
+          const last = localStorage.getItem("lumio_last_hero");
+          if (pool.length > 1 && pick.id === last) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+          localStorage.setItem("lumio_last_hero", pick.id);
+        } catch(_){}
+        fillHero(pick);
       }
       else { $("#heroSkel").classList.add("hidden"); }
     }).catch(e => { firstError = firstError || e; fillRail("railPopuler", []); $("#heroSkel").classList.add("hidden"); }),
@@ -1062,8 +1120,9 @@ $$("#tabs button").forEach(b => b.addEventListener("click", () => {
   const tab = b.dataset.tab;
   setActiveTab(tab);
   if (tab === "home") { goHome(); return; }
-  if (tab === "now") openGrid("Musim Ini", p => api(`/api/seasonal?which=now&page=${p}`));
+  if (tab === "now") openGrid("Musim Ini", nowGridLoader);
   if (tab === "airing") openGrid("Masih Tayang", airingGridLoader);
+  if (tab === "fav") openGrid("❤ Favorit Saya", favLoader);
 }));
 
 /* ---------------- Pencarian ---------------- */
@@ -1105,12 +1164,24 @@ function setupSynClamp(){
   btn.classList.toggle("hidden", !long);
   btn.textContent = "📖 Lihat Selengkapnya";
 }
+async function refreshFavBtn(slug){
+  const btn = $("#dFavBtn");
+  if (!btn) return;
+  btn.dataset.slug = slug;
+  btn.classList.remove("on"); btn.textContent = "🤍 Tambah ke Favorit";
+  try {
+    const d = await api("/api/bookmarks/check?slug=" + encodeURIComponent(slug));
+    if (currentSlug !== slug) return;
+    if (d && d.bookmarked) { btn.classList.add("on"); btn.textContent = "❤️ Favorit Saya"; }
+  } catch(_){}
+}
 async function openDetail(slug, autoplayEp){
   currentSlug = slug;
   currentItem = itemStore.get(slug) || {id: slug, title: slug};
   const it = currentItem;
   const dp = $("#dPoster"); dp.dataset.direct = it.poster || ""; dp.dataset.proxy = posterSrc(it.poster); dp.dataset.fb = 0; dp.style.visibility = ""; dp.src = posterSrc(it.poster);
   $("#dTitle").textContent = it.title || slug;
+  refreshFavBtn(slug);
   $("#dSyn").textContent = "Memuat sinopsis…";
   $("#dSyn").classList.remove("clamp"); $("#dSynToggle").classList.add("hidden");
   $("#dGenres").innerHTML = "";
@@ -1488,6 +1559,26 @@ loadHome();
 loadGenres();
 checkUpdate();
 ["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
+$("#dFavBtn").addEventListener("click", async () => {
+  const btn = $("#dFavBtn");
+  const slug = btn.dataset.slug || currentSlug;
+  if (!slug || btn.disabled) return;
+  const it = currentItem || {};
+  btn.disabled = true;
+  try {
+    if (btn.classList.contains("on")) {
+      await apiSend("DELETE", "/api/bookmarks/" + encodeURIComponent(slug));
+      btn.classList.remove("on"); btn.textContent = "🤍 Tambah ke Favorit";
+      toast("Dihapus dari Favorit.");
+    } else {
+      await apiSend("POST", "/api/bookmarks", {slug, title: it.title || slug, poster: it.poster || "",
+        type: it.type || "", sub: it.sub == null ? "" : String(it.sub), eps: it.eps_counter || "", score: it.score || 0});
+      btn.classList.add("on"); btn.textContent = "❤️ Favorit Saya";
+      toast("Ditambahkan ke Favorit ❤");
+    }
+  } catch (e) { toast("Gagal mengubah favorit: " + e.message, true); }
+  finally { btn.disabled = false; }
+});
 $("#dSynToggle").addEventListener("click", () => {
   const p = $("#dSyn"), btn = $("#dSynToggle");
   const clamped = p.classList.toggle("clamp");

@@ -28,6 +28,17 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## [2.16.0] - 2026-10-23
+
+### Ditambahkan
+- **Menu Favorit**: tab "❤ Favorit" menampilkan semua anime yang ditandai favorit (tersimpan permanen di perangkat via endpoint bookmarks backend); tombol "🤍 Tambah ke Favorit / ❤️ Favorit Saya" di modal detail untuk menandai/melepas judul.
+
+### Diubah
+- **Header ditata ulang**: nama aplikasi kini di tengah & lebih besar di baris sendiri, menu tab (Beranda / Musim Ini / Masih Tayang / Favorit) menjadi baris penuh di bawahnya, pencarian di bawah menu; tombol Pengaturan tetap di kanan baris nama.
+- **Urutan grid "Musim Ini" kini beda beneran**: "Rilisan Terbaru" memakai pengurutan AniList `UPDATED_AT_DESC` (parameter `sort=latest` baru di `/api/seasonal`, diteruskan ke kueri AniList sebagai variabel), "Populer" tetap urutan popularitas AniList.
+- **Grid "Lihat Semua — Baru Diupdate" kini mandiri**: memakai umpan browse rilis-terbaru khusus ongoing, tidak lagi berbagi daftar yang sama persis dengan tab Masih Tayang.
+- **Anime unggulan Beranda bergilir tiap aplikasi dibuka** (acak dari 10 judul teratas, tanpa pengulangan berurutan) — sebelumnya bergilir harian.
+
 ## [2.15.0] - 2026-10-23
 
 ### Ditambahkan

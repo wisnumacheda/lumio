@@ -580,7 +580,7 @@ def _is_long_running(title: str, episodes: int = 0, start_year: int = 0, sub_cou
 async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                    season: str = Query("", pattern="^(winter|spring|summer|fall)$|^$"),
                    year: int = Query(0, ge=0, le=2100),
-                   page: int = Query(1, ge=1, le=100), fresh: int = Query(0)):
+                   page: int = Query(1, ge=1, le=100), fresh: int = Query(0), sort: str = Query("")):
     """Daftar anime per musim / ongoing (AniList dengan fallback HiAnime).
     which=now|prev|airing = musim saat ini / sebelumnya / sedang tayang.
     season+year = musim spesifik (contoh: season=fall year=2024)."""
@@ -757,6 +757,8 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                 season_name, season_year = name_cur, year_cur
             cache_id = which or "now"
 
+        if sort == "latest":
+            cache_id = cache_id + "|latest"
         key = f"seasonal_v4|{cache_id}|page={page}"
         hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
@@ -769,7 +771,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
 
         status_in = ["RELEASING"] if which == "now" else (None if is_future else ["RELEASING", "FINISHED"])
         page_data = await loop.run_in_executor(
-            None, lambda: al.season_page(season_name, season_year, page, 25, status_in=status_in))
+            None, lambda: al.season_page(season_name, season_year, page, 25, status_in=status_in, sort=("UPDATED_AT_DESC" if sort == "latest" else None)))
 
         # Kumpulkan judul dulu, lalu batch-match slug paralel dengan validasi judul & season.
         media_list = (page_data or {}).get("media") or []
@@ -837,7 +839,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
         # Fallback jika AniList diblokir ISP / offline / kosong
         hi_total_pages = 1
         if not items_out:
-            fallback_filter = {"status": "releasing", "sort": "trending"} if which == "now" else {}
+            fallback_filter = {"status": "releasing", "sort": ("latest" if sort == "latest" else "trending")} if which == "now" else {}
             if season and year:
                 fallback_filter["season"] = str(season_name).lower()
                 fallback_filter["sy"] = str(season_year)
@@ -845,7 +847,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                 if is_future:
                     fallback_filter["status"] = "upcoming"
             elif which == "now":
-                fallback_filter = {"status": "releasing", "sort": "trending"}
+                fallback_filter = {"status": "releasing", "sort": ("latest" if sort == "latest" else "trending")}
             elif which == "prev":
                 fallback_filter = {"season": str(season_name).lower(), "sy": str(season_year), "ey": str(season_year)}
             hi_data = await loop.run_in_executor(None, lambda: hi.browse(fallback_filter, page))

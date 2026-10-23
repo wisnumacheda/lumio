@@ -29,10 +29,10 @@ def _record_rate_limit(resp) -> None:
         _al_rate_limit_until = time.time() + wait_sec
 
 QUERY = """
-query ($season: MediaSeason, $year: Int, $page: Int, $perPage: Int, $statusIn: [MediaStatus]) {
+query ($season: MediaSeason, $year: Int, $page: Int, $perPage: Int, $statusIn: [MediaStatus], $sort: [MediaSort]) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { total perPage currentPage lastPage hasNextPage }
-    media(season: $season, seasonYear: $year, status_in: $statusIn, type: ANIME, sort: POPULARITY_DESC) {
+    media(season: $season, seasonYear: $year, status_in: $statusIn, type: ANIME, sort: $sort) {
       id
       status
       title { romaji english }
@@ -159,7 +159,7 @@ def close_al_client():
             pass
         _al_client = None
 
-def season_page(name, year, page=1, per_page=25, status_in=None):
+def season_page(name, year, page=1, per_page=25, status_in=None, sort=None):
     """Fetch satu halaman AniList untuk season/year tertentu. Return {pageInfo, media:[]}."""
     if _is_rate_limited():
         return {"pageInfo": {"total": 0, "perPage": per_page, "currentPage": page,
@@ -174,6 +174,7 @@ def season_page(name, year, page=1, per_page=25, status_in=None):
         }
         if status_in:
             variables["statusIn"] = status_in
+        variables["sort"] = [sort or "POPULARITY_DESC"]
         r = c.post(ANILIST_URL, json={
             "query": QUERY,
             "variables": variables
