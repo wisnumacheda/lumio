@@ -28,6 +28,13 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 ### Diperbaiki (fork lokal)
 - **Endpoint `/api/seasonal?which=airing` error "Invalid port ':1]'" di lingkungan ber-proxy:** akar masalahnya adalah httpx yang mengurai variabel `NO_PROXY` berisi alamat IPv6 berkurung dari lingkungan sandbox. Dijalankan dengan `NO_PROXY` yang disanitasi, endpoint kembali normal (28 item/halaman). Bukan perubahan kode upstream — catatan operasional lingkungan.
 
+## Payload Isi (OTA — tanpa rilis APK)
+
+- **Payload v4** - 2026-10-23: Panel 💬 Subtitle di player direstruktur — seksi "🎨 Gaya Subtitle" kini PALING ATAS (sebelumnya pengaturan ukuran terkubur di bawah daftar trek yang panjang): pilihan Ukuran (Kecil/Sedang/Besar/Jumbo) + Latar (Kotak Gelap/Tipis/Tanpa Kotak, pengaturan baru `subBg` yang juga tersedia di Pengaturan utama). Panel kontrol tidak lagi auto-sembunyi selama panel opsi terbuka.
+- **Payload v3** - 2026-10-23: Pemeriksa update APK mengabaikan rilis non-APK (tag payload-N).
+- **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
+- **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
+
 ## [2.25.0] - 2026-10-23
 
 ### Added

@@ -717,6 +717,14 @@
           <button data-val="xl">Jumbo</button>
         </div>
       </div>
+      <div class="set-row">
+        <div class="lbl">Latar belakang subtitle</div>
+        <div class="seg" id="setSubBg">
+          <button data-val="box">Kotak</button>
+          <button data-val="thin">Tipis</button>
+          <button data-val="none">Tanpa</button>
+        </div>
+      </div>
     </div>
 
     <div class="set-sec">
@@ -1641,7 +1649,11 @@ function showCtl(){
   const bar = $("#ctlBar"); if (!bar) return;
   bar.classList.remove("off");
   clearTimeout(ctlTimer);
-  ctlTimer = setTimeout(() => { if (ctlOn && !video.paused && !ctlSeeking) { bar.classList.add("off"); $("#ctlPanel").classList.add("hidden"); } }, 3200);
+  ctlTimer = setTimeout(() => {
+    if (!ctlOn || video.paused || ctlSeeking) return;
+    if (!$("#ctlPanel").classList.contains("hidden")) { showCtl(); return; }
+    bar.classList.add("off"); $("#ctlPanel").classList.add("hidden");
+  }, 3200);
 }
 function hideCtl(){ const bar = $("#ctlBar"); if (bar) bar.classList.add("off"); }
 function syncCtlPlay(){
@@ -1664,10 +1676,12 @@ function ctlPanelShow(kind){
   } else if (kind === "sub") {
     const subOpts = window._subOptions || [];
     const cur = window._subActiveId;
-    html = `<div class="ph">Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    html = `<div class="ph">🎨 Gaya Subtitle</div>`
+      + [["size:s", "Ukuran: Kecil"], ["size:m", "Ukuran: Sedang"], ["size:l", "Ukuran: Besar"], ["size:xl", "Ukuran: Jumbo"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("")
+      + [["bg:box", "Latar: Kotak Gelap"], ["bg:thin", "Latar: Tipis"], ["bg:none", "Latar: Tanpa Kotak"]].map(([v, l]) => opt(v, l, (SETTINGS.subBg || "box") === v.slice(3))).join("")
+      + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
     if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
     if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
-    html += `<div class="ph">Ukuran Teks Subtitle</div>` + [["size:s", "Kecil"], ["size:m", "Sedang"], ["size:l", "Besar"], ["size:xl", "Besar Sekali"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("");
   }
   panel.innerHTML = html;
   $$("button[data-v]", panel).forEach(b => b.addEventListener("click", () => {
@@ -1676,6 +1690,7 @@ function ctlPanelShow(kind){
     else if (kind === "quality") { const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change")); }
     else if (kind === "sub") {
       if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
+      else if (v.startsWith("bg:")) { SETTINGS.subBg = v.slice(3); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Latar subtitle diubah"); }
       else if (v === "off") selectSubtitle(null);
       else if (v === "refresh") { const cur2 = (window._subOptions || []).find(o => o.id === window._subActiveId); if (cur2) { selectSubtitle(cur2, true); toast("🔄 Menerjemahkan ulang subtitle…"); } }
       else selectSubtitle((window._subOptions || []).find(o => o.id === v) || null);
@@ -1934,6 +1949,9 @@ function renderSubOverlay(){
   ov.innerHTML = "";
   const sp = document.createElement("span");
   sp.style.fontSize = ({s: "14px", m: "18px", l: "23px", xl: "29px"}[SETTINGS.subSize] || "18px");
+  const bgMap = {box: "rgba(0,0,0,.62)", thin: "rgba(0,0,0,.28)", none: "transparent"};
+  sp.style.background = bgMap[SETTINGS.subBg] || bgMap.box;
+  if (SETTINGS.subBg === "none") sp.style.textShadow = "0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.9)";
   sp.textContent = txt;
   ov.appendChild(sp);
   ov.classList.remove("hidden");
@@ -2027,7 +2045,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
@@ -2036,6 +2054,7 @@ function syncSettingsUI(){
   segSync("setTheme", SETTINGS.theme);
   segSync("setAudio", SETTINGS.audio);
   segSync("setSubSize", SETTINGS.subSize);
+  segSync("setSubBg", SETTINGS.subBg || "box");
   segSync("gridSort", SETTINGS.sort);
   $("#setQuality").value = SETTINGS.quality;
   $("#setSubLang").value = SETTINGS.subLang;
@@ -2063,6 +2082,7 @@ function segWire(id, key){
 segWire("setTheme", "theme");
 segWire("setAudio", "audio");
 segWire("setSubSize", "subSize");
+segWire("setSubBg", "subBg");
 $$("#gridSort button").forEach(b => b.addEventListener("click", () => {
   if (SETTINGS.sort === b.dataset.val) return;
   SETTINGS.sort = b.dataset.val; applySettings(); loadHome();
