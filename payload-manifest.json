@@ -1,9 +1,9 @@
 {
-  "version": 12,
-  "label": "Sub di belakang bar kontrol",
-  "notes": "Koreksi posisi subtitle: teks sub sekarang tampil DI BELAKANG bar kontrol — garis geser dan tombol-tombol berada di depannya, jadi sub tidak lagi menutupi kontrol. Perbaikan sub dua baris dari pembaruan sebelumnya tetap ada.",
+  "version": 13,
+  "label": "Daftar Anime bebas donghua",
+  "notes": "Daftar Anime dibersihkan: donghua dan animasi non-Jepang lainnya yang terdeteksi tidak lagi dicampur ke daftar Anime (Baru Diupdate, Masih Tayang, Musim Ini, dan Jadwal Rilis). Judul-judul tersebut tetap bisa dicari dan dibuka seperti biasa kok.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-12/lumio-payload.zip",
-  "sha256": "1b3a2412fd353e4a07fc6754e91e9ddcb10bcecf3a51d2152ecf7b88151d3d89",
-  "size": 986572
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-13/lumio-payload.zip",
+  "sha256": "67bd9d0284f278b2b5b260384a9508dc904670fa32a11fe1df8c4daf4ee31ff6",
+  "size": 987814
 }
