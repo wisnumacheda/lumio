@@ -1001,7 +1001,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
 
         # Kasus khusus: Masih Tayang / Airing Ongoing dengan Dual-Lane (Musiman vs Panjang)
         if which == "airing":
-            key = f"airing_lanes_v4|page={page}"
+            key = f"airing_lanes_v5|page={page}"
             hit = None if fresh else await get_browse_cache(key, ttl=600)
             if hit:
                 hit["cached"] = True
@@ -1018,6 +1018,8 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                 t_ro = (m.get("title") or {}).get("romaji") or ""
                 primary_title = t_en or t_ro or ""
                 if not primary_title or "hentai" in primary_title.lower():
+                    continue
+                if _known_non_jp_country(m.get("countryOfOrigin")):
                     continue
                 alt_title = t_ro if primary_title != t_ro else ""
                 title_pairs.append((primary_title, alt_title))
@@ -1060,12 +1062,13 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                     "lane": "seasonal",
                     "synopsis": al.clean_synopsis_text(m.get("description") or ""),
                     "anilist_id": m.get("id"),
+                    "country": (m.get("countryOfOrigin") or "").upper(),
                     "matched": True,
                 })
 
             # 2. Ambil data releasing dari HiAnime (diurutkan sort=latest untuk episode terbaru)
             hi_data = await loop.run_in_executor(None, lambda: hi.browse({"status": "releasing", "sort": "latest"}, page))
-            hi_items = (hi_data or {}).get("items") or []
+            hi_items = await _filter_anime_list_items((hi_data or {}).get("items") or [])
 
             long_running_items = []
             for item in hi_items:
@@ -1171,7 +1174,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
 
         if sort == "latest":
             cache_id = cache_id + "|latest"
-        key = f"seasonal_v4|{cache_id}|page={page}"
+        key = f"seasonal_v5|{cache_id}|page={page}"
         hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
             hit["cached"] = True
@@ -1191,6 +1194,8 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
         media_by_title = {}
         for m in media_list:
             if not is_future and m.get("status") == "NOT_YET_RELEASED":
+                continue
+            if _known_non_jp_country(m.get("countryOfOrigin")):
                 continue
             t_en = (m.get("title") or {}).get("english") or ""
             t_ro = (m.get("title") or {}).get("romaji") or ""
@@ -1244,6 +1249,7 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                 "is_finished": is_finished,
                 "synopsis": al.clean_synopsis_text(m.get("description") or ""),
                 "anilist_id": m.get("id"),
+                "country": (m.get("countryOfOrigin") or "").upper(),
                 "site": m.get("siteUrl") or "",
                 "matched": True,
             })
@@ -1298,6 +1304,89 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
 def _format_to_type(f):
     return {"TV": "TV", "TV_SHORT": "TV", "MOVIE": "Movie", "OVA": "OVA",
             "ONA": "ONA", "SPECIAL": "Special", "MUSIC": "Music"}.get(f or "", "")
+
+
+# --- Pemisahan asal negara untuk daftar "Anime" ---------------------------
+# AniList menggolongkan donghua (CN), aeni (KR), dan animasi Taiwan (TW)
+# sebagai type ANIME. Kategori Anime di Lumio khusus animasi Jepang (JP);
+# judul non-JP yang SUDAH DIKENAL negaranya tidak ditampilkan di daftar
+# Anime (tetap bisa dicari/dibuka langsung). Negara tak dikenal DIBIARKAN
+# tampil agar judul Jepang tidak ikut terbuang saat metadata kosong.
+_ANIME_HOME_COUNTRY = "JP"
+
+
+def _known_non_jp_country(country) -> bool:
+    c = (country or "").strip().upper()
+    return bool(c) and c != _ANIME_HOME_COUNTRY
+
+
+def _pick_country_from_metadata(title, meta_list):
+    """Pilih countryOfOrigin dari kandidat AniList yang judulnya benar-benar
+    cocok (memakai _is_title_match yang sama dengan pencocokan slug)."""
+    for m in meta_list or []:
+        country = (m.get("countryOfOrigin") or "").strip().upper()
+        if not country:
+            continue
+        t_obj = m.get("title") or {}
+        for cand in (t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")):
+            if cand and _is_title_match(title, cand):
+                return country
+    return ""
+
+
+async def _origin_country_for_title(title):
+    """Negara asal satu judul dari AniList (cache 30 hari di browse_cache).
+    Return '' bila tidak diketahui — pemanggil TIDAK boleh membuang judul
+    hanya karena negaranya kosong."""
+    title = (title or "").strip()
+    if not title:
+        return ""
+    cache_key = "origin_v1|" + _slug_norm_match(title)
+    try:
+        hit = await get_browse_cache(cache_key, ttl=30 * 24 * 3600)
+        if hit and hit.get("country"):
+            return (hit.get("country") or "").strip().upper()
+    except Exception:
+        pass
+    try:
+        loop = asyncio.get_running_loop()
+        meta = await loop.run_in_executor(None, lambda: al.search_anime_metadata(title, per_page=6))
+        country = _pick_country_from_metadata(title, meta)
+    except Exception:
+        country = ""
+    if country:
+        try:
+            await set_browse_cache(cache_key, {"country": country})
+        except Exception:
+            pass
+    return country
+
+
+async def _filter_anime_list_items(items):
+    """Saring item daftar Anime: buang yang countryOfOrigin-nya DIKENAL
+    non-Jepang (donghua/aeni/dll). Item diberi field 'country' bila dikenal.
+    Urutan dipertahankan; item bernegara tak dikenal tetap tampil."""
+    items = [it for it in (items or []) if isinstance(it, dict)]
+    if not items:
+        return items
+    missing = []
+    for it in items:
+        c = (it.get("country") or it.get("countryOfOrigin") or "").strip().upper()
+        if c:
+            it["country"] = c
+        else:
+            missing.append(it)
+    if missing:
+        sem = asyncio.Semaphore(5)
+
+        async def resolve_one(it):
+            async with sem:
+                c = await _origin_country_for_title(it.get("title") or "")
+                if c:
+                    it["country"] = c
+
+        await asyncio.gather(*(resolve_one(it) for it in missing), return_exceptions=True)
+    return [it for it in items if not _known_non_jp_country(it.get("country"))]
 
 
 def _slug_norm_match(title):
@@ -1483,7 +1572,7 @@ async def anime_schedule(day: str = Query("today")):
         sun_end_wib = mon_mid_wib + (7 * 86400) - 1
         sun_end_utc = sun_end_wib - tz_offset
 
-        cache_key = f"schedule_7days_v1_{mon_mid_wib}"
+        cache_key = f"schedule_7days_v2_{mon_mid_wib}"
         cached_data = await get_browse_cache(cache_key, ttl=3600 * 2)
 
         if not cached_data:
@@ -1503,6 +1592,8 @@ async def anime_schedule(day: str = Query("today")):
                 t_ro = (m.get("title") or {}).get("romaji") or ""
                 primary_title = t_en or t_ro or ""
                 if not primary_title:
+                    continue
+                if _known_non_jp_country(m.get("countryOfOrigin")):
                     continue
                 alt_title = t_ro if primary_title != t_ro else ""
                 pending.append((s, primary_title, alt_title))
@@ -1542,6 +1633,7 @@ async def anime_schedule(day: str = Query("today")):
                     "poster": cover.get("large") or cover.get("medium") or "",
                     "type": _format_to_type(fmt),
                     "score": round(score / 10.0, 1) if score else 0.0,
+                    "country": ((s.get("media") or {}).get("countryOfOrigin") or "").upper(),
                     "matched": True,
                 }
                 buckets[day_cat].append(item)
@@ -1688,13 +1780,22 @@ async def browse_ep(
                    "score": _to_str(score), "season": _to_str(season), "language": _to_str(language),
                    "sort": _to_str(sort), "genre": c_genre, "keyword": _to_str(keyword),
                    "sy": c_sy, "sm": c_sm, "ey": c_ey, "em": c_em}.items() if v}
+        # Daftar "terbaru/ongoing" disaring asal-negaranya: donghua/aeni yang
+        # dikenal non-JP tidak dicampur ke daftar Anime (lihat _filter_anime_list_items).
+        origin_filter = (params.get("sort") in ("release_date", "latest")
+                         or params.get("status") == "releasing")
         key = "browse|" + _json.dumps(params, sort_keys=True) + f"|page={c_page}"
+        if origin_filter:
+            key += "|jp_only=v1"
         hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
             hit["cached"] = True
             return ok(hit)
         loop = asyncio.get_running_loop()
         res = await loop.run_in_executor(None, lambda: hi.browse(params, c_page))
+        if origin_filter and res and res.get("items"):
+            res = dict(res)
+            res["items"] = await _filter_anime_list_items(res.get("items") or [])
         await set_browse_cache(key, res)
         res["cached"] = False
         if safe_mode_int == 1 and res and res.get("items"):

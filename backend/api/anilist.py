@@ -37,6 +37,7 @@ query ($season: MediaSeason, $year: Int, $page: Int, $perPage: Int, $statusIn: [
       status
       title { romaji english }
       format
+      countryOfOrigin
       episodes
       duration
       averageScore
@@ -99,6 +100,7 @@ query AiringFinished($page: Int, $perPage: Int) {
       status
       title { romaji english }
       format
+      countryOfOrigin
       episodes
       duration
       averageScore
@@ -248,6 +250,7 @@ query ($now: Int, $end: Int, $perPage: Int) {
       media {
         id title { romaji english }
         season seasonYear format
+        countryOfOrigin
         coverImage { large medium }
       }
     }
@@ -266,6 +269,7 @@ query GetSchedule($page: Int, $now: Int, $end: Int, $perPage: Int) {
       media {
         id title { romaji english }
         season seasonYear format
+        countryOfOrigin
         genres averageScore
         coverImage { large medium }
       }
@@ -489,6 +493,8 @@ query ($search: String, $perPage: Int) {
       id
       idMal
       title { romaji english native }
+      format
+      countryOfOrigin
       season
       seasonYear
       startDate { year }
