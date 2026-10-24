@@ -1,9 +1,9 @@
 {
-  "version": 13,
-  "label": "Daftar Anime bebas donghua",
-  "notes": "Daftar Anime dibersihkan: donghua dan animasi non-Jepang lainnya yang terdeteksi tidak lagi dicampur ke daftar Anime (Baru Diupdate, Masih Tayang, Musim Ini, dan Jadwal Rilis). Judul-judul tersebut tetap bisa dicari dan dibuka seperti biasa kok.",
+  "version": 14,
+  "label": "Perbaikan sub Magical Explorer",
+  "notes": "Perbaikan subtitle tidak muncul: untuk anime yang servernya menyediakan beberapa track subtitle berbahasa sama (contohnya Magical Explorer), aplikasi sekarang memilih track yang lengkap, bukan track berisi beberapa teks saja. Selamat menonton lagi!",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-13/lumio-payload.zip",
-  "sha256": "67bd9d0284f278b2b5b260384a9508dc904670fa32a11fe1df8c4daf4ee31ff6",
-  "size": 987814
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-14/lumio-payload.zip",
+  "sha256": "e010238b91c3cf6704956ee4110c80fc18d0837bc3bf8d2795a099be63242831",
+  "size": 988416
 }
