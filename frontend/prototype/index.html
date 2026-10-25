@@ -465,7 +465,6 @@
       <button class="cat" data-cat="series">📺 Series <span class="soon-tag">SEGERA</span></button>
       <button class="cat" data-cat="manhwa">📖 Manhwa <span class="soon-tag">SEGERA</span></button>
       <button class="cat" data-cat="donghua">🐉 Donghua <span class="soon-tag">SEGERA</span></button>
-      <button class="cat" data-cat="adult">🔞 18+ <span class="soon-tag">TERKUNCI</span></button>
     </div>
     <div class="upd-banner hidden" id="updateBanner">
       <div class="grow" id="updText">🎉 Update tersedia</div>
@@ -711,10 +710,6 @@
           <div class="desc">Menyaring judul bertema dewasa dari katalog, pencarian &amp; genre. Berlaku mulai pemuatan data berikutnya.</div>
         </div>
         <div class="switch" id="setSafeMode" role="switch" aria-checked="true" tabindex="0"></div>
-      </div>
-      <div class="set-row">
-        <div class="lbl">Kategori 18+</div>
-        <div class="desc">🔒 <b>Terkunci.</b> Kategori dewasa belum tersedia di fork ini — menunggu sumber legal berlisensi + gerbang verifikasi usia. Judul hentai selalu diblokir permanen oleh server dan tidak bisa dibuka dari pengaturan mana pun.</div>
       </div>
     </div>
 
@@ -2168,9 +2163,6 @@ const CAT_INFO = {
   donghua: {ico: "🐉", title: "Donghua — Segera Hadir",
     desc: "Animasi Tiongkok (donghua) sebenarnya sudah sebagian tayang di katalog Anime — contohnya Link Click (Shiguang Dailiren). Kategori khusus ini memisahkannya begitu ada penanda asal negara dari backend.",
     plan: ["<b>Status:</b> sebagian judul sudah bisa ditonton lewat kategori Anime", "<b>Yang dibutuhkan:</b> filter negara asal (CN) di API katalog", "<b>Provider:</b> sumber donghua sub Indo/Eng khusus"]},
-  adult:   {ico: "🔞", title: "Kategori 18+ — Terkunci",
-    desc: "Kategori dewasa sengaja dikunci di fork ini. Bukan sekadar saklar: menayangkan konten 18+ butuh sumber legal berlisensi dan gerbang verifikasi usia yang benar — dua hal yang belum ada, jadi slotnya disiapkan tapi pintunya belum dibuka.",
-    plan: ["<b>Sudah aktif sekarang:</b> Mode Aman di ⚙️ Pengaturan menyaring konten bertema dewasa dari katalog anime", "<b>Tetap permanen:</b> judul hentai diblokir di level server dan tidak bisa dibuka dari pengaturan mana pun", "<b>Syarat membuka:</b> sumber berlisensi + verifikasi usia (mis. PIN) — dibahas lagi bila dua-duanya siap"]},
 };
 function showCategory(cat){
   $$("#catBar .cat").forEach(b => b.classList.toggle("active", b.dataset.cat === cat));
