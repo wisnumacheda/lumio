@@ -1,9 +1,9 @@
 {
-  "version": 14,
-  "label": "Perbaikan sub Magical Explorer",
-  "notes": "Perbaikan subtitle tidak muncul: untuk anime yang servernya menyediakan beberapa track subtitle berbahasa sama (contohnya Magical Explorer), aplikasi sekarang memilih track yang lengkap, bukan track berisi beberapa teks saja. Selamat menonton lagi!",
+  "version": 15,
+  "label": "Video fullscreen tidak kepotong",
+  "notes": "Perbaikan tampilan fullscreen: video sekarang selalu tampil satu frame utuh, tidak ada lagi bagian gambar yang terpotong di tepi layar. Di HP yang layarnya lebih lebar dari video, akan ada bilah hitam tipis di kiri-kanan — itu sengaja, supaya gambarnya utuh.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-14/lumio-payload.zip",
-  "sha256": "e010238b91c3cf6704956ee4110c80fc18d0837bc3bf8d2795a099be63242831",
-  "size": 988416
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-15/lumio-payload.zip",
+  "sha256": "45ce72a35a74155a49fdd48370772bd2d93a379bdc17fcbc8e3a8c6d49023f8a",
+  "size": 988633
 }
