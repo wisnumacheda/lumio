@@ -1,9 +1,9 @@
 {
-  "version": 17,
-  "label": "Isi 2.27.0 - perbaikan update tertahan",
-  "notes": "Isi aplikasi 2.27.0 untuk semua HP: Manhwa, player Netflix, dan bersih jejak Tatap. Perbaikan untuk HP yang sudah update APK tapi masih tampil versi lama karena payload lama masih aktif.",
+  "version": 18,
+  "label": "Isi 2.27.0 - Manhwa Komikcast + Asura",
+  "notes": "Manhwa kini punya 3 provider: MangaDex + Komikcast (Indonesia) + Asura Scans (Inggris). Daftar bab gabungan per judul, bab yang bisa dibaca didahulukan atas tautan resmi, tiap bab berlabel sumber dan bahasa. Bab resmi MangaDex tetap jadi tautan situs resmi. Catatan: Komikcast belum terverifikasi dari server karena bot-protection, mohon tes baca bab Indonesia dari HP.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-17/lumio-payload.zip",
-  "sha256": "af4fd4b7b527897dd2b892bd738538af05b95098e4915ae6398f2c3e63a6d76f",
-  "size": 996199
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-18/lumio-payload.zip",
+  "sha256": "11017679a5f35b9f7873392d88371b522b32172bd3d3ede41dfe770676f9a850",
+  "size": 1007381
 }
