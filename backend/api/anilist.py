@@ -493,6 +493,7 @@ query ($search: String, $perPage: Int) {
       id
       idMal
       title { romaji english native }
+      synonyms
       format
       countryOfOrigin
       season

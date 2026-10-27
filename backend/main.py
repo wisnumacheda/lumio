@@ -1326,13 +1326,22 @@ def _known_non_jp_country(country) -> bool:
 
 def _pick_country_from_metadata(title, meta_list):
     """Pilih countryOfOrigin dari kandidat AniList yang judulnya benar-benar
-    cocok (memakai _is_title_match yang sama dengan pencocokan slug)."""
+    cocok (memakai _is_title_match yang sama dengan pencocokan slug).
+    Kandidat: english/romaji/native + synonyms (judul alternatif AniList —
+    penting untuk judul CN yang romanisasi/pinyin-nya berbeda dari judul
+    HiAnime, sehingga english/romaji/native saja gagal cocok)."""
     for m in meta_list or []:
         country = (m.get("countryOfOrigin") or "").strip().upper()
         if not country:
             continue
         t_obj = m.get("title") or {}
-        for cand in (t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")):
+        cands = [t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")]
+        syn = m.get("synonyms") or []
+        if isinstance(syn, str):
+            syn = [syn]
+        if isinstance(syn, list):
+            cands.extend(syn)
+        for cand in cands:
             if cand and _is_title_match(title, cand):
                 return country
     return ""
@@ -1816,10 +1825,12 @@ async def _filter_donghua_items(items):
     """Saring item menjadi HANYA yang countryOfOrigin-nya dikenal CN.
     Berbeda dengan _filter_anime_list_items (yang mempertahankan unknown),
     di sini unknown DIBUANG: daftar Donghua tidak boleh kebanjiran judul
-    asal tak diketahui. Item diberi field 'country' bila dikenal."""
+    asal tak diketahui. Item diberi field 'country' bila dikenal.
+    Mengembalikan (kept, stats): stats = {"scanned": n, "cn": k,
+    "known_non_cn": m, "unknown": u} untuk diagnostik /api/donghua."""
     items = [it for it in (items or []) if isinstance(it, dict)]
     if not items:
-        return items
+        return items, {"scanned": 0, "cn": 0, "known_non_cn": 0, "unknown": 0}
     missing = []
     for it in items:
         c = (it.get("country") or it.get("countryOfOrigin") or "").strip().upper()
@@ -1837,7 +1848,18 @@ async def _filter_donghua_items(items):
                     it["country"] = c
 
         await asyncio.gather(*(resolve_one(it) for it in missing), return_exceptions=True)
-    return [it for it in items if (it.get("country") or "").strip().upper() == "CN"]
+    kept, cn, known_non_cn, unknown = [], 0, 0, 0
+    for it in items:
+        c = (it.get("country") or "").strip().upper()
+        if c == "CN":
+            cn += 1
+            kept.append(it)
+        elif c:
+            known_non_cn += 1
+        else:
+            unknown += 1
+    return kept, {"scanned": len(items), "cn": cn,
+                  "known_non_cn": known_non_cn, "unknown": unknown}
 
 
 _DONGHUA_ADULT_TAGS = ("ecchi", "erotica", "magical-sex-shift")
@@ -1868,13 +1890,16 @@ async def donghua_ep(
     """Daftar animasi Cina (countryOfOrigin == CN) dari katalog HiAnime,
     memakai mesin video yang sama dengan Anime (detail/episode/player
     dipakai ulang apa adanya). Asal tak dikenal TIDAK ikut — bila AniList
-    tak terjangkau (mis. sandbox), daftar ini kosong by design."""
+    tak terjangkau (mis. sandbox), daftar ini kosong by design.
+    Hasil KOSONG tidak di-cache (buka ulang memindai ulang, bukan menyajikan
+    kekosongan lama); respons membawa data.debug {scanned, cn_confirmed,
+    unknown} agar empty state bisa menunjukkan penyebabnya."""
     try:
         safe_mode_int = _parse_safe_mode(safe_mode)
         c_page = page if isinstance(page, int) and page >= 1 else 1
         key = f"donghua|page={c_page}|safe={safe_mode_int}"
         hit = await get_browse_cache(key, ttl=600)
-        if hit:
+        if hit and hit.get("items"):
             hit["cached"] = True
             return ok(hit)
         loop = asyncio.get_running_loop()
@@ -1884,6 +1909,7 @@ async def donghua_ep(
         start_bp = (c_page - 1) * per_page_scan + 1
         cn_items, seen = [], set()
         browse_total, scanned_last = 1, 0
+        tot_scanned, tot_cn, tot_unknown = 0, 0, 0
         for bp in range(start_bp, start_bp + per_page_scan):
             res = await loop.run_in_executor(
                 None, lambda bp=bp: hi.browse({"sort": "release_date"}, bp))
@@ -1892,7 +1918,10 @@ async def donghua_ep(
             if not items:
                 break
             scanned_last = bp
-            batch = await _filter_donghua_items(items)
+            batch, stats = await _filter_donghua_items(items)
+            tot_scanned += stats["scanned"]
+            tot_cn += stats["cn"]
+            tot_unknown += stats["unknown"]
             batch = _donghua_safe_filter(batch, safe_mode_int)
             for it in batch:
                 slug = it.get("id") or ""
@@ -1909,8 +1938,11 @@ async def donghua_ep(
             "page": c_page,
             "total_pages": c_page + 1 if has_more else c_page,
             "cached": False,
+            "debug": {"scanned": tot_scanned, "cn_confirmed": tot_cn,
+                      "unknown": tot_unknown},
         }
-        await set_browse_cache(key, data)
+        if cn_items:
+            await set_browse_cache(key, data)
         return ok(data)
     except Exception as e:
         return fail(str(e))

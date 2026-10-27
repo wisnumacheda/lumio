@@ -1328,7 +1328,9 @@ async function openGrid(title, loader, append){
     registerItems(items);
     if (!append && !items.length) {
       grid.innerHTML = "";
-      showState("🔍", "Tidak ada hasil", `Belum ada judul yang cocok untuk "${title}". Coba kata kunci atau genre lain.`);
+      let msg = `Belum ada judul yang cocok untuk "${title}". Coba kata kunci atau genre lain.`;
+      if (d.debug) msg += ` Dipindai ${d.debug.scanned} judul, ${d.debug.cn_confirmed} terkonfirmasi asal Cina.`;
+      showState("🔍", "Tidak ada hasil", msg);
       return;
     }
     gridTotalPages = d.total_pages || (d.has_next ? gridPage + 1 : gridPage);
