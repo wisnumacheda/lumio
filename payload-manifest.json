@@ -1,9 +1,9 @@
 {
-  "version": 18,
-  "label": "Isi 2.27.0 - Manhwa Komikcast + Asura",
-  "notes": "Manhwa kini punya 3 provider: MangaDex + Komikcast (Indonesia) + Asura Scans (Inggris). Daftar bab gabungan per judul, bab yang bisa dibaca didahulukan atas tautan resmi, tiap bab berlabel sumber dan bahasa. Bab resmi MangaDex tetap jadi tautan situs resmi. Catatan: Komikcast belum terverifikasi dari server karena bot-protection, mohon tes baca bab Indonesia dari HP.",
+  "version": 19,
+  "label": "Isi 2.28.1 - Manhwa Manhwaindo",
+  "notes": "Provider Manhwa keempat: Manhwaindo (Bahasa Indonesia) — cari, daftar bab dari endpoint situsnya sendiri, dan halaman bab; bergabung ke daftar bab gabungan 4 provider dengan badge sumber dan bahasa. Daftar bab terverifikasi live dari sandbox; gambar halaman belum terverifikasi dari sandbox karena CDN memblokir IP datacenter — perlu tes HP.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-18/lumio-payload.zip",
-  "sha256": "11017679a5f35b9f7873392d88371b522b32172bd3d3ede41dfe770676f9a850",
-  "size": 1007381
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-19/lumio-payload.zip",
+  "sha256": "c7673dd2c53740c1dd9ee6594573e22a5a6b1fa256a167de69a971a56eb0c2d1",
+  "size": 1013662
 }
