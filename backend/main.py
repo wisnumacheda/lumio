@@ -2150,14 +2150,28 @@ def _manga_merge_chapters(primary_chapters, extra_lists):
     return out
 
 
+class _ProviderFailed(Exception):
+    """Provider gagal total (bukan judul tidak ditemukan): semua
+    pencarian error, atau judul cocok tapi semua pengambilan detail
+    error. Dilempar ke penggabung supaya kegagalan tampil sebagai
+    catatan UI, bukan hasil kosong diam-diam."""
+
+
 def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode,
                         blocked_raise="Komikcast diblokir"):
     """Coba tiap varian judul (utama + alt, maks 6) sebagai kata kunci
-    cari; kembalikan bab dari kecocokan ketat pertama. Gagal = [].
+    cari; kembalikan (bab, gagal) dari kecocokan ketat pertama.
+    gagal=True hanya bila provider tidak pernah memberi satu pun respons
+    sukses (semua pencarian error) atau judul cocok tapi semua
+    pengambilan detail error. Judul yang memang tidak ada di provider
+    (pencarian sukses tanpa kecocokan) BUKAN gagal dan tidak ber catatan.
     blocked_raise = pesan yang dilempar bila provider terblokir (KC dan
     MI masing-masing punya catatan UI-nya sendiri)."""
     seen_q = set()
     blocked = False
+    any_success = False
+    matched = False
+    matched_detail_failed = False
     for q in titles:
         q = (q or "").strip()
         if not q or q.lower() in seen_q:
@@ -2173,29 +2187,42 @@ def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode,
             if "diblokir" in str(e):
                 blocked = True
             continue
+        any_success = True
         for it in res.get("items") or []:
             if _manga_titles_match(titles, _cand_titles(it)):
+                matched = True
                 try:
                     det = detail_fn((it.get("id") or "")[len(id_prefix):],
                                     safe_mode=safe_mode)
                 except Exception:
+                    matched_detail_failed = True
                     continue
-                return det.get("chapters") or []
+                return (det.get("chapters") or []), False
     if blocked:
         raise ValueError(blocked_raise)
-    return []
+    if matched and matched_detail_failed:
+        return [], True
+    if seen_q and not any_success:
+        return [], True
+    return [], False
 
 
 def _kc_match_chapters(titles, safe_mode):
     """Cari judul di Komikcast (cocok ketat) lalu ambil daftar babnya.
-    Mengembalikan (chapters, note). Gagal = ([], note) — tidak pernah
-    melempar, supaya satu provider gagal tidak menggagalkan gabungan."""
+    Mengembalikan (chapters, note). Judul tidak ditemukan = ([], "").
+    Provider gagal total = melempar _ProviderFailed (ditangkap penggabung
+    menjadi catatan UI, bukan hasil kosong diam-diam). Terblokir =
+    ([], note) seperti sebelumnya."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: kcmod.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda slug, safe_mode: kcmod.get_series_chapters(slug, safe_mode=safe_mode),
             "kc:", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("Komikcast")
         return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception as e:
         msg = str(e)
         if "diblokir" in msg:
@@ -2207,11 +2234,15 @@ def _kc_match_chapters(titles, safe_mode):
 def _as_match_chapters(titles, safe_mode):
     """Sama seperti _kc_match_chapters, untuk Asura Scans."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: asmod.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda slug, safe_mode: asmod.get_series_chapters(slug, safe_mode=safe_mode),
             "as:", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("Asura")
         return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception:
         return [], ""
 
@@ -2219,11 +2250,15 @@ def _as_match_chapters(titles, safe_mode):
 def _mi_match_chapters(titles, safe_mode):
     """Sama seperti _kc_match_chapters, untuk Manhwaindo."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: mimod.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda slug, safe_mode: mimod.get_series_chapters(slug, safe_mode=safe_mode),
             "mi:", titles, safe_mode, blocked_raise="Manhwaindo diblokir")
+        if failed:
+            raise _ProviderFailed("Manhwaindo")
         return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception as e:
         msg = str(e)
         if "diblokir" in msg:
@@ -2235,11 +2270,15 @@ def _mi_match_chapters(titles, safe_mode):
 def _md_match_chapters(titles, safe_mode):
     """Cari judul di MangaDex (cocok ketat) lalu ambil daftar babnya."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: md.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda mid, safe_mode: md.get_manga_chapters(mid, safe_mode=safe_mode),
             "", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("MangaDex")
         return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception:
         return [], ""
 
@@ -2251,11 +2290,13 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
     mengalahkan tautan resmi; bahasa ID didahulukan atas EN. Bab resmi
     MangaDex tetap tampil sebagai tautan 'Buka di Situs Resmi' bila
     tidak ada versi bacanya di provider lain. mid = UUID MangaDex,
-    'kc:<slug>', 'as:<slug>', atau 'mi:<slug>'."""
+    'kc:<slug>', 'as:<slug>', atau 'mi:<slug>'. Provider yang gagal
+    total tampil sebagai catatan ⚠️ dan hasilnya tidak di-cache."""
     try:
-        # Kunci v2 (payload v19): gabungan kini memakai 4 provider —
-        # cache v1 dari payload lama tidak boleh menyembunyikan MI.
-        cache_key = f"manga_merged_v2|{mid}|{safe_mode}"
+        # Kunci v3 (payload v21): cache v2 bisa menyimpan hasil PARSIAL
+        # dari kegagalan sesaat (dulu selalu di-cache 6 jam) — kunci baru
+        # membatalkan cache lama itu. Hasil parsial kini TIDAK di-cache.
+        cache_key = f"manga_merged_v3|{mid}|{safe_mode}"
         cached = await get_browse_cache(cache_key, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
@@ -2286,21 +2327,28 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
         # halaman challenge terdeteksi langsung, bukan timeout panjang).
         jobs = []
         if primary_source != "Komikcast":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _kc_match_chapters(titles, safe_mode)))
+            jobs.append(("Komikcast", loop.run_in_executor(
+                None, lambda: _kc_match_chapters(titles, safe_mode))))
         if primary_source != "Asura":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _as_match_chapters(titles, safe_mode)))
+            jobs.append(("Asura", loop.run_in_executor(
+                None, lambda: _as_match_chapters(titles, safe_mode))))
         if primary_source != "Manhwaindo":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _mi_match_chapters(titles, safe_mode)))
+            jobs.append(("Manhwaindo", loop.run_in_executor(
+                None, lambda: _mi_match_chapters(titles, safe_mode))))
         if primary_source != "MangaDex":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _md_match_chapters(titles, safe_mode)))
-        results = await asyncio.gather(*jobs, return_exceptions=True) if jobs else []
+            jobs.append(("MangaDex", loop.run_in_executor(
+                None, lambda: _md_match_chapters(titles, safe_mode))))
+        results = await asyncio.gather(
+            *[c for _, c in jobs], return_exceptions=True) if jobs else []
         extra_lists, notes = [], []
-        for r in results:
+        complete = True
+        for name, r in zip([n for n, _ in jobs], results):
             if isinstance(r, Exception):
+                # Provider gagal total: tampilkan sebagai catatan (bukan
+                # hasil kosong diam-diam) dan tandai gabungan tidak
+                # lengkap supaya TIDAK di-cache 6 jam.
+                notes.append(f"⚠️ {name} gagal dimuat — coba buka lagi detailnya.")
+                complete = False
                 continue
             chapters, note = r
             if chapters:
@@ -2324,7 +2372,13 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
             "sources": sources,
             "notes": notes,
         }
-        await set_browse_cache(cache_key, data)
+        # Hanya gabungan LENGKAP yang di-cache 6 jam. Hasil parsial
+        # (ada provider gagal) tidak disimpan sama sekali — buka ulang
+        # detail akan mengambil ulang, bukan menyajikan hasil parsial
+        # lama. Catatan terblokir (KC/MI) bukan exception sehingga tetap
+        # dihitung lengkap: statusnya stabil, bukan kegagalan sesaat.
+        if complete:
+            await set_browse_cache(cache_key, data)
         data["cached"] = False
         return ok(data)
     except Exception as e:
