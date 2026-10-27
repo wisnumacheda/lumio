@@ -48,6 +48,12 @@
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
 
+        <activity
+            android:name=".InAppBrowserActivity"
+            android:exported="false"
+            android:parentActivityName=".WebUiActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

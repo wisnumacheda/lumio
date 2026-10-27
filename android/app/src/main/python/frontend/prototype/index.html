@@ -2370,7 +2370,7 @@ function openMangaBrowser(){
 }
 function mangaCardHTML(it){
   const cover = it.cover ? posterSrc(it.cover) : "";
-  const meta = [it.status || "", it.year || ""].filter(Boolean).join(" · ");
+  const meta = [it.source || "", it.status || "", it.year || ""].filter(Boolean).join(" · ");
   return `<article class="card" data-mid="${esc(it.id)}">`
     + `<div class="poster">${cover ? `<img src="${esc(cover)}" alt="" loading="lazy">` : ""}<span class="play-ico">📖</span></div>`
     + `<div class="meta"><div class="ttl">${esc(it.title)}</div>`
@@ -2393,17 +2393,29 @@ async function mangaSearch(q){
   q = (q || "").trim();
   if (q.length < 2) { toast("Kata kunci minimal 2 karakter", true); return; }
   $("#mangaHint").textContent = "Mencari…";
-  try {
-    const d = await api("/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
-    mangaRender(d.items || [], "Hasil: " + q, "");
-  } catch (e) { $("#mangaHint").textContent = "❌ Gagal mencari: " + e.message; }
+  const sm = SETTINGS.safeMode ? 1 : 0;
+  const eps = [
+    ["/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "MangaDex"],
+    ["/api/manga/kc/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Komikcast"],
+    ["/api/manga/as/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Asura"],
+  ];
+  const settled = await Promise.allSettled(eps.map(([u]) => api(u)));
+  let items = [];
+  const failed = [];
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled" && r.value && r.value.items) items = items.concat(r.value.items);
+    else failed.push(eps[i][1]);
+  });
+  items.sort((a, b) => (b.score || 0) - (a.score || 0));
+  const hint = failed.length ? "⚠️ " + failed.join(", ") + " belum bisa diakses saat ini." : "";
+  mangaRender(items, "Hasil: " + q, hint);
 }
 async function openMangaDetail(id){
   showView("mangaDetail");
   $("#mdChHint").textContent = "Memuat daftar bab…";
   $("#mdChapters").innerHTML = "";
   try {
-    const d = await api("/api/manga/" + encodeURIComponent(id) + "/chapters?safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
+    const d = await api("/api/manga/merged/" + encodeURIComponent(id) + "/chapters?safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
     mangaDetail = d; mangaChapters = d.chapters || [];
     $("#mdPoster").src = d.cover ? posterSrc(d.cover) : "";
     $("#mdTitle").textContent = d.title || "—";
@@ -2411,14 +2423,16 @@ async function openMangaDetail(id){
     $("#mdSyn").textContent = d.description || "";
     $("#mdChCount").textContent = mangaChapters.length + " bab";
     if (!mangaChapters.length) {
-      $("#mdChHint").textContent = "Belum ada bab Bahasa Indonesia / Inggris untuk judul ini di MangaDex.";
+      $("#mdChHint").textContent = "Belum ada bab yang bisa dibaca / tautan resmi untuk judul ini.";
       return;
     }
-    $("#mdChHint").textContent = "Bab diurut dari terbaru — ketuk untuk membaca.";
+    const srcNote = (d.sources || []).length ? " Sumber: " + d.sources.join(", ") + "." : "";
+    const extraNote = (d.notes || []).length ? " " + d.notes.join(" ") : "";
+    $("#mdChHint").textContent = "Bab diurut dari terbaru — ketuk untuk membaca. Bab yang bisa dibaca didahulukan atas tautan resmi." + srcNote + extraNote;
     const desc = [...mangaChapters].reverse();
     $("#mdChapters").innerHTML = desc.map(c =>
       `<button class="manga-ch" data-ch="${esc(c.id)}">Bab ${esc(c.chapter || "?")}${c.external ? " ↗" : ""}`
-      + `<small>${c.external ? "Resmi · " : ""}${esc(c.lang || "")}${c.title ? " · " + esc(c.title) : ""}</small></button>`).join("");
+      + `<small>${esc(c.source || "")}${c.lang ? " · " + esc(c.lang) : ""}${c.external ? " · Resmi" : ""}${c.title ? " · " + esc(c.title) : ""}</small></button>`).join("");
   } catch (e) { $("#mdChHint").textContent = "❌ Gagal memuat: " + e.message; }
 }
 function mangaChapterIndex(){ return mangaChapters.findIndex(c => c.id === (mangaCurChapter && mangaCurChapter.id)); }
@@ -2432,6 +2446,15 @@ function mangaStep(dir){
   const i = mangaChapterIndex(); if (i < 0) return;
   const t = mangaChapters[i + dir]; if (t) openMangaReader(t.id);
 }
+function openOfficialLink(url){
+  try {
+    if (window.LumioNative && typeof window.LumioNative.openInAppBrowser === "function") {
+      window.LumioNative.openInAppBrowser(url);
+      return;
+    }
+  } catch (e) {}
+  window.open(url, "_blank");
+}
 async function openMangaReader(chapterId){
   const ch = mangaChapters.find(c => c.id === chapterId);
   if (!ch) return;
@@ -2443,13 +2466,27 @@ async function openMangaReader(chapterId){
   $("#readerTitle").textContent = (mangaDetail ? mangaDetail.title + " — " : "") + "Bab " + (ch.chapter || "?") + (ch.title ? " · " + ch.title : "");
   syncReaderNav();
   if (ch.external) {
-    // Bab resmi: MangaDex tidak meng-host gambarnya — arahkan ke situs resmi.
+    // Bab resmi: MangaDex tidak meng-host gambarnya. Di aplikasi, buka
+    // lewat browser dalam aplikasi (bridge native); di luar aplikasi
+    // (atau bridge tak tersedia) jatuh ke window.open seperti dulu.
+    // Catatan jujur: ini TIDAK membypass login/paywall penerbit —
+    // tampilannya tetap situs penerbit, bukan reader Lumio.
     $("#readerHint").textContent = "Bab ini adalah bab resmi dari penerbit dan hanya bisa dibaca di situs resminya.";
-    $("#readerPages").innerHTML = `<div style="text-align:center;padding:30px 10px"><p style="color:var(--muted);margin-bottom:16px">MangaDex hanya menautkan bab ini ke situs resmi penerbit.</p><a class="btn btn-play" href="${esc(ch.external)}" target="_blank" rel="noopener">🌐 Buka di Situs Resmi</a></div>`;
+    $("#readerPages").innerHTML = `<div style="text-align:center;padding:30px 10px"><p style="color:var(--muted);margin-bottom:16px">MangaDex hanya menautkan bab ini ke situs resmi penerbit.</p><button class="btn btn-play" data-u="${esc(ch.external)}" onclick="openOfficialLink(this.dataset.u)">🌐 Buka di Situs Resmi</button></div>`;
     return;
   }
+  let pagesUrl;
+  if (ch.source === "Komikcast") {
+    pagesUrl = "/api/manga/kc/chapter/" + encodeURIComponent(chapterId.slice(3)) + "/pages";
+  } else if (ch.source === "Asura") {
+    const rest = chapterId.slice(3);
+    const sep = rest.indexOf(":");
+    pagesUrl = "/api/manga/as/series/" + encodeURIComponent(rest.slice(0, sep)) + "/chapter/" + encodeURIComponent(rest.slice(sep + 1)) + "/pages";
+  } else {
+    pagesUrl = "/api/manga/chapter/" + encodeURIComponent(chapterId) + "/pages";
+  }
   try {
-    const d = await api("/api/manga/chapter/" + encodeURIComponent(chapterId) + "/pages");
+    const d = await api(pagesUrl);
     $("#readerHint").textContent = d.total + " halaman — geser ke bawah untuk membaca.";
     $("#readerPages").innerHTML = d.pages.map(u => `<img src="${esc(posterSrc(u))}" alt="" loading="lazy">`).join("");
   } catch (e) { $("#readerHint").textContent = "❌ " + e.message; }

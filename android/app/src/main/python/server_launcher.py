@@ -1,4 +1,54 @@
-import os, sys, threading
+import os, re, sys, threading
+
+
+def _ver_tuple(v):
+    """'2.27.0' -> (2, 27, 0); segmen non-angka dihitung 0."""
+    parts = []
+    for p in str(v).strip().split("."):
+        m = re.match(r"(\d+)", p)
+        parts.append(int(m.group(1)) if m else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+
+def _backend_version(backend_dir):
+    """Baca __version__ dari backend/version.py tanpa mengimpor modul
+    (impor akan bentrok antara isi bawaan dan payload). None bila tak
+    terbaca."""
+    try:
+        with open(os.path.join(backend_dir, "version.py"), "r", encoding="utf-8") as f:
+            m = re.search(r"""__version__\s*=\s*["']([^"']+)["']""", f.read())
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def _payload_is_stale(payload_backend_dir, bundled_backend_dir, data_dir):
+    """True bila payload terpilih harus DIABAIKAN boot ini: versinya
+    lebih rendah dari backend bawaan APK, atau versinya tak terbaca
+    (payload korup). Dalam kedua kasus, status aktif dibersihkan secara
+    aman agar payload usang/rusak tidak terpilih lagi di boot
+    berikutnya — sampai ada payload baru (promosi pending tetap berjalan
+    normal). Mengembalikan False bila payload layak dipakai (versi >=
+    bawaan) atau bila versi bawaan sendiri tak terbaca (jangan merusak
+    perilaku lama). Tidak pernah melempar."""
+    bundled = _backend_version(bundled_backend_dir)
+    if bundled is None:
+        return False
+    pv = _backend_version(payload_backend_dir)
+    if pv is None or _ver_tuple(pv) < _ver_tuple(bundled):
+        try:
+            import ota_core
+            d = ota_core.ota_dir(data_dir)
+            s = ota_core.load_state(d)
+            if int(s.get("active") or 0) > 0:
+                s["active"] = 0
+                ota_core.save_state(d, s)
+        except Exception:
+            pass
+        return True
+    return False
 
 def trim_memory():
     """Trigger Python garbage collection explicitly on memory trim (Android TV only)."""
@@ -23,17 +73,24 @@ def start_server(data_dir=None, is_tv=False):
             sys.path.insert(0, base_dir)
 
         # --- OTA payload: isi unduhan (backend+frontend dari rilis GitHub)
-        # menimpa isi bawaan APK bila ada dan sehat; gagal -> bawaan. ---
+        # menimpa isi bawaan APK bila ada dan sehat; gagal -> bawaan.
+        # ATURAN v2.28.0: payload yang backend-nya LEBIH TUA dari bawaan
+        # APK diabaikan (kasus nyata: payload v16/backend 2.26.0 menutupi
+        # APK 2.27.0 sehingga aplikasi tampil 2.26.0). Payload usang itu
+        # juga dibersihkan dari status aktif agar tidak terpilih lagi. ---
         payload_version = 0
         if data_dir:
             try:
                 import ota_core
                 sel = ota_core.prepare_boot(data_dir)
                 if sel:
-                    backend_dir = sel["backend_dir"]
-                    frontend_dir = sel["frontend_dir"]
-                    payload_version = int(sel["version"])
-                    print(f"[LUMIO-OTA] Memakai payload isi v{payload_version}", flush=True)
+                    if _payload_is_stale(sel["backend_dir"], backend_dir, data_dir):
+                        print("[LUMIO-OTA] Payload usang/rusak diabaikan; pakai bawaan APK", flush=True)
+                    else:
+                        backend_dir = sel["backend_dir"]
+                        frontend_dir = sel["frontend_dir"]
+                        payload_version = int(sel["version"])
+                        print(f"[LUMIO-OTA] Memakai payload isi v{payload_version}", flush=True)
             except Exception as ota_err:
                 print(f"[LUMIO-OTA] Lewati payload ({ota_err}); pakai bawaan APK", flush=True)
         os.environ["LUMIO_PAYLOAD_VERSION"] = str(payload_version)

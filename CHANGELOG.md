@@ -49,6 +49,17 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
 - **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
 
+## [2.28.0] - 2026-10-27
+
+### Added
+- **Browser dalam aplikasi untuk tautan resmi Manhwa (disetujui user 27 Okt).** Tombol "Buka di Situs Resmi" pada bab Manhwa resmi (MangaDex eksternal) kini membuka WebView native di dalam aplikasi (`InAppBrowserActivity`: alamat situs terlihat, tombol kembali/maju/tutup, Back Android kembali ke reader, bukan keluar aplikasi), bukan lagi melempar ke browser luar. Frontend memanggil bridge `LumioNative.openInAppBrowser(url)` bila tersedia, dengan fallback `window.open` bila bridge tidak ada (agar payload lama tetap jalan). Kejujuran produk: WebView ini TIDAK membypass login/paywall penerbit (Tapas/Webnovel/dsb.) — pengguna tetap login/membayar di situs penerbit, tampilannya tetap situs penerbit, bukan reader Lumio. Keamanan: hanya skema https + host jelas yang diteruskan; skema aneh (intent://, file://) ditolak; TIDAK ada JavascriptInterface yang diekspos ke halaman pihak ketiga ini.
+
+### Fixed
+- **Aturan boot: payload mengalah saat APK lebih baru (bug terbukti 27 Okt).** `server_launcher.py` kini membandingkan versi backend payload terpilih (`backend/version.py` di direktori payload) dengan backend bawaan APK: bila payload lebih tua (kasus nyata: payload v16/backend 2.26.0 menutupi APK 2.27.0 sehingga aplikasi tampil 2.26.0), payload diabaikan boot itu dan status aktifnya dibersihkan agar tidak terpilih lagi sampai ada payload yang lebih baru. Payload yang setara/lebih baru tetap dipakai normal; payload korup (version.py tak terbaca) jatuh aman ke bawaan APK tanpa crash boot. Perilaku promosi pending→active, rollback 2-boot gagal, dan blacklist tidak diubah. Perbaikan ini memang butuh APK karena `server_launcher.py`/`ota_core.py` tidak ikut payload. Diuji dengan data_dir palsu: (a) payload 2.27.0 + APK 2.28.0 → bawaan APK + status aktif bersih; (b) payload 2.28.0 + APK 2.28.0 → payload dipakai; (c) tanpa payload → bawaan; (d) payload korup → bawaan tanpa crash; (e) payload 2.29.0 + APK 2.28.0 → payload dipakai (payload memang dirancang mengantar isi lebih baru).
+
+### Notes
+- Kenaikan MINOR (2.27.0 → 2.28.0) karena penambahan fitur (browser dalam aplikasi) yang backward-compatible. Rilis ini HANYA membawa aset `Lumio-v2.28.0.apk` + `Lumio.apk` (tanpa aset `tatap-*`).
+
 ## [2.27.0] - 2026-10-27
 
 ### Added

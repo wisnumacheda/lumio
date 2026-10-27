@@ -193,6 +193,29 @@ public class WebUiActivity extends Activity {
             });
         }
 
+        /** Buka tautan resmi (mis. bab Manhwa resmi) di browser dalam
+         * aplikasi, bukan browser luar. Hanya https + host jelas yang
+         * diteruskan; sisanya ditolak dengan toast. */
+        @JavascriptInterface
+        public void openInAppBrowser(final String url) {
+            handler.post(() -> {
+                Uri uri = null;
+                try {
+                    uri = url != null ? Uri.parse(url) : null;
+                } catch (Exception ignored) {
+                }
+                if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())
+                        || uri.getHost() == null) {
+                    Toast.makeText(WebUiActivity.this,
+                            "Tautan resmi tidak valid", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                Intent it = new Intent(WebUiActivity.this, InAppBrowserActivity.class);
+                it.putExtra(InAppBrowserActivity.EXTRA_URL, uri.toString());
+                startActivity(it);
+            });
+        }
+
         @JavascriptInterface
         public void installUpdate(final String apkUrl) {
             handler.post(() -> {

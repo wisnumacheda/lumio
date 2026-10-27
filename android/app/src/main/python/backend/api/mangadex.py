@@ -142,6 +142,7 @@ def _map_manga(m, query=""):
         "followed": (attrs.get("followedCount") if isinstance(attrs.get("followedCount"), int) else 0),
         "description": desc_map.get("en") or next(iter(desc_map.values()), ""),
         "score": _title_score(query, attrs) if query else 0,
+        "alt_titles": _all_titles(attrs),
     }
 
 
@@ -254,6 +255,7 @@ def get_manga_chapters(manga_id, safe_mode=1):
         "description": (attrs.get("description") or {}).get("en") or "",
         "chapters": chapters,
         "total": len(chapters),
+        "alt_titles": _all_titles(attrs),
     }
 
 

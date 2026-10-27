@@ -2446,6 +2446,15 @@ function mangaStep(dir){
   const i = mangaChapterIndex(); if (i < 0) return;
   const t = mangaChapters[i + dir]; if (t) openMangaReader(t.id);
 }
+function openOfficialLink(url){
+  try {
+    if (window.LumioNative && typeof window.LumioNative.openInAppBrowser === "function") {
+      window.LumioNative.openInAppBrowser(url);
+      return;
+    }
+  } catch (e) {}
+  window.open(url, "_blank");
+}
 async function openMangaReader(chapterId){
   const ch = mangaChapters.find(c => c.id === chapterId);
   if (!ch) return;
@@ -2457,9 +2466,13 @@ async function openMangaReader(chapterId){
   $("#readerTitle").textContent = (mangaDetail ? mangaDetail.title + " — " : "") + "Bab " + (ch.chapter || "?") + (ch.title ? " · " + ch.title : "");
   syncReaderNav();
   if (ch.external) {
-    // Bab resmi: MangaDex tidak meng-host gambarnya — arahkan ke situs resmi.
+    // Bab resmi: MangaDex tidak meng-host gambarnya. Di aplikasi, buka
+    // lewat browser dalam aplikasi (bridge native); di luar aplikasi
+    // (atau bridge tak tersedia) jatuh ke window.open seperti dulu.
+    // Catatan jujur: ini TIDAK membypass login/paywall penerbit —
+    // tampilannya tetap situs penerbit, bukan reader Lumio.
     $("#readerHint").textContent = "Bab ini adalah bab resmi dari penerbit dan hanya bisa dibaca di situs resminya.";
-    $("#readerPages").innerHTML = `<div style="text-align:center;padding:30px 10px"><p style="color:var(--muted);margin-bottom:16px">MangaDex hanya menautkan bab ini ke situs resmi penerbit.</p><a class="btn btn-play" href="${esc(ch.external)}" target="_blank" rel="noopener">🌐 Buka di Situs Resmi</a></div>`;
+    $("#readerPages").innerHTML = `<div style="text-align:center;padding:30px 10px"><p style="color:var(--muted);margin-bottom:16px">MangaDex hanya menautkan bab ini ke situs resmi penerbit.</p><button class="btn btn-play" data-u="${esc(ch.external)}" onclick="openOfficialLink(this.dataset.u)">🌐 Buka di Situs Resmi</button></div>`;
     return;
   }
   let pagesUrl;
