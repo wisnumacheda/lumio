@@ -2636,8 +2636,12 @@ public class MainActivity extends Activity {
                 Object launcherMod = pyClass.getMethod("getModule", String.class).invoke(pyInstance, "server_launcher");
                 boolean isTv = TvFocusHelper.isTv(this);
                 String dataDir = getFilesDir().getAbsolutePath();
+                // v2.28.1: versionName APK untuk aturan stale payload
+                // (di produksi tidak ada version.py di disk, hanya .pyc).
+                String appVersion = null;
+                try { appVersion = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) {}
                 Log.d(TAG, "Menjalankan server_launcher.py dengan dataDir=" + dataDir + ", isTv=" + isTv);
-                launcherMod.getClass().getMethod("callAttr", String.class, Object[].class).invoke(launcherMod, "run_in_background", new Object[]{dataDir, isTv});
+                launcherMod.getClass().getMethod("callAttr", String.class, Object[].class).invoke(launcherMod, "run_in_background", new Object[]{dataDir, isTv, appVersion});
                 Log.d(TAG, "server_launcher.run_in_background dipanggil dengan sukses.");
             } catch (Throwable t) {
                 Log.e(TAG, "Error startEmbeddedBackend: " + t.getMessage(), t);

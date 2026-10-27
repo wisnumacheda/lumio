@@ -49,6 +49,14 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
 - **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
 
+## [2.28.1] - 2026-10-27
+
+### Fixed
+- **HOTFIX kritis: aturan boot stale payload kini memakai versionName dari Java (bug terbukti 27 Okt, laporan user 12:36).** Aturan v2.28.0 membaca versi bawaan APK lewat `open(<backend_dir>/version.py)` — di sandbox itu bekerja karena tree sumber berisi `.py`, tetapi di PRODUKSI tidak pernah bekerja: APK hanya berisi file `.pyc` hasil compile (terbukti: `app.imy` berisi 16 `.pyc` dan 0 file `.py`; tidak ada `version.py` di mana pun di APK). Akibatnya versi bawaan selalu `None` → `_payload_is_stale` selalu `False` (fail-open) → payload lama (v18/backend 2.27.0) tetap dipakai walau APK 2.28.0 sudah terinstal → banner update 2.28.0 tetap muncul dan versi tampil 2.27.0. Perbaikan: sumber versi bawaan kini berasal dari sisi Java (`PackageManager versionName`, nilai yang sama dengan `versionName` APK), dialirkan ke launcher Python lewat parameter baru `run_in_background(dataDir, isTv, appVersion)` → env `LUMIO_APP_VERSION` yang diset SEBELUM pemilihan payload (di `WebUiActivity` sebagai pintu masuk utama dan `MainActivity` sebagai jalur lama; signature tetap backward-compatible — pemanggil tanpa argumen ketiga tetap jalan). Python memakai env bila ada, fallback ke pembacaan `version.py` bila env tidak ada (jalur sandbox/dev), dan tetap fail-open `False` + log jelas bila keduanya tidak ada. Versi payload tetap dibaca dari `backend/version.py` di direktori payload (file itu ADA di disk karena payload diekstrak sebagai sumber `.py`). Logika lain tidak diubah: promosi pending→active, rollback 2-boot gagal, blacklist, dan pembersihan status aktif payload usang tetap seperti v2.28.0. Pelajaran yang dicatat: pengujian aturan boot WAJIB mensimulasikan layout produksi (direktori bawaan TANPA `version.py` di disk), bukan hanya tree sumber. Diuji: simulasi layout produksi (bundled tanpa `version.py` + env 2.28.1 + payload 2.27.0 → payload diabaikan + status aktif bersih) dan 5 kasus v2.28.0 (payload sebaru/lebih baru dipakai; tanpa payload; payload korup fallback aman; payload 2.29.0 dipakai) — 7/7 lolos.
+
+### Notes
+- Kenaikan PATCH (2.28.0 → 2.28.1, versionCode 22801) karena perbaikan bug kritis tanpa penambahan fitur. Rilis ini HANYA membawa aset `Lumio-v2.28.1.apk` + `Lumio.apk` (tanpa aset `tatap-*`).
+
 ## [2.28.0] - 2026-10-27
 
 ### Added

@@ -32,9 +32,19 @@ def _payload_is_stale(payload_backend_dir, bundled_backend_dir, data_dir):
     berikutnya — sampai ada payload baru (promosi pending tetap berjalan
     normal). Mengembalikan False bila payload layak dipakai (versi >=
     bawaan) atau bila versi bawaan sendiri tak terbaca (jangan merusak
-    perilaku lama). Tidak pernah melempar."""
-    bundled = _backend_version(bundled_backend_dir)
+    perilaku lama). Tidak pernah melempar.
+
+    SUMBER VERSI BAWAAN (v2.28.1): env LUMIO_APP_VERSION DIDAHULUKAN —
+    diisi sisi Java dari PackageManager versionName. Ini SATU-SATUNYA
+    sumber yang benar di produksi: APK hanya berisi .pyc hasil compile
+    dan TIDAK ADA version.py di disk, sehingga pembacaan file selalu
+    gagal dan aturan stale v2.28.0 tidak pernah aktif di HP pengguna
+    (payload v18/backend 2.27.0 terus menutupi APK 2.28.0). Bila env
+    tidak ada, fallback ke pembacaan version.py (jalur sandbox/dev,
+    di mana tree sumber berisi .py)."""
+    bundled = os.environ.get("LUMIO_APP_VERSION") or _backend_version(bundled_backend_dir)
     if bundled is None:
+        print("[LUMIO-OTA] Versi bawaan tak terbaca (env kosong + version.py tak ada); payload dipakai apa adanya (fail-open)", flush=True)
         return False
     pv = _backend_version(payload_backend_dir)
     if pv is None or _ver_tuple(pv) < _ver_tuple(bundled):
@@ -59,9 +69,18 @@ def trim_memory():
         except Exception:
             pass
 
-def start_server(data_dir=None, is_tv=False):
-    """Jalankan server Uvicorn Tatap di background thread Android."""
+def start_server(data_dir=None, is_tv=False, app_version=None):
+    """Jalankan server Uvicorn Tatap di background thread Android.
+
+    app_version (opsional, backward-compatible): versionName APK dari
+    sisi Java (PackageManager). Bila diisi, disimpan ke env
+    LUMIO_APP_VERSION SEBELUM pemilihan payload, agar aturan stale
+    memakai versi bawaan yang benar di produksi (tanpa version.py di
+    disk). Pemanggil lama tanpa argumen ini tetap jalan lewat fallback
+    pembacaan version.py."""
     try:
+        if app_version:
+            os.environ["LUMIO_APP_VERSION"] = str(app_version)
         if is_tv or os.environ.get("TATAP_IS_TV") == "1":
             os.environ["TATAP_IS_TV"] = "1"
             # Jangan override gc.set_threshold ke angka kecil karena memicu CPU thrashing & thermal throttling di TV Stick!
@@ -137,7 +156,7 @@ def start_server(data_dir=None, is_tv=False):
         import traceback
         print(f"[TATAP-SERVER-ERROR] {e}\n{traceback.format_exc()}", flush=True)
 
-def run_in_background(data_dir=None, is_tv=False):
-    t = threading.Thread(target=start_server, args=(data_dir, is_tv), daemon=True, name="TatapBackendThread")
+def run_in_background(data_dir=None, is_tv=False, app_version=None):
+    t = threading.Thread(target=start_server, args=(data_dir, is_tv, app_version), daemon=True, name="TatapBackendThread")
     t.start()
     return True
