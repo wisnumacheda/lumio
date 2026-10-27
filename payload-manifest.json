@@ -1,9 +1,9 @@
 {
-  "version": 16,
-  "label": "Menu 18+ dihapus",
-  "notes": "Menu 18+ dihapus dari bar kategori dan pengaturan. Filter dewasa di backend tetap aktif, dan Mode Aman tetap bisa dipakai dari Pengaturan.",
+  "version": 17,
+  "label": "Isi 2.27.0 - perbaikan update tertahan",
+  "notes": "Isi aplikasi 2.27.0 untuk semua HP: Manhwa, player Netflix, dan bersih jejak Tatap. Perbaikan untuk HP yang sudah update APK tapi masih tampil versi lama karena payload lama masih aktif.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-16/lumio-payload.zip",
-  "sha256": "c7ed986427d30043054e04f9ea7fdfcc43446cac8a9953017672231ee8981d37",
-  "size": 988112
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-17/lumio-payload.zip",
+  "sha256": "af4fd4b7b527897dd2b892bd738538af05b95098e4915ae6398f2c3e63a6d76f",
+  "size": 996199
 }
