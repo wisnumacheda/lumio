@@ -1,9 +1,9 @@
 {
-  "version": 19,
-  "label": "Isi 2.28.1 - Manhwa Manhwaindo",
-  "notes": "Provider Manhwa keempat: Manhwaindo (Bahasa Indonesia) — cari, daftar bab dari endpoint situsnya sendiri, dan halaman bab; bergabung ke daftar bab gabungan 4 provider dengan badge sumber dan bahasa. Daftar bab terverifikasi live dari sandbox; gambar halaman belum terverifikasi dari sandbox karena CDN memblokir IP datacenter — perlu tes HP.",
+  "version": 20,
+  "label": "Isi 2.28.1 - Manhwa Lanjut Baca + Mode Hemat + Terbaru",
+  "notes": "Lanjut Baca Manhwa: riwayat bab terpisah di tab Manhwa, ketuk melanjut ke bab tersimpan, hapus per item. Mode Hemat reader: gambar dimuat satu per satu saat mendekati layar, tanpa preload jauh, tanpa ubah resolusi; toggle di reader dan Pengaturan. Rail Terbaru dari Manhwaindo: bab terbaru plus waktu relatif, Manhwaindo saja. Aturan gabungan, blacklist dewasa, dan perilaku anime tidak diubah.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-19/lumio-payload.zip",
-  "sha256": "c7673dd2c53740c1dd9ee6594573e22a5a6b1fa256a167de69a971a56eb0c2d1",
-  "size": 1013662
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-20/lumio-payload.zip",
+  "sha256": "88f43f5aa81b0c4fbe71ee4df9c60be965b2a8999ddba8a603964d7f6a5afe6f",
+  "size": 1017120
 }
