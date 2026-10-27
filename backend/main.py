@@ -13,6 +13,8 @@ from api import otakudesu as otaku
 from api import aniskip
 from api import anichan
 from api import mangadex as md
+from api import komikcast as kcmod
+from api import asura as asmod
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
@@ -1881,6 +1883,342 @@ async def manga_chapter_pages(chapter_id: str):
             return ok(cached)
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, lambda: md.get_chapter_pages(chapter_id))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/kc/search")
+async def manga_kc_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Cari judul di Komikcast (Bahasa Indonesia)."""
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: kcmod.search_manga(q, limit=limit, safe_mode=safe_mode))
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/kc/series/{slug}/chapters")
+async def manga_kc_chapters(slug: str, safe_mode: int = Query(1)):
+    """Daftar bab satu judul Komikcast."""
+    try:
+        cache_key = f"manga_kc_chapters_v1|{slug}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: kcmod.get_series_chapters(slug, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/kc/chapter/{chapter_slug}/pages")
+async def manga_kc_chapter_pages(chapter_slug: str):
+    """Daftar URL halaman satu bab Komikcast."""
+    try:
+        cache_key = f"manga_kc_pages_v1|{chapter_slug}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: kcmod.get_chapter_pages(chapter_slug))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/as/search")
+async def manga_as_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Cari judul di Asura Scans (Bahasa Inggris)."""
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: asmod.search_manga(q, limit=limit, safe_mode=safe_mode))
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/as/series/{slug}/chapters")
+async def manga_as_chapters(slug: str, safe_mode: int = Query(1)):
+    """Daftar bab satu judul Asura Scans."""
+    try:
+        cache_key = f"manga_as_chapters_v1|{slug}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: asmod.get_series_chapters(slug, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/as/series/{series_slug}/chapter/{chapter_slug}/pages")
+async def manga_as_chapter_pages(series_slug: str, chapter_slug: str):
+    """Daftar URL halaman satu bab Asura Scans."""
+    try:
+        cache_key = f"manga_as_pages_v1|{series_slug}|{chapter_slug}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: asmod.get_chapter_pages(series_slug, chapter_slug))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+def _manga_norm_title(s):
+    import re as _re
+    s = (s or "").lower()
+    s = _re.sub(r"\s*\([^)]*\)\s*$", "", s).strip()
+    s = _re.sub(r"[^a-z0-9 ]+", " ", s)
+    return _re.sub(r"\s+", " ", s).strip()
+
+
+def _manga_titles_match(titles_a, titles_b):
+    """Pencocokan lintas provider yang KETAT (anti-sekuel): salah satu
+    pasangan judul harus sama persis setelah normalisasi, atau himpunan
+    tokennya sama. 'Solo Leveling' TIDAK boleh cocok dengan 'Solo
+    Leveling: Ragnarok'. List judul (judul utama + alt) WAJIB dipakai
+    kedua sisi, karena satu karya bisa bernama romaji di satu provider
+    ('Na Honjaman Level-Up' di MangaDex) dan Inggris di provider lain
+    ('Solo Leveling' di Asura/Komikcast)."""
+    norm_a = [_manga_norm_title(t) for t in titles_a]
+    norm_b = [_manga_norm_title(t) for t in titles_b]
+    for na in norm_a:
+        if not na:
+            continue
+        for nb in norm_b:
+            if not nb:
+                continue
+            if na == nb or set(na.split()) == set(nb.split()):
+                return True
+    return False
+
+
+def _cand_titles(item):
+    return [item.get("title") or ""] + (item.get("alt_titles") or [])
+
+
+def _manga_merge_key(num):
+    try:
+        return (0, float(num))
+    except (TypeError, ValueError):
+        if not (num or "").strip():
+            return (2, "")
+        return (1, str(num).lower())
+
+
+def _manga_merge_chapters(primary_chapters, extra_lists):
+    """Gabung daftar bab per nomor bab. Satu entri per nomor: bab yang
+    bisa dibaca mengalahkan tautan resmi; bahasa ID mengalahkan EN;
+    sumber diurut MangaDex > Komikcast > Asura sebagai penyeimbang."""
+    src_rank = {"MangaDex": 0, "Komikcast": 1, "Asura": 2}
+    lang_rank = {"id": 0, "en": 1}
+
+    def rank(ch):
+        ext = 1 if ch.get("external") else 0
+        return (ext, lang_rank.get(ch.get("lang") or "", 2),
+                src_rank.get(ch.get("source") or "", 3))
+
+    merged = {}
+    for ch in primary_chapters:
+        ch = dict(ch)
+        ch.setdefault("source", "MangaDex")
+        key = _manga_merge_key(ch.get("chapter") or "")
+        cur = merged.get(key)
+        if cur is None or rank(ch) < rank(cur[1]):
+            merged[key] = (ch.get("chapter") or "", ch)
+    for chapters in extra_lists:
+        for ch in chapters:
+            ch = dict(ch)
+            key = _manga_merge_key(ch.get("chapter") or "")
+            cur = merged.get(key)
+            if cur is None or rank(ch) < rank(cur[1]):
+                merged[key] = (ch.get("chapter") or "", ch)
+    out = [ch for _, ch in merged.values()]
+
+    def sort_key(ch):
+        k = _manga_merge_key(ch.get("chapter") or "")
+        if k[0] == 0:
+            return (0, k[1], "")
+        if k[0] == 2:
+            return (2, 0.0, "")
+        return (1, 0.0, k[1])
+    out.sort(key=sort_key)
+    return out
+
+
+def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode):
+    """Coba tiap varian judul (utama + alt, maks 6) sebagai kata kunci
+    cari; kembalikan bab dari kecocokan ketat pertama. Gagal = []."""
+    seen_q = set()
+    blocked = False
+    for q in titles:
+        q = (q or "").strip()
+        if not q or q.lower() in seen_q:
+            continue
+        seen_q.add(q.lower())
+        if len(seen_q) > 6:
+            break
+        try:
+            res = search_fn(q, limit=10, safe_mode=safe_mode)
+        except Exception as e:
+            # Blokir provider (mis. Komikcast) harus naik sebagai catatan,
+            # bukan hilang diam-diam di balik hasil kosong.
+            if "diblokir" in str(e):
+                blocked = True
+            continue
+        for it in res.get("items") or []:
+            if _manga_titles_match(titles, _cand_titles(it)):
+                try:
+                    det = detail_fn((it.get("id") or "")[len(id_prefix):],
+                                    safe_mode=safe_mode)
+                except Exception:
+                    continue
+                return det.get("chapters") or []
+    if blocked:
+        raise ValueError("Komikcast diblokir")
+    return []
+
+
+def _kc_match_chapters(titles, safe_mode):
+    """Cari judul di Komikcast (cocok ketat) lalu ambil daftar babnya.
+    Mengembalikan (chapters, note). Gagal = ([], note) — tidak pernah
+    melempar, supaya satu provider gagal tidak menggagalkan gabungan."""
+    try:
+        chapters = _match_chapters_for(
+            lambda q, limit, safe_mode: kcmod.search_manga(q, limit=limit, safe_mode=safe_mode),
+            lambda slug, safe_mode: kcmod.get_series_chapters(slug, safe_mode=safe_mode),
+            "kc:", titles, safe_mode)
+        return chapters, ""
+    except Exception as e:
+        msg = str(e)
+        if "diblokir" in msg:
+            return [], ("Komikcast belum bisa diakses dari server "
+                        "(bot-protection) — bab Indonesianya belum tergabung.")
+        return [], ""
+
+
+def _as_match_chapters(titles, safe_mode):
+    """Sama seperti _kc_match_chapters, untuk Asura Scans."""
+    try:
+        chapters = _match_chapters_for(
+            lambda q, limit, safe_mode: asmod.search_manga(q, limit=limit, safe_mode=safe_mode),
+            lambda slug, safe_mode: asmod.get_series_chapters(slug, safe_mode=safe_mode),
+            "as:", titles, safe_mode)
+        return chapters, ""
+    except Exception:
+        return [], ""
+
+
+def _md_match_chapters(titles, safe_mode):
+    """Cari judul di MangaDex (cocok ketat) lalu ambil daftar babnya."""
+    try:
+        chapters = _match_chapters_for(
+            lambda q, limit, safe_mode: md.search_manga(q, limit=limit, safe_mode=safe_mode),
+            lambda mid, safe_mode: md.get_manga_chapters(mid, safe_mode=safe_mode),
+            "", titles, safe_mode)
+        return chapters, ""
+    except Exception:
+        return [], ""
+
+
+@app.get("/api/manga/merged/{mid}/chapters")
+async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
+    """Daftar bab GABUNGAN per judul dari MangaDex + Komikcast + Asura,
+    dicocokkan per nomor bab. Bab yang bisa dibaca selalu mengalahkan
+    tautan resmi; bahasa ID didahulukan atas EN. Bab resmi MangaDex
+    tetap tampil sebagai tautan 'Buka di Situs Resmi' bila tidak ada
+    versi bacanya di provider lain. mid = UUID MangaDex, 'kc:<slug>',
+    atau 'as:<slug>'."""
+    try:
+        cache_key = f"manga_merged_v1|{mid}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        if mid.startswith("kc:"):
+            slug = mid[3:]
+            primary = await loop.run_in_executor(
+                None, lambda: kcmod.get_series_chapters(slug, safe_mode=safe_mode))
+            primary_source = "Komikcast"
+        elif mid.startswith("as:"):
+            slug = mid[3:]
+            primary = await loop.run_in_executor(
+                None, lambda: asmod.get_series_chapters(slug, safe_mode=safe_mode))
+            primary_source = "Asura"
+        else:
+            primary = await loop.run_in_executor(
+                None, lambda: md.get_manga_chapters(mid, safe_mode=safe_mode))
+            primary_source = "MangaDex"
+        title = primary.get("title") or ""
+        titles = [title] + (primary.get("alt_titles") or [])
+        # Provider lain dicari paralel (KC yang terblokir gagal cepat karena
+        # halaman challenge terdeteksi langsung, bukan timeout panjang).
+        jobs = []
+        if primary_source != "Komikcast":
+            jobs.append(loop.run_in_executor(
+                None, lambda: _kc_match_chapters(titles, safe_mode)))
+        if primary_source != "Asura":
+            jobs.append(loop.run_in_executor(
+                None, lambda: _as_match_chapters(titles, safe_mode)))
+        if primary_source != "MangaDex":
+            jobs.append(loop.run_in_executor(
+                None, lambda: _md_match_chapters(titles, safe_mode)))
+        results = await asyncio.gather(*jobs, return_exceptions=True) if jobs else []
+        extra_lists, notes = [], []
+        for r in results:
+            if isinstance(r, Exception):
+                continue
+            chapters, note = r
+            if chapters:
+                extra_lists.append(chapters)
+            if note:
+                notes.append(note)
+        chapters = _manga_merge_chapters(primary.get("chapters") or [], extra_lists)
+        sources = []
+        for ch in chapters:
+            if ch.get("source") not in sources:
+                sources.append(ch.get("source"))
+        data = {
+            "id": mid,
+            "title": title,
+            "cover": primary.get("cover") or "",
+            "status": primary.get("status") or "",
+            "year": primary.get("year") or "",
+            "description": primary.get("description") or "",
+            "chapters": chapters,
+            "total": len(chapters),
+            "sources": sources,
+            "notes": notes,
+        }
         await set_browse_cache(cache_key, data)
         data["cached"] = False
         return ok(data)
