@@ -1,9 +1,9 @@
 {
-  "version": 21,
-  "label": "Isi 2.28.1 - Manhwa gabungan anti-parsial",
-  "notes": "Perbaikan daftar bab gabungan Manhwa: provider yang gagal total kini tampil sebagai catatan di detail, dan hasil parsial tidak lagi di-cache 6 jam sehingga buka ulang detail mengambil ulang. Kunci cache naik ke v3. Urutan merge, readable-wins, badge, dan filter dewasa tidak diubah.",
+  "version": 22,
+  "label": "Isi 2.28.1 - Cabut Manhwa + Donghua",
+  "notes": "Tab Manhwa dicabut dari aplikasi; modul backend Manhwa dibiarkan dormant tanpa pintu masuk UI. Kategori Donghua baru: daftar animasi Cina (country CN saja, asal tak dikenal tidak ikut) memakai mesin video yang sudah ada — detail, episode, player, subtitle tidak berubah. Daftar Anime tetap JP-only; blacklist dewasa dan Mode Aman berlaku di Donghua. Daftar CN tidak bisa diverifikasi dari sandbox karena AniList tak terjangkau — perlu tes HP.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-21/lumio-payload.zip",
-  "sha256": "43fac20c551e904d5f2a1c1ae495b37703604ef19474a16b598016b9513ec076",
-  "size": 1017740
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-22/lumio-payload.zip",
+  "sha256": "39156f728fd2761887080066e2654bd746d9b7d41e63b507f6a99616e594cf08",
+  "size": 1013444
 }
