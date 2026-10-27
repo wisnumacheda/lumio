@@ -12,6 +12,7 @@ from api import anilist as al
 from api import otakudesu as otaku
 from api import aniskip
 from api import anichan
+from api import mangadex as md
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
@@ -1807,6 +1808,85 @@ async def browse_ep(
         return ok(res)
     except Exception as e:
         return fail(str(e))
+
+@app.get("/api/manga/search")
+async def manga_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
+                       offset: int = Query(0, ge=0), safe_mode: int = Query(1)):
+    """Cari judul manga/manhwa/manhua lewat MangaDex (API publik, tanpa kunci).
+
+    Hasil diurutkan backend MangaDex-modul: skor kecocokan judul dulu, lalu
+    jumlah pengikut — jadi sekuel populer tidak mengalahkan judul yang dicari.
+    Mode Aman default hanya rating 'safe'; bila dimatikan, 'suggestive' ikut.
+    Rating erotica/pornographic tidak pernah diminta (blacklist dewasa tetap).
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: md.search_manga(q, limit=limit, offset=offset, safe_mode=safe_mode))
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/popular")
+async def manga_popular(limit: int = Query(24, ge=1, le=50), safe_mode: int = Query(1)):
+    """Manhwa Korea terpopuler untuk halaman awal kategori Manhwa."""
+    try:
+        cache_key = f"manga_popular_v1|{limit}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: md.popular_manga(limit=limit, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/{manga_id}/chapters")
+async def manga_chapters(manga_id: str, safe_mode: int = Query(1)):
+    """Daftar bab satu judul: satu entri per nomor bab, bahasa prioritas
+    Indonesia lalu Inggris, diurut menaik. Cache 6 jam via browse_cache."""
+    try:
+        cache_key = f"manga_chapters_v1|{manga_id}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: md.get_manga_chapters(manga_id, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/chapter/{chapter_id}/pages")
+async def manga_chapter_pages(chapter_id: str):
+    """Daftar URL halaman satu bab lewat at-home server resmi MangaDex.
+
+    URL halaman dimuat frontend lewat proksi gambar /api/img (validasi SSRF
+    yang sama dengan poster) — tidak ada pelonggaran allowlist di sini."""
+    try:
+        cache_key = f"manga_pages_v1|{chapter_id}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(None, lambda: md.get_chapter_pages(chapter_id))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
 
 @app.get("/api/anime/{slug}/skiptimes")
 async def anime_skiptimes(slug: str, ep: int = Query(1), length: float = Query(0)):

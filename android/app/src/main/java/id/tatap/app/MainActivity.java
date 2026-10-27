@@ -63,7 +63,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends Activity {
-    private static final String TAG = "TatapMain";
+    private static final String TAG = "LumioMain";
 
     private EditText etSearch;
     private TextView btnClearSearch;
@@ -195,7 +195,7 @@ public class MainActivity extends Activity {
         swipeRefreshLayout = findViewById(R.id.swipe_refresh_layout);
 
         updateBackendStatusUI(0);
-        showLoadingState("Memulai backend Tatap...");
+        showLoadingState("Memulai backend Lumio...");
 
         layoutTabsSegmented = findViewById(R.id.layout_tabs_segmented);
         layoutTabsContainer = findViewById(R.id.layout_tabs_container);
@@ -746,7 +746,7 @@ public class MainActivity extends Activity {
                         executeCommand(raw.substring(1).trim());
                     } else {
                         if (isSafeModeEnabled() && isVulgarKeyword(raw)) {
-                            showCommandOutput("> tatap$ Kata kunci dibatasi dalam Mode Aman. Matikan dengan :safemode off", true);
+                            showCommandOutput("> lumio$ Kata kunci dibatasi dalam Mode Aman. Matikan dengan :safemode off", true);
                             Toast.makeText(this, "Pencarian dibatasi dalam Mode Aman (:safemode off)", Toast.LENGTH_SHORT).show();
                             return true;
                         }
@@ -758,7 +758,7 @@ public class MainActivity extends Activity {
                         hasPagingInfo = false;
                         updateTabButtons();
                         updateActiveFilterBar();
-                        showCommandOutput("> tatap$ cari \"" + raw + "\"", false);
+                        showCommandOutput("> lumio$ cari \"" + raw + "\"", false);
                         fetchData();
                     }
                 }
@@ -1089,7 +1089,7 @@ public class MainActivity extends Activity {
             super.onBackPressed();
         } else {
             lastBackPressTime = now;
-            Toast.makeText(this, "Tekan sekali lagi untuk keluar dari Tatap", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Tekan sekali lagi untuk keluar dari Lumio", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1244,7 +1244,7 @@ public class MainActivity extends Activity {
         }
         switchView(targetTab);
         updateActiveFilterBar();
-        showCommandOutput("> tatap$ Tampilan diatur ke: " + targetTab.toUpperCase(), false);
+        showCommandOutput("> lumio$ Tampilan diatur ke: " + targetTab.toUpperCase(), false);
     }
 
     private void executeCommand(String commandLine) {
@@ -1257,7 +1257,7 @@ public class MainActivity extends Activity {
             case "help":
             case "bantuan":
             case "?":
-                showCommandOutput("> tatap$ :help [Membuka Terminal Bantuan]", false);
+                showCommandOutput("> lumio$ :help [Membuka Terminal Bantuan]", false);
                 showCommandHelpDialog();
                 break;
 
@@ -1269,7 +1269,7 @@ public class MainActivity extends Activity {
                 if (!args.isEmpty()) {
                     handleSeasonFilterCommand(parts);
                 } else {
-                    showCommandOutput("> tatap$ Gunakan format: :season <winter|spring|summer|fall> <tahun>", true);
+                    showCommandOutput("> lumio$ Gunakan format: :season <winter|spring|summer|fall> <tahun>", true);
                     Toast.makeText(this, "Format: :season <winter|spring|summer|fall> <tahun> (Contoh: :season fall 2024)", Toast.LENGTH_LONG).show();
                 }
                 break;
@@ -1304,7 +1304,7 @@ public class MainActivity extends Activity {
                 break;
 
             case "filter":
-                showCommandOutput("> tatap$ :filter [Membuka Filter Katalog]", false);
+                showCommandOutput("> lumio$ :filter [Membuka Filter Katalog]", false);
                 showCatalogFilterDialog();
                 break;
 
@@ -1312,7 +1312,7 @@ public class MainActivity extends Activity {
             case "search":
                 if (!args.isEmpty()) {
                     if (isSafeModeEnabled() && isVulgarKeyword(args)) {
-                        showCommandOutput("> tatap$ :cari [Dibatasi: Mode Aman aktif. Matikan dengan :safemode off]", true);
+                        showCommandOutput("> lumio$ :cari [Dibatasi: Mode Aman aktif. Matikan dengan :safemode off]", true);
                         Toast.makeText(this, "Pencarian dibatasi dalam Mode Aman (:safemode off)", Toast.LENGTH_SHORT).show();
                         break;
                     }
@@ -1324,10 +1324,10 @@ public class MainActivity extends Activity {
                     hasPagingInfo = false;
                     updateTabButtons();
                     updateActiveFilterBar();
-                    showCommandOutput("> tatap$ :cari \"" + args + "\" [Mencari...]", false);
+                    showCommandOutput("> lumio$ :cari \"" + args + "\" [Mencari...]", false);
                     fetchData();
                 } else {
-                    showCommandOutput("> tatap$ :cari [Gagal: Butuh kata kunci judul]", true);
+                    showCommandOutput("> lumio$ :cari [Gagal: Butuh kata kunci judul]", true);
                     Toast.makeText(this, "Gunakan: :cari <judul>", Toast.LENGTH_SHORT).show();
                 }
                 break;
@@ -1338,11 +1338,11 @@ public class MainActivity extends Activity {
                     int p = Integer.parseInt(args);
                     if (p >= 1) {
                         currentPage = p;
-                        showCommandOutput("> tatap$ :page " + p + " [Lompat ke Halaman " + p + "]", false);
+                        showCommandOutput("> lumio$ :page " + p + " [Lompat ke Halaman " + p + "]", false);
                         fetchData();
                     }
                 } catch (Exception e) {
-                    showCommandOutput("> tatap$ :page [Gagal: Masukkan nomor halaman yang valid]", true);
+                    showCommandOutput("> lumio$ :page [Gagal: Masukkan nomor halaman yang valid]", true);
                 }
                 break;
 
@@ -1390,7 +1390,7 @@ public class MainActivity extends Activity {
             case "bookmark":
             case "bookmarks":
                 switchView("favorit");
-                showCommandOutput("> tatap$ :favorit [Menampilkan Anime Favorit]", false);
+                showCommandOutput("> lumio$ :favorit [Menampilkan Anime Favorit]", false);
                 break;
 
             case "logs":
@@ -1415,7 +1415,7 @@ public class MainActivity extends Activity {
                 break;
 
             default:
-                showCommandOutput("> tatap$ Perintah tidak dikenal: :" + cmd + " (Ketik :help)", true);
+                showCommandOutput("> lumio$ Perintah tidak dikenal: :" + cmd + " (Ketik :help)", true);
                 break;
         }
     }
@@ -1440,7 +1440,7 @@ public class MainActivity extends Activity {
                 HapticHelper.performHeavyClick(btnToggleMenu);
             }
             String stScene = targetScene ? "AKTIF" : "MATI";
-            showCommandOutput("> tatap$ :haptic scene " + (targetScene ? "on" : "off") + " [Getaran Adegan Audio: " + stScene + "]", false);
+            showCommandOutput("> lumio$ :haptic scene " + (targetScene ? "on" : "off") + " [Getaran Adegan Audio: " + stScene + "]", false);
             Toast.makeText(this, "Getaran Adegan Audio: " + (targetScene ? "Aktif" : "Mati"), Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1448,7 +1448,7 @@ public class MainActivity extends Activity {
         if ("status".equals(trimmed)) {
             boolean uiHaptic = sp.getBoolean("pref_general_haptic", sp.getBoolean("pref_haptic", true));
             boolean sceneHaptic = sp.getBoolean("pref_scene_haptic", false);
-            showCommandOutput("> tatap$ [STATUS HAPTIK] UI: " + (uiHaptic ? "AKTIF" : "MATI") + " | Adegan Audio: " + (sceneHaptic ? "AKTIF" : "MATI"), false);
+            showCommandOutput("> lumio$ [STATUS HAPTIK] UI: " + (uiHaptic ? "AKTIF" : "MATI") + " | Adegan Audio: " + (sceneHaptic ? "AKTIF" : "MATI"), false);
             return;
         }
 
@@ -1466,7 +1466,7 @@ public class MainActivity extends Activity {
             HapticHelper.performHeavyClick(btnToggleMenu);
         }
         String statusStr = target ? "AKTIF" : "MATI";
-        showCommandOutput("> tatap$ :haptic " + (target ? "on" : "off") + " [Getaran Sentuh UI: " + statusStr + "]", false);
+        showCommandOutput("> lumio$ :haptic " + (target ? "on" : "off") + " [Getaran Sentuh UI: " + statusStr + "]", false);
         Toast.makeText(this, "Getaran Sentuh UI: " + (target ? "Aktif" : "Mati"), Toast.LENGTH_SHORT).show();
     }
 
@@ -1536,7 +1536,7 @@ public class MainActivity extends Activity {
         tabDataCache.clear();
         syncBackendSafeMode(target);
         String statusStr = target ? "AKTIF" : "MATI";
-        showCommandOutput("> tatap$ :safemode " + (target ? "on" : "off") + " [Mode Aman: " + statusStr + (target ? " - Konten vulgar/ecchi disembunyikan" : " - Konten ecchi/dewasa diizinkan") + "]", false);
+        showCommandOutput("> lumio$ :safemode " + (target ? "on" : "off") + " [Mode Aman: " + statusStr + (target ? " - Konten vulgar/ecchi disembunyikan" : " - Konten ecchi/dewasa diizinkan") + "]", false);
         Toast.makeText(this, "Mode Aman: " + (target ? "Aktif" : "Mati"), Toast.LENGTH_SHORT).show();
         fetchData();
     }
@@ -1565,7 +1565,7 @@ public class MainActivity extends Activity {
         if (parts.length >= 2) {
             String sName = parts[1].toLowerCase();
             if (!sName.matches("^(winter|spring|summer|fall)$")) {
-                showCommandOutput("> tatap$ Musim harus: winter, spring, summer, fall", true);
+                showCommandOutput("> lumio$ Musim harus: winter, spring, summer, fall", true);
                 Toast.makeText(this, "Musim valid: winter, spring, summer, fall. Contoh: :season fall 2024", Toast.LENGTH_LONG).show();
                 return;
             }
@@ -1581,17 +1581,17 @@ public class MainActivity extends Activity {
             currentPage = 1;
             updateTabButtons();
             updateActiveFilterBar();
-            showCommandOutput("> tatap$ :season " + sName + " " + sYear + " [Filter Diterapkan]", false);
+            showCommandOutput("> lumio$ :season " + sName + " " + sYear + " [Filter Diterapkan]", false);
             fetchData();
         } else {
-            showCommandOutput("> tatap$ Format: :season <winter|spring|summer|fall> <tahun>", true);
+            showCommandOutput("> lumio$ Format: :season <winter|spring|summer|fall> <tahun>", true);
         }
     }
 
     private void setGenreFilter(String genreSlugOrTitle) {
         String slug = genreSlugOrTitle.toLowerCase().trim().replace(" ", "-");
         if (isSafeModeEnabled() && (slug.contains("ecchi") || slug.contains("erotica") || slug.contains("magical-sex-shift") || slug.contains("hentai"))) {
-            showCommandOutput("> tatap$ Genre ini disembunyikan dalam Mode Aman. Matikan dengan :safemode off", true);
+            showCommandOutput("> lumio$ Genre ini disembunyikan dalam Mode Aman. Matikan dengan :safemode off", true);
             Toast.makeText(this, "Genre disembunyikan dalam Mode Aman (:safemode off)", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1600,7 +1600,7 @@ public class MainActivity extends Activity {
         currentPage = 1;
         updateTabButtons();
         updateActiveFilterBar();
-        showCommandOutput("> tatap$ :genre " + currentGenre + " [Filter Genre Aktif]", false);
+        showCommandOutput("> lumio$ :genre " + currentGenre + " [Filter Genre Aktif]", false);
         fetchData();
     }
 
@@ -1818,7 +1818,7 @@ public class MainActivity extends Activity {
                 currentView = "katalog";
                 updateTabButtons();
                 updateActiveFilterBar();
-                showCommandOutput("> tatap$ Filter katalog direset ke Terpopuler", false);
+                showCommandOutput("> lumio$ Filter katalog direset ke Terpopuler", false);
                 fetchData();
             });
             TvFocusHelper.attachFocusScale(btnReset, 1.05f, 4f);
@@ -1837,7 +1837,7 @@ public class MainActivity extends Activity {
                 currentView = "katalog";
                 updateTabButtons();
                 updateActiveFilterBar();
-                showCommandOutput("> tatap$ " + getCatalogFilterSummary() + " [Diterapkan]", false);
+                showCommandOutput("> lumio$ " + getCatalogFilterSummary() + " [Diterapkan]", false);
                 fetchData();
             });
             TvFocusHelper.attachFocusScale(btnApply, 1.05f, 4f);
@@ -1860,7 +1860,7 @@ public class MainActivity extends Activity {
             etSearch.setText(":season fall 2024");
             etSearch.setSelection(etSearch.getText().length());
             etSearch.requestFocus();
-            showCommandOutput("> tatap$ Silakan tentukan musim & tahun lalu tekan Enter", false);
+            showCommandOutput("> lumio$ Silakan tentukan musim & tahun lalu tekan Enter", false);
         });
 
         dialog.findViewById(R.id.cmd_item_source).setOnClickListener(v -> {
@@ -1888,7 +1888,7 @@ public class MainActivity extends Activity {
             etSearch.setText(":gemini ");
             etSearch.setSelection(8);
             etSearch.requestFocus();
-            showCommandOutput("> tatap$ Masukkan API key Google AI Studio (AQ...) Anda", false);
+            showCommandOutput("> lumio$ Masukkan API key Google AI Studio (AQ...) Anda", false);
         });
 
         dialog.findViewById(R.id.cmd_item_groq).setOnClickListener(v -> {
@@ -1896,7 +1896,7 @@ public class MainActivity extends Activity {
             etSearch.setText(":groq ");
             etSearch.setSelection(6);
             etSearch.requestFocus();
-            showCommandOutput("> tatap$ Masukkan API key Groq Cloud (gsk_...) Anda", false);
+            showCommandOutput("> lumio$ Masukkan API key Groq Cloud (gsk_...) Anda", false);
         });
 
         dialog.findViewById(R.id.cmd_item_ollama).setOnClickListener(v -> {
@@ -1904,7 +1904,7 @@ public class MainActivity extends Activity {
             etSearch.setText(":ollama ");
             etSearch.setSelection(8);
             etSearch.requestFocus();
-            showCommandOutput("> tatap$ Masukkan API key Ollama Cloud Anda", false);
+            showCommandOutput("> lumio$ Masukkan API key Ollama Cloud Anda", false);
         });
 
         dialog.findViewById(R.id.cmd_item_model).setOnClickListener(v -> {
@@ -1946,7 +1946,7 @@ public class MainActivity extends Activity {
                 }
                 tabDataCache.clear();
                 syncBackendSafeMode(newSafeMode);
-                showCommandOutput("> tatap$ :safemode " + (newSafeMode ? "on" : "off") + " [Mode Aman: " + (newSafeMode ? "AKTIF" : "MATI") + "]", false);
+                showCommandOutput("> lumio$ :safemode " + (newSafeMode ? "on" : "off") + " [Mode Aman: " + (newSafeMode ? "AKTIF" : "MATI") + "]", false);
                 Toast.makeText(this, "Mode Aman: " + (newSafeMode ? "Aktif" : "Mati"), Toast.LENGTH_SHORT).show();
                 fetchData();
             });
@@ -1977,7 +1977,7 @@ public class MainActivity extends Activity {
                 if (newHaptic) {
                     HapticHelper.performHeavyClick(v);
                 }
-                showCommandOutput("> tatap$ :haptic " + (newHaptic ? "on" : "off") + " [Getaran Sentuh UI: " + (newHaptic ? "AKTIF" : "MATI") + "]", false);
+                showCommandOutput("> lumio$ :haptic " + (newHaptic ? "on" : "off") + " [Getaran Sentuh UI: " + (newHaptic ? "AKTIF" : "MATI") + "]", false);
                 Toast.makeText(this, "Getaran Sentuh UI: " + (newHaptic ? "Aktif" : "Mati"), Toast.LENGTH_SHORT).show();
             });
         }
@@ -2044,7 +2044,7 @@ public class MainActivity extends Activity {
         }
 
         if (args.isEmpty()) {
-            showCommandOutput("> tatap$ Membaca status AI Translate...", false);
+            showCommandOutput("> lumio$ Membaca status AI Translate...", false);
             new Thread(() -> {
                 try {
                     HttpURLConnection conn = (HttpURLConnection) new URL("http://127.0.0.1:8767/api/settings").openConnection();
@@ -2063,12 +2063,12 @@ public class MainActivity extends Activity {
                     String url = d.optString("translate_apiurl", "https://generativelanguage.googleapis.com/v1beta/openai");
 
                     runOnUiThread(() -> {
-                        String out = "> tatap$ [AI STATUS] apikey: " + maskKey(key) + " | model: " + model;
+                        String out = "> lumio$ [AI STATUS] apikey: " + maskKey(key) + " | model: " + model;
                         showCommandOutput(out, false);
                         showAiSettingsDialog();
                     });
                 } catch (Exception e) {
-                    runOnUiThread(() -> showCommandOutput("> tatap$ [ERROR] Gagal membaca setelan: " + e.getMessage(), true));
+                    runOnUiThread(() -> showCommandOutput("> lumio$ [ERROR] Gagal membaca setelan: " + e.getMessage(), true));
                 }
             }).start();
             return;
@@ -2138,11 +2138,11 @@ public class MainActivity extends Activity {
                 conn.getOutputStream().write(payload.toString().getBytes("UTF-8"));
                 conn.getInputStream().close();
                 runOnUiThread(() -> {
-                    showCommandOutput("> tatap$ [OK] " + successMsg, false);
+                    showCommandOutput("> lumio$ [OK] " + successMsg, false);
                     Toast.makeText(this, successMsg, Toast.LENGTH_SHORT).show();
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> showCommandOutput("> tatap$ [ERROR] Gagal menyimpan: " + e.getMessage(), true));
+                runOnUiThread(() -> showCommandOutput("> lumio$ [ERROR] Gagal menyimpan: " + e.getMessage(), true));
             }
         }).start();
     }
@@ -2353,7 +2353,7 @@ public class MainActivity extends Activity {
         String s = target.toLowerCase().trim();
         String newSrc = s.contains("otaku") ? "otakudesu" : "hianime";
 
-        showCommandOutput("> tatap$ :source " + newSrc + " [Mengalihkan sumber...]", false);
+        showCommandOutput("> lumio$ :source " + newSrc + " [Mengalihkan sumber...]", false);
 
         new Thread(() -> {
             try {
@@ -2367,17 +2367,17 @@ public class MainActivity extends Activity {
                 conn.getInputStream().close();
                 runOnUiThread(() -> {
                     String label = newSrc.equals("otakudesu") ? "Otakudesu (Sub Indo)" : "HiAnime (Multi-Sub)";
-                    showCommandOutput("> tatap$ [OK] Sumber default berhasil diubah ke " + label, false);
+                    showCommandOutput("> lumio$ [OK] Sumber default berhasil diubah ke " + label, false);
                     fetchData();
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> showCommandOutput("> tatap$ [ERROR] Gagal ubah sumber: " + e.getMessage(), true));
+                runOnUiThread(() -> showCommandOutput("> lumio$ [ERROR] Gagal ubah sumber: " + e.getMessage(), true));
             }
         }).start();
     }
 
     private void checkBackendStatus() {
-        showCommandOutput("> tatap$ :ping [Memeriksa 127.0.0.1:8767...]", false);
+        showCommandOutput("> lumio$ :ping [Memeriksa 127.0.0.1:8767...]", false);
         updateBackendStatusUI(0);
         new Thread(() -> {
             try {
@@ -2390,16 +2390,16 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if (code == 200) {
                         updateBackendStatusUI(1);
-                        showCommandOutput("> tatap$ [PONG] Backend ONLINE (127.0.0.1:8767 OK, " + elapsed + "ms)", false);
+                        showCommandOutput("> lumio$ [PONG] Backend ONLINE (127.0.0.1:8767 OK, " + elapsed + "ms)", false);
                     } else {
                         updateBackendStatusUI(2);
-                        showCommandOutput("> tatap$ [WARN] Backend responded HTTP " + code, true);
+                        showCommandOutput("> lumio$ [WARN] Backend responded HTTP " + code, true);
                     }
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     updateBackendStatusUI(2);
-                    showCommandOutput("> tatap$ [OFFLINE] Backend tidak terhubung: " + e.getMessage(), true);
+                    showCommandOutput("> lumio$ [OFFLINE] Backend tidak terhubung: " + e.getMessage(), true);
                 });
             }
         }).start();
@@ -2642,7 +2642,7 @@ public class MainActivity extends Activity {
             } catch (Throwable t) {
                 Log.e(TAG, "Error startEmbeddedBackend: " + t.getMessage(), t);
                 runOnUiThread(() -> {
-                    showCommandOutput("> tatap$ Gagal start backend: " + t.getMessage(), true);
+                    showCommandOutput("> lumio$ Gagal start backend: " + t.getMessage(), true);
                 });
             }
         }).start();
@@ -2676,7 +2676,7 @@ public class MainActivity extends Activity {
             } else {
                 runOnUiThread(() -> {
                     updateBackendStatusUI(2);
-                    showCommandOutput("> tatap$ Server butuh inisialisasi lebih lama. Ketuk badge status untuk mencoba ulang.", true);
+                    showCommandOutput("> lumio$ Server butuh inisialisasi lebih lama. Ketuk badge status untuk mencoba ulang.", true);
                     if (btnStatusPower != null) {
                         btnStatusPower.setOnClickListener(v -> {
                             updateBackendStatusUI(0);
@@ -2867,7 +2867,7 @@ public class MainActivity extends Activity {
                         if (pbLoading != null) pbLoading.setVisibility(View.GONE);
                         if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
                         if (rvGrid != null) rvGrid.setAlpha(1.0f);
-                        showCommandOutput("> tatap$ [ERROR] " + err, true);
+                        showCommandOutput("> lumio$ [ERROR] " + err, true);
                         if (adapter.getItemCount() == 0) {
                             if (layoutPagination != null) layoutPagination.setVisibility(View.GONE);
                             if (layoutEmptyState != null) {
@@ -2886,7 +2886,7 @@ public class MainActivity extends Activity {
                     if (pbLoading != null) pbLoading.setVisibility(View.GONE);
                     if (swipeRefreshLayout != null) swipeRefreshLayout.setRefreshing(false);
                     if (rvGrid != null) rvGrid.setAlpha(1.0f);
-                    showCommandOutput("> tatap$ [ERROR] Gagal terhubung: " + e.getMessage(), true);
+                    showCommandOutput("> lumio$ [ERROR] Gagal terhubung: " + e.getMessage(), true);
                     if (adapter.getItemCount() == 0) {
                         if (layoutPagination != null) layoutPagination.setVisibility(View.GONE);
                         if (layoutEmptyState != null) {
@@ -2998,7 +2998,7 @@ public class MainActivity extends Activity {
     }
 
     private void clearWatchHistory() {
-        showCommandOutput("> tatap$ Menghapus riwayat tontonan...", false);
+        showCommandOutput("> lumio$ Menghapus riwayat tontonan...", false);
         new Thread(() -> {
             try {
                 HttpURLConnection conn = (HttpURLConnection) new URL("http://127.0.0.1:8767/api/history").openConnection();
@@ -3010,13 +3010,13 @@ public class MainActivity extends Activity {
                 getSharedPreferences("tatap_history", Context.MODE_PRIVATE).edit().clear().apply();
 
                 runOnUiThread(() -> {
-                    showCommandOutput("> tatap$ [OK] Seluruh riwayat tontonan berhasil dibersihkan", false);
+                    showCommandOutput("> lumio$ [OK] Seluruh riwayat tontonan berhasil dibersihkan", false);
                     if ("riwayat".equals(currentView)) {
                         fetchData();
                     }
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> showCommandOutput("> tatap$ [ERROR] Gagal hapus riwayat: " + e.getMessage(), true));
+                runOnUiThread(() -> showCommandOutput("> lumio$ [ERROR] Gagal hapus riwayat: " + e.getMessage(), true));
             }
         }).start();
     }

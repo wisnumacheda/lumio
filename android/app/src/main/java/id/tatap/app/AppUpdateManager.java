@@ -34,7 +34,7 @@ import java.net.URL;
 import java.util.Locale;
 
 /**
- * Manajer In-App Update Tatap untuk Android (Mobile & Android TV / Google TV).
+ * Manajer In-App Update Lumio untuk Android (Mobile & Android TV / Google TV).
  * - Pemeriksaan pembaruan on-demand (manual only) via /api/update/check.
  * - Mengunduh berkas APK resmi bertanda tangan secara streaming dengan visual progress dialog.
  * - Mendukung navigasi D-Pad Android TV via TvFocusHelper.
@@ -91,7 +91,7 @@ public class AppUpdateManager {
 
         isChecking = true;
         if (listener != null) {
-            listener.onStatus("> tatap$ Memeriksa pembaruan rilis Tatap...", false);
+            listener.onStatus("> lumio$ Memeriksa pembaruan rilis Lumio...", false);
         }
         Toast.makeText(activity, "Memeriksa pembaruan rilis...", Toast.LENGTH_SHORT).show();
 
@@ -135,14 +135,14 @@ public class AppUpdateManager {
 
                     if (hasUpdate) {
                         if (listener != null) {
-                            listener.onStatus("> tatap$ Pembaruan rilis v" + latestVer + " tersedia!", false);
+                            listener.onStatus("> lumio$ Pembaruan rilis v" + latestVer + " tersedia!", false);
                         }
                         showUpdateDialog(activity, data);
                     } else {
                         if (listener != null) {
-                            listener.onStatus("> tatap$ Tatap v" + currentVer + " adalah versi terbaru.", false);
+                            listener.onStatus("> lumio$ Lumio v" + currentVer + " adalah versi terbaru.", false);
                         }
-                        Toast.makeText(activity, "✓ Tatap v" + currentVer + " sudah versi terbaru!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(activity, "✓ Lumio v" + currentVer + " sudah versi terbaru!", Toast.LENGTH_SHORT).show();
                     }
                 });
 
@@ -167,7 +167,7 @@ public class AppUpdateManager {
                 try {
                     URL u = new URL("https://api.github.com/repos/" + UPDATE_REPO + "/releases/latest");
                     HttpURLConnection c = (HttpURLConnection) u.openConnection();
-                    c.setRequestProperty("User-Agent", "Tatap-App/Android");
+                    c.setRequestProperty("User-Agent", "Lumio-App/Android");
                     c.setRequestProperty("Accept", "application/vnd.github.v3+json");
                     c.setConnectTimeout(10000);
                     c.setReadTimeout(12000);
@@ -199,7 +199,7 @@ public class AppUpdateManager {
                         if (loc != null && loc.contains("/tag/")) {
                             String tag = loc.substring(loc.lastIndexOf('/') + 1).trim();
                             String latestClean = tag.replaceFirst("^v", "");
-                            data = buildReleasePayload(latestClean, tag, "Tatap " + tag, "Pembaruan rilis " + tag + " tersedia di GitHub.", loc);
+                            data = buildReleasePayload(latestClean, tag, "Lumio " + tag, "Pembaruan rilis " + tag + " tersedia di GitHub.", loc);
                         }
                     } catch (Exception ignored) {}
                 }
@@ -209,7 +209,7 @@ public class AppUpdateManager {
                     try {
                         URL u = new URL("https://raw.githubusercontent.com/" + UPDATE_REPO + "/main/VERSION");
                         HttpURLConnection c = (HttpURLConnection) u.openConnection();
-                        c.setRequestProperty("User-Agent", "Tatap-App/Android");
+                        c.setRequestProperty("User-Agent", "Lumio-App/Android");
                         c.setConnectTimeout(8000);
                         c.setReadTimeout(10000);
                         if (c.getResponseCode() == 200) {
@@ -219,7 +219,7 @@ public class AppUpdateManager {
                             if (latestClean != null) {
                                 latestClean = latestClean.trim().replaceFirst("^v", "");
                                 String tag = "v" + latestClean;
-                                data = buildReleasePayload(latestClean, tag, "Tatap " + tag, "Pembaruan rilis " + tag + " terdeteksi dari repositori resmi.", UPDATE_REPO_URL + "/releases/tag/" + tag);
+                                data = buildReleasePayload(latestClean, tag, "Lumio " + tag, "Pembaruan rilis " + tag + " terdeteksi dari repositori resmi.", UPDATE_REPO_URL + "/releases/tag/" + tag);
                             }
                         }
                         c.disconnect();
@@ -234,11 +234,11 @@ public class AppUpdateManager {
                         isChecking = false;
                         if (activity.isFinishing()) return;
                         if (hasUpdate) {
-                            if (listener != null) listener.onStatus("> tatap$ Pembaruan rilis v" + latestVer + " tersedia!", false);
+                            if (listener != null) listener.onStatus("> lumio$ Pembaruan rilis v" + latestVer + " tersedia!", false);
                             showUpdateDialog(activity, finalData);
                         } else {
-                            if (listener != null) listener.onStatus("> tatap$ Tatap v2.9.2 adalah versi terbaru.", false);
-                            Toast.makeText(activity, "✓ Tatap v2.9.2 sudah versi terbaru!", Toast.LENGTH_SHORT).show();
+                            if (listener != null) listener.onStatus("> lumio$ Lumio v2.9.2 adalah versi terbaru.", false);
+                            Toast.makeText(activity, "✓ Lumio v2.9.2 sudah versi terbaru!", Toast.LENGTH_SHORT).show();
                         }
                     });
                     return;
@@ -249,7 +249,7 @@ public class AppUpdateManager {
                     isChecking = false;
                     if (activity.isFinishing()) return;
                     if (listener != null) {
-                        listener.onStatus("> tatap$ Gagal memeriksa pembaruan: Periksa koneksi internet Anda.", true);
+                        listener.onStatus("> lumio$ Gagal memeriksa pembaruan: Periksa koneksi internet Anda.", true);
                     }
                     Toast.makeText(activity, "Tidak dapat memeriksa pembaruan. Periksa koneksi internet Anda.", Toast.LENGTH_SHORT).show();
                 });
@@ -259,7 +259,7 @@ public class AppUpdateManager {
                     isChecking = false;
                     if (activity.isFinishing()) return;
                     if (listener != null) {
-                        listener.onStatus("> tatap$ Gagal memeriksa pembaruan: Periksa koneksi internet Anda.", true);
+                        listener.onStatus("> lumio$ Gagal memeriksa pembaruan: Periksa koneksi internet Anda.", true);
                     }
                     Toast.makeText(activity, "Tidak dapat memeriksa pembaruan. Periksa koneksi internet Anda.", Toast.LENGTH_SHORT).show();
                 });
@@ -286,7 +286,7 @@ public class AppUpdateManager {
             assets.put("android", base + "/Lumio-v" + latestVer + ".apk");
             assets.put("android_tv", base + "/tatap-tv-release-" + tag + ".apk");
             assets.put("windows", base + "/tatap-windows-x64-portable.zip");
-            assets.put("linux", base + "/Tatap-x86_64.AppImage");
+            assets.put("linux", base + "/Lumio-x86_64.AppImage");
             data.put("assets", assets);
             return data;
         } catch (Exception e) {
@@ -668,7 +668,7 @@ public class AppUpdateManager {
                 this.pendingApkFile = apkFile;
                 new AlertDialog.Builder(activity)
                         .setTitle("Izin Pemasangan Aplikasi")
-                        .setMessage("Tatap memerlukan izin untuk memasang pembaruan langsung dari berkas APK resmi bertanda tangan. Silakan aktifkan 'Izinkan dari sumber ini' pada layar pengaturan.")
+                        .setMessage("Lumio memerlukan izin untuk memasang pembaruan langsung dari berkas APK resmi bertanda tangan. Silakan aktifkan 'Izinkan dari sumber ini' pada layar pengaturan.")
                         .setPositiveButton("Buka Pengaturan", (d, w) -> {
                             try {
                                 Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);

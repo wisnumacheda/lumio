@@ -459,7 +459,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Periksa pembaruan rilis Tatap terbaru di GitHub (on-demand)"
+                    android:text="Periksa pembaruan rilis Lumio terbaru di GitHub (on-demand)"
                     android:textColor="@color/text_muted"
                     android:textSize="@dimen/text_caption"
                     android:fontFamily="sans-serif" />

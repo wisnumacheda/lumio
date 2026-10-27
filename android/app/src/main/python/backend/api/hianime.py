@@ -727,6 +727,47 @@ def _normalize_subtitles(raw_tracks, referer: str = ""):
     if not out:
         return out
 
+    # Resolusi track ganda satu bahasa: sebagian server (mis. ZokoAnime dari
+    # MKV multi-track) mengirim beberapa track berbahasa sama, dan salah
+    # satunya bisa berupa track "signs only" berisi beberapa cue saja.
+    # Klien mengambil track pertama per bahasa, jadi track terkaya HARUS
+    # berada di depan; track mikro dibuang bila ada saudara se-bahasa yang
+    # jauh lebih lengkap. Kegagalan fetch = jumlah cue tak dikenal, track
+    # dipertahankan pada urutan aslinya (tidak dibuang).
+    try:
+        from collections import Counter
+        _lang_counts = Counter((o.get("lang") or "").lower() for o in out if o.get("lang"))
+        _dup_langs = {l for l, n in _lang_counts.items() if n > 1}
+        if _dup_langs:
+            for o in out:
+                if (o.get("lang") or "").lower() in _dup_langs:
+                    try:
+                        _txt = _fetch(o["url"], referer=referer or None, timeout=6)
+                        o["_cues"] = _txt.count("-->") if _txt else -1
+                    except Exception:
+                        o["_cues"] = -1
+            _best = {}
+            for o in out:
+                _l = (o.get("lang") or "").lower()
+                if _l in _dup_langs and o.get("_cues", -1) >= 0:
+                    _best[_l] = max(_best.get(_l, -1), o["_cues"])
+            out = [o for o in out
+                   if not ((o.get("lang") or "").lower() in _dup_langs
+                           and 0 <= o.get("_cues", -1) < 15
+                           and _best.get((o.get("lang") or "").lower(), -1) >= 50)]
+            for _l in _dup_langs:
+                _slots = [i for i, o in enumerate(out) if (o.get("lang") or "").lower() == _l]
+                if len(_slots) > 1:
+                    _group = [out[i] for i in _slots]
+                    _group.sort(key=lambda o: (-(o["_cues"]) if o.get("_cues", -1) >= 0 else 10 ** 9))
+                    for _i, _o in zip(_slots, _group):
+                        out[_i] = _o
+            for o in out:
+                o.pop("_cues", None)
+    except Exception:
+        for o in out:
+            o.pop("_cues", None)
+
     # Tetapkan tepat 1 track default:
     # Prioritas 1: Indonesian (jika ada native)
     # Prioritas 2: English track dengan upstream default == True (misal ZokoAnime)

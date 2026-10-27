@@ -25,7 +25,7 @@ public class ImageLoader {
             Thread t = new Thread(() -> {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
                 r.run();
-            }, "TatapImageLoader-" + count.getAndIncrement());
+            }, "LumioImageLoader-" + count.getAndIncrement());
             return t;
         }
     });

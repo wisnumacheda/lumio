@@ -32,7 +32,7 @@
                 android:id="@+id/tv_update_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Pembaruan Tatap Tersedia"
+                android:text="Pembaruan Lumio Tersedia"
                 android:textColor="@color/text_primary"
                 android:textSize="@dimen/text_title_large"
                 android:fontFamily="sans-serif-medium" />

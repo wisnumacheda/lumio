@@ -47,6 +47,16 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
 - **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
 
+## [2.27.0] - 2026-10-27
+
+### Added
+- **Kategori Manhwa jadi beneran (MangaDex).** Tombol Manhwa di bar kategori kini membuka browser komik, bukan lagi panel "Segera Hadir": daftar Manhwa Korea terpopuler saat pertama dibuka, pencarian judul (peringkat hasil mengutamakan kecocokan judul agar sekuel tidak mengalahkan judul yang dicari), halaman detail dengan daftar bab (prioritas Bahasa Indonesia, fallback Inggris), dan pembaca bab scroll vertikal dengan gambar dimuat malas. Endpoint backend baru: `/api/manga/popular`, `/api/manga/search`, `/api/manga/{id}/chapters`, `/api/manga/chapter/{id}/pages` (via at-home server resmi MangaDex, gambar lewat proksi `/api/img` yang sama dengan poster — tanpa pelonggaran validasi SSRF). Bab resmi penerbit (Tapas/Webnovel/dll) tidak di-host MangaDex: daftar bab menandainya "↗ Resmi" dan reader menampilkan tombol buka situs resmi, bukan halaman kosong. Mode Aman tetap berlaku (hanya rating `safe`, atau tambah `suggestive` bila Mode Aman dimatikan; `erotica`/`pornographic` tidak pernah diminta).
+- **Player ala Netflix (menutup Issue #9).** Bar kontrol custom fullscreen ditata ulang gaya Netflix: bar atas hanya tombol kembali + judul + fullscreen; tengah berisi tiga tombol besar (⏪ 10, play/pause, 10 ⏩); bar bawah berisi progress + waktu dan deretan kontrol (play kecil, ±10 dtk, 📺 Episode, ⏭ Berikutnya, ⏩ kecepatan, Server, Kualitas, Subtitle). Baru: pemilih episode cepat dari dalam player, tombol Episode Berikutnya, kecepatan putar 0,5×/0,75×/1×/1,25×/1,5×/2× (tersimpan di Pengaturan, diterapkan otomatis tiap episode), dan hitung mundur auto-next 10 detik saat episode berakhir (bila Auto-Next aktif; bisa dibatalkan atau diputar langsung). Dipertahankan: double-tap seek, Skip OP/ED, semua menu yang ada, subtitle overlay + warnanya. Perilaku di luar fullscreen tidak berubah.
+
+### Changed
+- **Hapus jejak Tatap dari permukaan produk.** README repo ditulis ulang menjadi storefront Lumio penuh (nama, deskripsi, badge, dan tombol unduhan mengarah ke repo wisnumacheda/lumio + tautan bagikan `Lumio.apk`; semua badge/link unduhan ke repo upstream lama dihapus). String UI Klasik Java dibersihkan ("Lumio Anime", toast "Lumio v…", User-Agent "Lumio-App/Android", teks dialog pembaruan) dan komentar header JS prototype menjadi Lumio. Rilis ini HANYA membawa aset `Lumio-v2.27.0.apk` + `Lumio.apk` — aset `tatap-release-*.apk` tidak lagi disertakan (2.26.0 adalah bridge terakhir, sesuai aturan yang disepakati).
+- **Tidak berubah (disengaja):** `applicationId` tetap `id.tatap.fork` (menggantinya akan membuat pengguna lama kehilangan update in-app + data favorit/riwayat), atribusi GPL di LICENSE/source tetap, blacklist hentai server + Mode Aman tetap aktif.
+
 ## [2.26.0] - 2026-10-23
 
 ### Changed

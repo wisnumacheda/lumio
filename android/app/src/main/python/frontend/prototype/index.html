@@ -192,6 +192,11 @@
   .modal .x{position:absolute;top:14px;right:14px;width:38px;height:38px;border-radius:50%;
     background:rgba(10,8,20,.75);border:1px solid var(--line);font-size:16px;z-index:5;transition:.18s}
   .modal .x:hover{background:var(--bad);color:#fff}
+  .upd-box{max-width:420px;width:100%;padding:22px}
+  .upd-title{font-size:19px;font-weight:800;margin-bottom:2px}
+  .upd-ver{color:var(--gold,#e8b34b);font-weight:700;font-size:13px;margin-bottom:10px}
+  .upd-notes{white-space:pre-line;line-height:1.55;font-size:14.5px}
+  .upd-btn{margin-top:16px;width:100%}
   .detail-box{max-width:880px;position:relative}
   .detail-top{display:grid;grid-template-columns:220px 1fr;gap:26px;padding:28px}
   .detail-top .dposter{border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line);
@@ -246,8 +251,15 @@
     border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;outline:none}
   .video-wrap{position:relative;background:#000}
   .video-wrap video{width:100%;aspect-ratio:16/9;background:#000}
+  /* Fullscreen: layar HP (~20:9) lebih lebar dari video 16:9. Tanpa aturan
+     ini, kotak video 16:9 selebar layar jadi LEBIH TINGGI dari layar dan
+     bagian bawah gambar meluber keluar layar (kepotong, seperti kartu judul
+     di screenshot). object-fit:contain membuat seluruh frame selalu terlihat
+     (letterbox/pillarbox), bukan terpotong. */
+  .video-wrap:fullscreen, .video-wrap:-webkit-full-screen{display:flex;align-items:center;justify-content:center;background:#000}
+  .video-wrap:fullscreen video, .video-wrap:-webkit-full-screen video{width:100%;height:100%;object-fit:contain;aspect-ratio:auto}
   .video-wrap video::cue{background:rgba(0,0,0,.72);color:#fff;font-size:1.02em}
-  .sub-overlay{position:absolute;left:0;right:0;bottom:9%;display:flex;justify-content:center;pointer-events:none;z-index:6;padding:0 12px}
+  .sub-overlay{position:absolute;left:0;right:0;bottom:9%;display:flex;justify-content:center;pointer-events:none;z-index:4;padding:0 12px}
   .sub-overlay span{background:rgba(0,0,0,.62);color:#fff;padding:2px 10px;border-radius:6px;text-align:center;line-height:1.35;text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:pre-line}
   .skip-btn{position:absolute;right:18px;bottom:74px;z-index:7;padding:10px 20px;border-radius:99px;
     background:rgba(10,8,20,.85);border:1px solid var(--amber);color:#fde68a;font-weight:700;font-size:13.5px;
@@ -305,6 +317,51 @@
   .cat .soon-tag{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 7px;border-radius:99px;
     background:rgba(255,255,255,.12);color:var(--faint)}
   .cat.active .soon-tag{background:rgba(0,0,0,.18);color:#221503}
+
+  /* ---------- MANHWA (MangaDex) ---------- */
+  .manga-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 6px}
+  .manga-head h2{font-size:22px;font-weight:900}
+  .manga-search{display:flex;gap:8px;margin:10px 0}
+  .manga-search input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:99px;color:var(--txt);padding:11px 16px;font-size:14px;font-family:inherit}
+  .manga-search button{border:0;border-radius:99px;padding:11px 18px;font-weight:800;cursor:pointer;background:linear-gradient(135deg,var(--amber),var(--amber-d));color:#221503;font-family:inherit}
+  .manga-chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px}
+  .manga-chips button{background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:99px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
+  .manga-chips button:hover{color:var(--txt);border-color:var(--acc)}
+  .manga-detail{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0}
+  .manga-detail .dposter{width:150px;flex:0 0 auto}
+  .manga-detail .dposter img{width:100%;border-radius:var(--r-md);aspect-ratio:2/3;object-fit:cover;background:var(--panel)}
+  .manga-detail h2{font-size:22px;font-weight:900;margin-bottom:6px}
+  .manga-detail .meta{color:var(--muted);font-size:13px;margin-bottom:10px}
+  .manga-detail .syn{color:var(--muted);font-size:13.5px;line-height:1.65;max-width:720px}
+  .manga-chapters{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:16px 0 30px}
+  .manga-ch{background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px 6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  .manga-ch:hover{border-color:var(--acc)}
+  .manga-ch small{display:block;color:var(--faint);font-weight:600;margin-top:2px}
+  .reader-top{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--bg);padding:10px 2px;border-bottom:1px solid var(--line)}
+  .reader-top .rt-title{flex:1;font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .reader-pages{max-width:760px;margin:0 auto}
+  .reader-pages img{display:block;width:100%;background:#111;margin:0 auto}
+  .reader-nav{display:flex;gap:10px;justify-content:space-between;margin:18px 0 30px}
+  .reader-nav button{flex:1;border:0;border-radius:12px;padding:12px;font-weight:800;cursor:pointer;background:var(--panel);border:1px solid var(--line);color:var(--txt);font-family:inherit}
+  .reader-nav button:disabled{opacity:.4;cursor:default}
+  /* ---------- PLAYER ALA NETFLIX ---------- */
+  .ctl-mid{display:flex;align-items:center;justify-content:center;gap:28px;pointer-events:auto}
+  .ctl-mid-btn{background:rgba(10,8,20,.66);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:99px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;backdrop-filter:blur(4px)}
+  .ctl-mid-btn:active{background:var(--acc)}
+  .ctl-row{flex-wrap:wrap}
+  .next-ep{position:absolute;inset:0;z-index:7;display:grid;place-items:end center;padding:0 16px 96px;pointer-events:none}
+  .next-ep.hidden{display:none}
+  .next-ep-card{pointer-events:auto;background:rgba(12,10,24,.94);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 18px;text-align:center;max-width:340px;width:100%}
+  .next-ep-label{font-size:11px;letter-spacing:1px;color:var(--faint);text-transform:uppercase}
+  .next-ep-title{font-weight:800;font-size:15px;margin:6px 0 2px;color:#fff}
+  .next-ep-count{font-size:26px;font-weight:900;color:var(--amber);margin:4px 0 10px}
+  .next-ep-actions{display:flex;gap:8px;justify-content:center}
+  .ep-picker{position:absolute;inset:0;z-index:7;background:rgba(8,6,18,.92);padding:14px;overflow:auto}
+  .ep-picker.hidden{display:none}
+  .ep-picker-head{display:flex;align-items:center;justify-content:space-between;color:#fff;font-weight:800;margin-bottom:12px}
+  .ep-picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+  .ep-picker-grid button{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:10px;padding:10px 4px;font-weight:700;cursor:pointer;font-family:inherit}
+  .ep-picker-grid button.cur{background:var(--acc);border-color:transparent}
 
   /* ---------- PANEL SEGERA HADIR ---------- */
   .soon-wrap{max-width:640px;margin:52px auto;text-align:center;padding:0 10px}
@@ -451,9 +508,8 @@
       <button class="cat active" data-cat="anime">🎌 Anime</button>
       <button class="cat" data-cat="movie">🎬 Movie <span class="soon-tag">SEGERA</span></button>
       <button class="cat" data-cat="series">📺 Series <span class="soon-tag">SEGERA</span></button>
-      <button class="cat" data-cat="manhwa">📖 Manhwa <span class="soon-tag">SEGERA</span></button>
+      <button class="cat" data-cat="manhwa">📖 Manhwa</button>
       <button class="cat" data-cat="donghua">🐉 Donghua <span class="soon-tag">SEGERA</span></button>
-      <button class="cat" data-cat="adult">🔞 18+ <span class="soon-tag">TERKUNCI</span></button>
     </div>
     <div class="upd-banner hidden" id="updateBanner">
       <div class="grow" id="updText">🎉 Update tersedia</div>
@@ -526,6 +582,63 @@
     </div>
   </div>
 
+  <!-- ============ MANHWA VIEW ============ -->
+  <div id="viewManga" class="hidden">
+    <div class="manga-head">
+      <button class="btn btn-ghost" id="btnMangaBack" type="button">← Anime</button>
+      <h2>📖 Manhwa</h2>
+    </div>
+    <form class="manga-search" id="mangaSearchForm">
+      <input id="mangaSearchInput" type="search" placeholder="Cari judul manhwa / manga… (Enter untuk mencari)" autocomplete="off">
+      <button type="submit">Cari</button>
+    </form>
+    <div class="manga-chips" id="mangaChips">
+      <button type="button" data-q="Solo Leveling">Solo Leveling</button>
+      <button type="button" data-q="Omniscient Reader">Omniscient Reader</button>
+      <button type="button" data-q="Tower of God">Tower of God</button>
+      <button type="button" data-q="The Beginning After the End">The Beginning After the End</button>
+      <button type="button" data-q="True Beauty">True Beauty</button>
+    </div>
+    <div class="grid-head"><h2 id="mangaGridTitle">🔥 Manhwa Populer</h2><span class="count" id="mangaGridCount"></span></div>
+    <div class="grid" id="mangaGrid"></div>
+    <div class="hint" id="mangaHint" style="margin:16px 0;color:var(--muted);font-size:13px"></div>
+  </div>
+
+  <!-- ============ MANHWA DETAIL VIEW ============ -->
+  <div id="viewMangaDetail" class="hidden">
+    <div class="manga-head">
+      <button class="btn btn-ghost" id="btnMangaDetailBack" type="button">← Manhwa</button>
+      <h2>📖 Detail</h2>
+    </div>
+    <div class="manga-detail">
+      <div class="dposter"><img id="mdPoster" alt=""></div>
+      <div>
+        <h2 id="mdTitle">—</h2>
+        <div class="meta" id="mdMeta"></div>
+        <p class="syn" id="mdSyn"></p>
+      </div>
+    </div>
+    <div class="grid-head"><h2>Daftar Bab</h2><span class="count" id="mdChCount"></span></div>
+    <div class="hint" id="mdChHint" style="margin:8px 0 16px;color:var(--muted);font-size:13px">Memuat daftar bab…</div>
+    <div class="manga-chapters" id="mdChapters"></div>
+  </div>
+
+  <!-- ============ MANHWA READER VIEW ============ -->
+  <div id="viewMangaReader" class="hidden">
+    <div class="reader-top">
+      <button class="btn btn-ghost" id="btnReaderBack" type="button">← Bab</button>
+      <span class="rt-title" id="readerTitle">—</span>
+      <button class="btn btn-ghost" id="btnReaderPrev" type="button">‹ Bab Sebelumnya</button>
+      <button class="btn btn-ghost" id="btnReaderNext" type="button">Bab Berikutnya ›</button>
+    </div>
+    <div class="hint" id="readerHint" style="margin:16px 0;color:var(--muted);font-size:13px">Memuat halaman…</div>
+    <div class="reader-pages" id="readerPages"></div>
+    <div class="reader-nav">
+      <button id="btnReaderPrevB" type="button">‹ Bab Sebelumnya</button>
+      <button id="btnReaderNextB" type="button">Bab Berikutnya ›</button>
+    </div>
+  </div>
+
   <!-- ============ ERROR / EMPTY STATE ============ -->
   <div id="stateBox" class="state-box hidden">
     <div class="big" id="stateEmoji">📭</div>
@@ -572,6 +685,14 @@
 </div>
 
 <!-- ============ PLAYER MODAL ============ -->
+<div class="modal hidden" id="updModal">
+  <div class="box upd-box">
+    <div class="upd-title">✨ Yang Baru di Lumio</div>
+    <div class="upd-ver" id="updVer"></div>
+    <div class="upd-notes" id="updNotes"></div>
+    <button class="btn-reset upd-btn" id="updOk" type="button">Siap, Mengerti 👍</button>
+  </div>
+</div>
 <div class="modal hidden" id="playerModal">
   <div class="box player-box">
     <div class="player-head">
@@ -595,13 +716,14 @@
         <div class="ctl-top">
           <button class="ctl-btn" id="ctlBackBtn" type="button" aria-label="Kembali">←</button>
           <span class="ctl-title" id="ctlTitle">—</span>
-          <button class="ctl-btn" id="ctlServerBtn" type="button">🌐 Server</button>
-          <button class="ctl-btn" id="ctlQualityBtn" type="button">🎚️ Kualitas</button>
-          <button class="ctl-btn" id="ctlSubBtn" type="button">💬 Subtitle</button>
           <button class="ctl-btn" id="ctlFsBtn" type="button" aria-label="Keluar fullscreen">⛶</button>
         </div>
         <div class="ctl-panel hidden" id="ctlPanel"></div>
-        <button class="ctl-center" id="ctlPlayBig" type="button" aria-label="Putar / Jeda">▶</button>
+        <div class="ctl-mid">
+          <button class="ctl-mid-btn" id="ctlMidBack10" type="button" aria-label="Mundur 10 detik">⏪ 10</button>
+          <button class="ctl-center" id="ctlPlayBig" type="button" aria-label="Putar / Jeda">▶</button>
+          <button class="ctl-mid-btn" id="ctlMidFwd10" type="button" aria-label="Maju 10 detik">10 ⏩</button>
+        </div>
         <div class="ctl-spin hidden" id="ctlSpin"><span class="spin"></span></div>
         <div class="ctl-bottom">
           <input type="range" class="ctl-seek" id="ctlSeek" min="0" max="0" step="0.1" value="0" aria-label="Geser posisi putar">
@@ -610,8 +732,32 @@
             <button class="ctl-btn" id="ctlBack10" type="button">⏪ 10</button>
             <button class="ctl-btn" id="ctlFwd10" type="button">10 ⏩</button>
             <span class="ctl-time" id="ctlTime">0:00 / 0:00</span>
+            <button class="ctl-btn" id="ctlEpsBtn" type="button">📺 Episode</button>
+            <button class="ctl-btn" id="ctlNextBtn" type="button">⏭ Berikutnya</button>
+            <button class="ctl-btn" id="ctlSpeedBtn" type="button">⏩ 1×</button>
+            <button class="ctl-btn" id="ctlServerBtn" type="button">🌐 Server</button>
+            <button class="ctl-btn" id="ctlQualityBtn" type="button">🎚️ Kualitas</button>
+            <button class="ctl-btn" id="ctlSubBtn" type="button">💬 Subtitle</button>
           </div>
         </div>
+      </div>
+      <div class="next-ep hidden" id="nextEpOverlay">
+        <div class="next-ep-card">
+          <div class="next-ep-label">Episode berikutnya</div>
+          <div class="next-ep-title" id="nextEpTitle">—</div>
+          <div class="next-ep-count" id="nextEpCount">10</div>
+          <div class="next-ep-actions">
+            <button class="btn btn-play" id="nextEpNow" type="button">▶ Putar Sekarang</button>
+            <button class="btn btn-ghost" id="nextEpCancel" type="button">Batal</button>
+          </div>
+        </div>
+      </div>
+      <div class="ep-picker hidden" id="epPicker">
+        <div class="ep-picker-head">
+          <span>📺 Pilih Episode</span>
+          <button class="x" id="epPickerClose" type="button">✕</button>
+        </div>
+        <div class="ep-picker-grid" id="epPickerGrid"></div>
       </div>
     </div>
     <div class="player-status" id="playerStatus">Menyiapkan stream…</div>
@@ -691,10 +837,6 @@
           <div class="desc">Menyaring judul bertema dewasa dari katalog, pencarian &amp; genre. Berlaku mulai pemuatan data berikutnya.</div>
         </div>
         <div class="switch" id="setSafeMode" role="switch" aria-checked="true" tabindex="0"></div>
-      </div>
-      <div class="set-row">
-        <div class="lbl">Kategori 18+</div>
-        <div class="desc">🔒 <b>Terkunci.</b> Kategori dewasa belum tersedia di fork ini — menunggu sumber legal berlisensi + gerbang verifikasi usia. Judul hentai selalu diblokir permanen oleh server dan tidak bisa dibuka dari pengaturan mana pun.</div>
       </div>
     </div>
 
@@ -790,8 +932,8 @@
 <script>
 "use strict";
 /* ============================================================
-   Tatap — Prototype UI Baru
-   Semua data dari backend lokal Tatap yang sama (/api/...).
+   Lumio — Prototype UI Baru
+   Semua data dari backend lokal Lumio yang sama (/api/...).
    Bentuk respons terverifikasi langsung dari server berjalan:
    - catalog/browse : data.items[]
    - seasonal now   : data.items[]        | airing: data.seasonal[]
@@ -1239,6 +1381,9 @@ function showView(name){
   $("#viewHome").classList.toggle("hidden", name !== "home");
   $("#viewGrid").classList.toggle("hidden", name !== "grid");
   $("#viewSoon").classList.toggle("hidden", name !== "soon");
+  $("#viewManga").classList.toggle("hidden", name !== "manga");
+  $("#viewMangaDetail").classList.toggle("hidden", name !== "mangaDetail");
+  $("#viewMangaReader").classList.toggle("hidden", name !== "mangaReader");
   hideState();
   window.scrollTo({top: 0, behavior: "smooth"});
 }
@@ -1557,6 +1702,8 @@ let hls = null, skipRange = null, subBlobUrl = null;
 const video = $("#video");
 function setPlayerStatus(html){ $("#playerStatus").innerHTML = html; }
 function stopPlayer(){
+  cancelNextEp();
+  const epk = $("#epPicker"); if (epk) epk.classList.add("hidden");
   ctlOn = false; video.controls = true; hideCtl();
   const csp0 = $("#ctlSpin"); if (csp0) csp0.classList.add("hidden");
   const cpn0 = $("#ctlPanel"); if (cpn0) cpn0.classList.add("hidden");
@@ -1574,14 +1721,54 @@ function stopPlayer(){
   video.load();
 }
 $("#skipBtn").addEventListener("click", () => { if (skipRange) video.currentTime = skipRange.end + 0.1; });
-video.addEventListener("ended", () => {
-  if (!SETTINGS.autoNext) return;
+/* Hitung mundur auto-next gaya Netflix: 10 detik, bisa dibatalkan. */
+let nextEpTimer = null, nextEpLeft = 0;
+function cancelNextEp(){
+  if (nextEpTimer) { clearInterval(nextEpTimer); nextEpTimer = null; }
+  const ov = $("#nextEpOverlay"); if (ov) ov.classList.add("hidden");
+}
+function playNextEpisode(){
   const nxt = (window._curEp || 0) + 1;
   if (window._curSlug && (window._epsNums || []).includes(nxt)) {
-    toast("▶ Lanjut otomatis ke Episode " + nxt);
+    cancelNextEp();
     playEpisode(window._curSlug, nxt, true);
+    return true;
   }
+  toast("Ini episode terakhir", true);
+  return false;
+}
+function startNextEpCountdown(){
+  const nxt = (window._curEp || 0) + 1;
+  if (!window._curSlug || !(window._epsNums || []).includes(nxt)) return;
+  cancelNextEp();
+  const it = itemStore.get(window._curSlug) || currentItem || {};
+  const t = $("#nextEpTitle"); if (t) t.textContent = `${it.title || window._curSlug} — Episode ${nxt}`;
+  nextEpLeft = 10;
+  const c = $("#nextEpCount"); if (c) c.textContent = nextEpLeft;
+  const ov = $("#nextEpOverlay"); if (ov) ov.classList.remove("hidden");
+  showCtl();
+  nextEpTimer = setInterval(() => {
+    nextEpLeft -= 1;
+    if (nextEpLeft <= 0) { playNextEpisode(); return; }
+    const c2 = $("#nextEpCount"); if (c2) c2.textContent = nextEpLeft;
+  }, 1000);
+}
+video.addEventListener("ended", () => {
+  if (!SETTINGS.autoNext) return;
+  startNextEpCountdown();
 });
+function openEpPicker(){
+  const nums = window._epsNums || [];
+  const grid = $("#epPickerGrid"); if (!grid) return;
+  if (!nums.length) { toast("Daftar episode tidak tersedia", true); return; }
+  grid.innerHTML = nums.map(n => `<button type="button" data-ep="${n}" class="${n === window._curEp ? "cur" : ""}">${n}</button>`).join("");
+  $$("button[data-ep]", grid).forEach(b => b.addEventListener("click", () => {
+    $("#epPicker").classList.add("hidden");
+    playEpisode(window._curSlug, Number(b.dataset.ep));
+  }));
+  $("#epPicker").classList.remove("hidden");
+  showCtl();
+}
 video.addEventListener("timeupdate", () => {
   const cand = [window._intro, window._outro].filter(Boolean)
     .find(r => video.currentTime >= r.start && video.currentTime < r.end);
@@ -1603,6 +1790,8 @@ video.addEventListener("pause", () => {
     histProgress(window._curSlug, window._curEp, video.currentTime, video.duration);
 });
 video.addEventListener("loadedmetadata", () => {
+  try { video.playbackRate = SETTINGS.speed || 1; } catch (e) {}
+  syncCtlPlay();
   const pos = window._resumePos || 0;
   if (pos > 0 && window._resumeKey === (window._curSlug + "#" + window._curEp)) {
     window._resumePos = 0;
@@ -1663,6 +1852,7 @@ function syncCtlPlay(){
   const ic = video.paused ? "▶" : "⏸";
   const a = $("#ctlPlay"), b = $("#ctlPlayBig");
   if (a) a.textContent = ic; if (b) b.textContent = ic;
+  const s = $("#ctlSpeedBtn"); if (s) s.textContent = "⏩ " + (SETTINGS.speed || 1) + "×";
 }
 function togglePlay(){ if (video.paused) video.play().catch(() => {}); else video.pause(); showCtl(); }
 function ctlPanelShow(kind){
@@ -1676,6 +1866,8 @@ function ctlPanelShow(kind){
   } else if (kind === "quality") {
     const opts = [...$("#qualitySel").options];
     html = `<div class="ph">Kualitas</div>` + (opts.length ? opts.map(o => opt(o.value, o.textContent.replace(/^Kualitas: /, ""), $("#qualitySel").value === o.value)).join("") : `<div class="ph">Tidak tersedia</div>`);
+  } else if (kind === "speed") {
+    html = `<div class="ph">Kecepatan Putar</div>` + [0.5, 0.75, 1, 1.25, 1.5, 2].map(v => opt(String(v), v + "×", (SETTINGS.speed || 1) === v)).join("");
   } else if (kind === "sub") {
     const subOpts = window._subOptions || [];
     const cur = window._subActiveId;
@@ -1692,6 +1884,7 @@ function ctlPanelShow(kind){
     const v = b.dataset.v;
     if (kind === "server") { const s = $("#serverSel"); s.value = v; s.dispatchEvent(new Event("change")); }
     else if (kind === "quality") { const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change")); }
+    else if (kind === "speed") { SETTINGS.speed = Number(v); saveSettings(); try { video.playbackRate = SETTINGS.speed; } catch (e) {} syncCtlPlay(); toast("⏩ Kecepatan: " + v + "×"); }
     else if (kind === "sub") {
       if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
       else if (v.startsWith("bg:")) { SETTINGS.subBg = v.slice(3); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Latar subtitle diubah"); }
@@ -1723,6 +1916,14 @@ $("#ctlFsBtn").addEventListener("click", () => { if (document.fullscreenElement)
 $("#ctlServerBtn").addEventListener("click", () => ctlPanelShow("server"));
 $("#ctlQualityBtn").addEventListener("click", () => ctlPanelShow("quality"));
 $("#ctlSubBtn").addEventListener("click", () => ctlPanelShow("sub"));
+$("#ctlSpeedBtn").addEventListener("click", () => ctlPanelShow("speed"));
+$("#ctlNextBtn").addEventListener("click", () => { playNextEpisode(); showCtl(); });
+$("#ctlEpsBtn").addEventListener("click", () => openEpPicker());
+$("#ctlMidBack10").addEventListener("click", () => { try { video.currentTime = Math.max(0, video.currentTime - 10); } catch (e) {} showCtl(); });
+$("#ctlMidFwd10").addEventListener("click", () => { try { video.currentTime = Math.min(video.duration || 1e18, video.currentTime + 10); } catch (e) {} showCtl(); });
+$("#nextEpNow").addEventListener("click", () => playNextEpisode());
+$("#nextEpCancel").addEventListener("click", () => { cancelNextEp(); showCtl(); });
+$("#epPickerClose").addEventListener("click", () => { $("#epPicker").classList.add("hidden"); showCtl(); });
 $("#ctlSeek").addEventListener("input", e => { ctlSeeking = true; $("#ctlTime").textContent = fmtClock(Number(e.target.value)) + " / " + fmtClock(video.duration || 0); showCtl(); });
 $("#ctlSeek").addEventListener("change", e => { try { video.currentTime = Number(e.target.value); } catch (err) {} ctlSeeking = false; showCtl(); });
 /* Ketuk: sekali = tampil/sembunyi control bar; dua kali/beruntun di sisi
@@ -2053,7 +2254,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", autoNext: true, source: "auto", safeMode: true, sort: "populer"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer"};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
@@ -2142,19 +2343,14 @@ const CAT_INFO = {
   series:  {ico: "📺", title: "Series — Segera Hadir",
     desc: "Buat serial TV & web-series (US, K-Drama, C-Drama, Indo) lengkap dengan musim dan episode per musim.",
     plan: ["<b>Struktur:</b> Season → Episode, meneruskan pola grid episode yang sudah jalan di anime", "<b>Provider pertama:</b> satu sumber series sebagai pilot", "<b>Fitur lanjutan:</b> penanda progres per musim"]},
-  manhwa:  {ico: "📖", title: "Manhwa — Segera Hadir",
-    desc: "Manhwa/manhua/manga itu bacaan, bukan tontonan — jadi modenya beda: pembaca bab vertikal (scroll) ala aplikasi komik.",
-    plan: ["<b>Mode baca:</b> gulir vertikal per bab, panel gambar dimuat malas (lazy)", "<b>Provider pertama:</b> satu sumber komik sebagai pilot", "<b>Fitur:</b> penanda bab terakhir dibaca"]},
   donghua: {ico: "🐉", title: "Donghua — Segera Hadir",
     desc: "Animasi Tiongkok (donghua) sebenarnya sudah sebagian tayang di katalog Anime — contohnya Link Click (Shiguang Dailiren). Kategori khusus ini memisahkannya begitu ada penanda asal negara dari backend.",
     plan: ["<b>Status:</b> sebagian judul sudah bisa ditonton lewat kategori Anime", "<b>Yang dibutuhkan:</b> filter negara asal (CN) di API katalog", "<b>Provider:</b> sumber donghua sub Indo/Eng khusus"]},
-  adult:   {ico: "🔞", title: "Kategori 18+ — Terkunci",
-    desc: "Kategori dewasa sengaja dikunci di fork ini. Bukan sekadar saklar: menayangkan konten 18+ butuh sumber legal berlisensi dan gerbang verifikasi usia yang benar — dua hal yang belum ada, jadi slotnya disiapkan tapi pintunya belum dibuka.",
-    plan: ["<b>Sudah aktif sekarang:</b> Mode Aman di ⚙️ Pengaturan menyaring konten bertema dewasa dari katalog anime", "<b>Tetap permanen:</b> judul hentai diblokir di level server dan tidak bisa dibuka dari pengaturan mana pun", "<b>Syarat membuka:</b> sumber berlisensi + verifikasi usia (mis. PIN) — dibahas lagi bila dua-duanya siap"]},
 };
 function showCategory(cat){
   $$("#catBar .cat").forEach(b => b.classList.toggle("active", b.dataset.cat === cat));
   if (cat === "anime") { showView("home"); return; }
+  if (cat === "manhwa") { openMangaBrowser(); return; }
   const info = CAT_INFO[cat];
   if (!info) return;
   $("#soonIco").textContent = info.ico;
@@ -2165,6 +2361,122 @@ function showCategory(cat){
 }
 $$("#catBar .cat").forEach(b => b.addEventListener("click", () => showCategory(b.dataset.cat)));
 $("#btnSoonBack").addEventListener("click", () => showCategory("anime"));
+
+/* ---------------- Manhwa (MangaDex) ---------------- */
+let mangaLoaded = false, mangaDetail = null, mangaChapters = [], mangaCurChapter = null;
+function openMangaBrowser(){
+  showView("manga");
+  if (!mangaLoaded) { mangaLoaded = true; loadMangaPopular(); }
+}
+function mangaCardHTML(it){
+  const cover = it.cover ? posterSrc(it.cover) : "";
+  const meta = [it.status || "", it.year || ""].filter(Boolean).join(" · ");
+  return `<article class="card" data-mid="${esc(it.id)}">`
+    + `<div class="poster">${cover ? `<img src="${esc(cover)}" alt="" loading="lazy">` : ""}<span class="play-ico">📖</span></div>`
+    + `<div class="meta"><div class="ttl">${esc(it.title)}</div>`
+    + `<div class="sub-meta">${meta ? `<span>${esc(meta)}</span>` : ""}</div></div></article>`;
+}
+function mangaRender(items, title, hint){
+  $("#mangaGridTitle").textContent = title;
+  $("#mangaGridCount").textContent = (items || []).length + " judul";
+  $("#mangaHint").textContent = hint || "";
+  $("#mangaGrid").innerHTML = (items || []).map(mangaCardHTML).join("") || "<p>Tidak ada hasil.</p>";
+}
+async function loadMangaPopular(){
+  $("#mangaHint").textContent = "Memuat…";
+  try {
+    const d = await api("/api/manga/popular");
+    mangaRender(d.items || [], "🔥 Manhwa Populer", "");
+  } catch (e) { $("#mangaHint").textContent = "❌ Gagal memuat: " + e.message; }
+}
+async function mangaSearch(q){
+  q = (q || "").trim();
+  if (q.length < 2) { toast("Kata kunci minimal 2 karakter", true); return; }
+  $("#mangaHint").textContent = "Mencari…";
+  try {
+    const d = await api("/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
+    mangaRender(d.items || [], "Hasil: " + q, "");
+  } catch (e) { $("#mangaHint").textContent = "❌ Gagal mencari: " + e.message; }
+}
+async function openMangaDetail(id){
+  showView("mangaDetail");
+  $("#mdChHint").textContent = "Memuat daftar bab…";
+  $("#mdChapters").innerHTML = "";
+  try {
+    const d = await api("/api/manga/" + encodeURIComponent(id) + "/chapters?safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
+    mangaDetail = d; mangaChapters = d.chapters || [];
+    $("#mdPoster").src = d.cover ? posterSrc(d.cover) : "";
+    $("#mdTitle").textContent = d.title || "—";
+    $("#mdMeta").textContent = [d.status || "", d.year || ""].filter(Boolean).join(" · ");
+    $("#mdSyn").textContent = d.description || "";
+    $("#mdChCount").textContent = mangaChapters.length + " bab";
+    if (!mangaChapters.length) {
+      $("#mdChHint").textContent = "Belum ada bab Bahasa Indonesia / Inggris untuk judul ini di MangaDex.";
+      return;
+    }
+    $("#mdChHint").textContent = "Bab diurut dari terbaru — ketuk untuk membaca.";
+    const desc = [...mangaChapters].reverse();
+    $("#mdChapters").innerHTML = desc.map(c =>
+      `<button class="manga-ch" data-ch="${esc(c.id)}">Bab ${esc(c.chapter || "?")}${c.external ? " ↗" : ""}`
+      + `<small>${c.external ? "Resmi · " : ""}${esc(c.lang || "")}${c.title ? " · " + esc(c.title) : ""}</small></button>`).join("");
+  } catch (e) { $("#mdChHint").textContent = "❌ Gagal memuat: " + e.message; }
+}
+function mangaChapterIndex(){ return mangaChapters.findIndex(c => c.id === (mangaCurChapter && mangaCurChapter.id)); }
+function syncReaderNav(){
+  const i = mangaChapterIndex();
+  const hasPrev = i > 0, hasNext = i >= 0 && i < mangaChapters.length - 1;
+  ["btnReaderPrev", "btnReaderPrevB"].forEach(id => { const b = $("#" + id); if (b) b.disabled = !hasPrev; });
+  ["btnReaderNext", "btnReaderNextB"].forEach(id => { const b = $("#" + id); if (b) b.disabled = !hasNext; });
+}
+function mangaStep(dir){
+  const i = mangaChapterIndex(); if (i < 0) return;
+  const t = mangaChapters[i + dir]; if (t) openMangaReader(t.id);
+}
+async function openMangaReader(chapterId){
+  const ch = mangaChapters.find(c => c.id === chapterId);
+  if (!ch) return;
+  mangaCurChapter = ch;
+  showView("mangaReader");
+  window.scrollTo({top: 0});
+  $("#readerHint").textContent = "Memuat halaman…";
+  $("#readerPages").innerHTML = "";
+  $("#readerTitle").textContent = (mangaDetail ? mangaDetail.title + " — " : "") + "Bab " + (ch.chapter || "?") + (ch.title ? " · " + ch.title : "");
+  syncReaderNav();
+  if (ch.external) {
+    // Bab resmi: MangaDex tidak meng-host gambarnya — arahkan ke situs resmi.
+    $("#readerHint").textContent = "Bab ini adalah bab resmi dari penerbit dan hanya bisa dibaca di situs resminya.";
+    $("#readerPages").innerHTML = `<div style="text-align:center;padding:30px 10px"><p style="color:var(--muted);margin-bottom:16px">MangaDex hanya menautkan bab ini ke situs resmi penerbit.</p><a class="btn btn-play" href="${esc(ch.external)}" target="_blank" rel="noopener">🌐 Buka di Situs Resmi</a></div>`;
+    return;
+  }
+  try {
+    const d = await api("/api/manga/chapter/" + encodeURIComponent(chapterId) + "/pages");
+    $("#readerHint").textContent = d.total + " halaman — geser ke bawah untuk membaca.";
+    $("#readerPages").innerHTML = d.pages.map(u => `<img src="${esc(posterSrc(u))}" alt="" loading="lazy">`).join("");
+  } catch (e) { $("#readerHint").textContent = "❌ " + e.message; }
+}
+$("#mangaGrid").addEventListener("click", e => {
+  const card = e.target.closest(".card"); if (!card) return;
+  openMangaDetail(card.dataset.mid);
+});
+$("#mdChapters").addEventListener("click", e => {
+  const b = e.target.closest(".manga-ch"); if (!b) return;
+  openMangaReader(b.dataset.ch);
+});
+$("#mangaSearchForm").addEventListener("submit", e => {
+  e.preventDefault();
+  mangaSearch($("#mangaSearchInput").value);
+});
+$$("#mangaChips button").forEach(b => b.addEventListener("click", () => {
+  $("#mangaSearchInput").value = b.dataset.q;
+  mangaSearch(b.dataset.q);
+}));
+$("#btnMangaBack").addEventListener("click", () => showCategory("anime"));
+$("#btnMangaDetailBack").addEventListener("click", () => showView("manga"));
+$("#btnReaderBack").addEventListener("click", () => showView("mangaDetail"));
+$("#btnReaderPrev").addEventListener("click", () => mangaStep(-1));
+$("#btnReaderNext").addEventListener("click", () => mangaStep(1));
+$("#btnReaderPrevB").addEventListener("click", () => mangaStep(-1));
+$("#btnReaderNextB").addEventListener("click", () => mangaStep(1));
 
 /* ---------------- Update dalam aplikasi ---------------- */
 function cmpVer(a, b){
@@ -2210,6 +2522,9 @@ window.LUMIO_back = function(){
   if (!$("#playerModal").classList.contains("hidden")) { closeModal("playerModal"); return true; }
   if (!$("#detailModal").classList.contains("hidden")) { closeModal("detailModal"); return true; }
   if (!$("#viewSoon").classList.contains("hidden")) { showCategory("anime"); return true; }
+  if (!$("#viewMangaReader").classList.contains("hidden")) { showView("mangaDetail"); return true; }
+  if (!$("#viewMangaDetail").classList.contains("hidden")) { showView("manga"); return true; }
+  if (!$("#viewManga").classList.contains("hidden")) { showCategory("anime"); return true; }
   if (!$("#viewGrid").classList.contains("hidden")) { goHome(); return true; }
   return false;
 };
@@ -2220,6 +2535,20 @@ loadGenres();
 loadFilterGenres();
 checkUpdate();
 refreshPayloadInfo();
+async function maybeShowUpdatePopup(){
+  try {
+    const d = await api("/api/payload/info");
+    if (!d || !d.enabled || !(d.active > 0) || !d.notes) return;
+    const seen = parseInt(localStorage.getItem("lumio_seen_payload") || "0", 10) || 0;
+    if (d.active <= seen) return;
+    $("#updVer").textContent = "Isi v" + d.active + (d.label ? " — " + d.label : "");
+    $("#updNotes").textContent = d.notes;
+    $("#updModal").classList.remove("hidden");
+    localStorage.setItem("lumio_seen_payload", String(d.active));
+  } catch (e) {}
+}
+$("#updOk").addEventListener("click", () => $("#updModal").classList.add("hidden"));
+maybeShowUpdatePopup();
 checkPayload(false);
 ["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
 $("#dFavBtn").addEventListener("click", async () => {

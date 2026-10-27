@@ -210,7 +210,7 @@ public class AnimeAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> 
                 metaStr.append(type);
             }
         }
-        holder.tvMeta.setText(metaStr.length() > 0 ? metaStr.toString() : "Tatap Anime");
+        holder.tvMeta.setText(metaStr.length() > 0 ? metaStr.toString() : "Lumio Anime");
 
         ImageLoader.load(poster, holder.ivPoster);
 
