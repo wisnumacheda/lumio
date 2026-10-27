@@ -341,6 +341,7 @@
   .reader-top .rt-title{flex:1;font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .reader-pages{max-width:760px;margin:0 auto}
   .reader-pages img{display:block;width:100%;background:#111;margin:0 auto}
+  .saver-ph{min-height:320px;display:flex;align-items:center;justify-content:center;color:var(--muted);background:#111;font-size:13px}
   .reader-nav{display:flex;gap:10px;justify-content:space-between;margin:18px 0 30px}
   .reader-nav button{flex:1;border:0;border-radius:12px;padding:12px;font-weight:800;cursor:pointer;background:var(--panel);border:1px solid var(--line);color:var(--txt);font-family:inherit}
   .reader-nav button:disabled{opacity:.4;cursor:default}
@@ -599,6 +600,14 @@
       <button type="button" data-q="The Beginning After the End">The Beginning After the End</button>
       <button type="button" data-q="True Beauty">True Beauty</button>
     </div>
+    <div id="mangaHistSec" class="hidden">
+      <div class="grid-head"><h2>📖 Lanjut Baca</h2><span class="count" id="mangaHistCount"></span></div>
+      <div class="grid" id="mangaHistGrid"></div>
+    </div>
+    <div id="mangaLatestSec" class="hidden">
+      <div class="grid-head"><h2>🆕 Terbaru dari Manhwaindo</h2><span class="count" id="mangaLatestCount"></span></div>
+      <div class="grid" id="mangaLatestGrid"></div>
+    </div>
     <div class="grid-head"><h2 id="mangaGridTitle">🔥 Manhwa Populer</h2><span class="count" id="mangaGridCount"></span></div>
     <div class="grid" id="mangaGrid"></div>
     <div class="hint" id="mangaHint" style="margin:16px 0;color:var(--muted);font-size:13px"></div>
@@ -628,6 +637,7 @@
     <div class="reader-top">
       <button class="btn btn-ghost" id="btnReaderBack" type="button">← Bab</button>
       <span class="rt-title" id="readerTitle">—</span>
+      <button class="btn btn-ghost" id="btnReaderSaver" type="button">🌿 Hemat: Nonaktif</button>
       <button class="btn btn-ghost" id="btnReaderPrev" type="button">‹ Bab Sebelumnya</button>
       <button class="btn btn-ghost" id="btnReaderNext" type="button">Bab Berikutnya ›</button>
     </div>
@@ -815,6 +825,13 @@
           <div class="desc">Episode selesai → langsung putar episode berikutnya.</div>
         </div>
         <div class="switch" id="setAutoNext" role="switch" aria-checked="true" tabindex="0"></div>
+      </div>
+      <div class="set-row flex">
+        <div class="grow">
+          <div class="lbl">Mode Hemat Manhwa</div>
+          <div class="desc">Gambar bab dimuat satu per satu dan hanya saat mendekati layar — tanpa unduhan paralel dan tanpa preload jauh. Tidak mengubah resolusi gambar.</div>
+        </div>
+        <div class="switch" id="setMangaDataSaver" role="switch" aria-checked="false" tabindex="0"></div>
       </div>
       <div class="set-row">
         <div class="lbl">Sumber server bawaan</div>
@@ -2254,7 +2271,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer", mangaDataSaver: false};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
@@ -2271,6 +2288,11 @@ function syncSettingsUI(){
   const sw = $("#setAutoNext");
   sw.classList.toggle("on", !!SETTINGS.autoNext);
   sw.setAttribute("aria-checked", SETTINGS.autoNext ? "true" : "false");
+  const ms = $("#setMangaDataSaver");
+  if (ms) {
+    ms.classList.toggle("on", !!SETTINGS.mangaDataSaver);
+    ms.setAttribute("aria-checked", SETTINGS.mangaDataSaver ? "true" : "false");
+  }
   const sf = $("#setSafeMode");
   sf.classList.toggle("on", !!SETTINGS.safeMode);
   sf.setAttribute("aria-checked", SETTINGS.safeMode ? "true" : "false");
@@ -2303,6 +2325,12 @@ $("#setSubLang").addEventListener("change", e => { SETTINGS.subLang = e.target.v
 function toggleAutoNext(){ SETTINGS.autoNext = !SETTINGS.autoNext; applySettings(); }
 $("#setAutoNext").addEventListener("click", toggleAutoNext);
 $("#setAutoNext").addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleAutoNext(); } });
+function toggleMangaDataSaver(){
+  SETTINGS.mangaDataSaver = !SETTINGS.mangaDataSaver; applySettings(); syncReaderSaverBtn();
+  toast(SETTINGS.mangaDataSaver ? "🌿 Mode Hemat Manhwa aktif — gambar dimuat satu per satu saat mendekati layar." : "🌿 Mode Hemat Manhwa nonaktif.");
+}
+$("#setMangaDataSaver").addEventListener("click", toggleMangaDataSaver);
+$("#setMangaDataSaver").addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleMangaDataSaver(); } });
 $("#setSource").addEventListener("change", e => { SETTINGS.source = e.target.value; applySettings(); });
 function toggleSafeMode(){
   SETTINGS.safeMode = !SETTINGS.safeMode; applySettings();
@@ -2364,8 +2392,128 @@ $("#btnSoonBack").addEventListener("click", () => showCategory("anime"));
 
 /* ---------------- Manhwa (MangaDex) ---------------- */
 let mangaLoaded = false, mangaDetail = null, mangaChapters = [], mangaCurChapter = null;
+/* ---------------- Lanjut Baca Manhwa (cermin Lanjut Nonton, kunci terpisah) ---------------- */
+const MHIST_KEY = "lumio_manga_history_v1";
+function loadMangaHist(){ try { return JSON.parse(localStorage.getItem(MHIST_KEY)) || []; } catch (e) { return []; } }
+function saveMangaHist(h){ try { localStorage.setItem(MHIST_KEY, JSON.stringify((h || []).slice(0, 24))); } catch (e) {} }
+function mangaHistTouch(){
+  if (!mangaDetail || !mangaCurChapter) return;
+  const ch = mangaCurChapter;
+  const rest = loadMangaHist().filter(x => x.chapterId !== ch.id);
+  rest.unshift({ mid: mangaDetail.id, chapterId: ch.id, title: mangaDetail.title || "", cover: mangaDetail.cover || "", chapter: ch.chapter || "", source: ch.source || "", lang: ch.lang || "", ts: Date.now() });
+  saveMangaHist(rest);
+}
+function mangaHistRemove(chapterId){ saveMangaHist(loadMangaHist().filter(x => x.chapterId !== chapterId)); renderMangaHistRail(); }
+function mangaHistCardHTML(h){
+  const cover = h.cover ? posterSrc(h.cover) : "";
+  return `<article class="card hist-card" data-mid="${esc(h.mid)}" data-ch="${esc(h.chapterId)}" tabindex="0" role="button" aria-label="${esc(h.title)}">`
+    + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" alt="">` : ""}<button class="hist-x" data-mhist-del="${esc(h.chapterId)}" title="Hapus dari riwayat" aria-label="Hapus dari riwayat">✕</button><span class="eps-badge">Bab ${esc(h.chapter || "?")}</span><div class="play-ico">📖</div></div>`
+    + `<div class="meta"><div class="ttl">${esc(h.title)}</div><div class="sub-meta"><span>${esc(h.source || "")}${h.lang ? " · " + esc(h.lang) : ""}</span></div></div></article>`;
+}
+function renderMangaHistRail(){
+  const sec = document.getElementById("mangaHistSec"); if (!sec) return;
+  const grid = $("#mangaHistGrid"); if (!grid) return;
+  const h = loadMangaHist();
+  if (!h.length) { sec.classList.add("hidden"); return; }
+  sec.classList.remove("hidden");
+  $("#mangaHistCount").textContent = h.length + " judul";
+  grid.innerHTML = h.map(mangaHistCardHTML).join("");
+  $$(".hist-card", grid).forEach(c => {
+    const go = () => resumeMangaHistory(c.dataset.mid, c.dataset.ch);
+    c.addEventListener("click", go);
+    c.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  });
+  $$("[data-mhist-del]", grid).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); mangaHistRemove(b.dataset.mhistDel); }));
+}
+async function resumeMangaHistory(mid, chapterId){
+  toast("Memuat…");
+  await openMangaDetail(mid);
+  if (!mangaDetail || mangaDetail.id !== mid) { toast("❌ Gagal memuat detail judul.", true); return; }
+  const ch = mangaChapters.find(c => c.id === chapterId);
+  if (ch) { openMangaReader(ch.id); return; }
+  toast("Bab itu tidak ada lagi di daftar — pilih dari daftar bab.", true);
+}
+/* ---------------- Terbaru Manhwa (Manhwaindo saja, label jujur) ---------------- */
+async function loadMangaLatest(){
+  const sec = document.getElementById("mangaLatestSec"); if (!sec) return;
+  try {
+    const d = await api("/api/manga/mi/latest?safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
+    const items = d.items || [];
+    if (!items.length) { sec.classList.add("hidden"); return; }
+    sec.classList.remove("hidden");
+    $("#mangaLatestCount").textContent = items.length + " judul";
+    $("#mangaLatestGrid").innerHTML = items.map(it => {
+      const cover = it.cover ? posterSrc(it.cover) : "";
+      return `<article class="card" data-mid="mi:${esc(it.series_slug)}" data-ch="mi:${esc(it.chapter_slug)}" tabindex="0" role="button" aria-label="${esc(it.title)}">`
+        + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" alt="">` : ""}<span class="eps-badge">Bab ${esc(it.chapter || "?")}</span><div class="play-ico">📖</div></div>`
+        + `<div class="meta"><div class="ttl">${esc(it.title)}</div><div class="sub-meta"><span>${esc(it.time_text || "")} · Manhwaindo</span></div></div></article>`;
+    }).join("");
+    $$(".card", $("#mangaLatestGrid")).forEach(c => {
+      const go = () => resumeMangaHistory(c.dataset.mid, c.dataset.ch);
+      c.addEventListener("click", go);
+      c.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+    });
+  } catch (e) { sec.classList.add("hidden"); }
+}
+/* ---------------- Mode Hemat reader Manhwa ----------------
+   Perilaku nyata (bukan label kosong): placeholder dulu, lalu gambar
+   dimuat SATU PER SATU secara berurutan (konkurensi 1) dan hanya saat
+   mendekati layar (IntersectionObserver 200px; 2 halaman pertama
+   langsung antre). Tanpa IntersectionObserver, antrean tetap sekuensial
+   penuh. TIDAK mengubah resolusi/kompresi gambar — tidak ada jalur
+   downscale di /api/img yang dipakai di sini. */
+let mangaCurPages = [];
+let mangaSaverObs = null, mangaSaverQueue = [], mangaSaverBusy = false;
+function syncReaderSaverBtn(){
+  const b = $("#btnReaderSaver"); if (!b) return;
+  b.textContent = SETTINGS.mangaDataSaver ? "🌿 Hemat: Aktif" : "🌿 Hemat: Nonaktif";
+}
+function mangaSaverStop(){
+  if (mangaSaverObs) { try { mangaSaverObs.disconnect(); } catch (e) {} mangaSaverObs = null; }
+  mangaSaverQueue = []; mangaSaverBusy = false;
+}
+function mangaSaverPump(){
+  if (mangaSaverBusy) return;
+  const job = mangaSaverQueue.shift();
+  if (!job) return;
+  mangaSaverBusy = true;
+  const img = new Image();
+  const done = () => { mangaSaverBusy = false; mangaSaverPump(); };
+  img.onload = () => { job.el.innerHTML = ""; job.el.appendChild(img); done(); };
+  img.onerror = () => { job.el.textContent = "❌ Gambar gagal dimuat"; done(); };
+  img.alt = "";
+  img.src = job.src;
+}
+function renderMangaPages(){
+  const box = $("#readerPages"); if (!box) return;
+  mangaSaverStop();
+  const pages = mangaCurPages || [];
+  if (!SETTINGS.mangaDataSaver) {
+    box.innerHTML = pages.map(u => `<img src="${esc(posterSrc(u))}" alt="" loading="lazy">`).join("");
+    return;
+  }
+  box.innerHTML = pages.map(u => `<div class="saver-ph" data-src="${esc(posterSrc(u))}"><span>Memuat…</span></div>`).join("");
+  const phs = Array.from(box.querySelectorAll(".saver-ph"));
+  const enqueue = ph => {
+    if (ph.dataset.queued) return;
+    ph.dataset.queued = "1";
+    mangaSaverQueue.push({ el: ph, src: ph.dataset.src });
+    mangaSaverPump();
+  };
+  phs.slice(0, 2).forEach(enqueue);
+  if (typeof IntersectionObserver !== "undefined") {
+    mangaSaverObs = new IntersectionObserver(entries => {
+      entries.forEach(en => { if (en.isIntersecting) enqueue(en.target); });
+    }, { rootMargin: "200px" });
+    phs.forEach(ph => mangaSaverObs.observe(ph));
+  } else {
+    phs.forEach(enqueue);
+  }
+}
 function openMangaBrowser(){
   showView("manga");
+  renderMangaHistRail();
+  loadMangaLatest();
   if (!mangaLoaded) { mangaLoaded = true; loadMangaPopular(); }
 }
 function mangaCardHTML(it){
@@ -2466,6 +2614,7 @@ async function openMangaReader(chapterId){
   $("#readerPages").innerHTML = "";
   $("#readerTitle").textContent = (mangaDetail ? mangaDetail.title + " — " : "") + "Bab " + (ch.chapter || "?") + (ch.title ? " · " + ch.title : "");
   syncReaderNav();
+  mangaHistTouch();
   if (ch.external) {
     // Bab resmi: MangaDex tidak meng-host gambarnya. Di aplikasi, buka
     // lewat browser dalam aplikasi (bridge native); di luar aplikasi
@@ -2473,6 +2622,7 @@ async function openMangaReader(chapterId){
     // Catatan jujur: ini TIDAK membypass login/paywall penerbit —
     // tampilannya tetap situs penerbit, bukan reader Lumio.
     $("#readerHint").textContent = "Bab ini adalah bab resmi dari penerbit dan hanya bisa dibaca di situs resminya.";
+    $("#btnReaderSaver").classList.add("hidden"); mangaSaverStop();
     $("#readerPages").innerHTML = `<div style="text-align:center;padding:30px 10px"><p style="color:var(--muted);margin-bottom:16px">MangaDex hanya menautkan bab ini ke situs resmi penerbit.</p><button class="btn btn-play" data-u="${esc(ch.external)}" onclick="openOfficialLink(this.dataset.u)">🌐 Buka di Situs Resmi</button></div>`;
     return;
   }
@@ -2490,9 +2640,11 @@ async function openMangaReader(chapterId){
   }
   try {
     const d = await api(pagesUrl);
-    $("#readerHint").textContent = d.total + " halaman — geser ke bawah untuk membaca.";
-    $("#readerPages").innerHTML = d.pages.map(u => `<img src="${esc(posterSrc(u))}" alt="" loading="lazy">`).join("");
-  } catch (e) { $("#readerHint").textContent = "❌ " + e.message; }
+    mangaCurPages = d.pages || [];
+    $("#readerHint").textContent = d.total + " halaman — geser ke bawah untuk membaca." + (SETTINGS.mangaDataSaver ? " 🌿 Mode Hemat aktif: gambar dimuat satu per satu saat mendekati layar." : "");
+    $("#btnReaderSaver").classList.remove("hidden"); syncReaderSaverBtn();
+    renderMangaPages();
+  } catch (e) { mangaCurPages = []; $("#readerHint").textContent = "❌ " + e.message; }
 }
 $("#mangaGrid").addEventListener("click", e => {
   const card = e.target.closest(".card"); if (!card) return;
@@ -2511,8 +2663,14 @@ $$("#mangaChips button").forEach(b => b.addEventListener("click", () => {
   mangaSearch(b.dataset.q);
 }));
 $("#btnMangaBack").addEventListener("click", () => showCategory("anime"));
-$("#btnMangaDetailBack").addEventListener("click", () => showView("manga"));
-$("#btnReaderBack").addEventListener("click", () => showView("mangaDetail"));
+$("#btnMangaDetailBack").addEventListener("click", () => { showView("manga"); renderMangaHistRail(); });
+$("#btnReaderBack").addEventListener("click", () => { mangaSaverStop(); showView("mangaDetail"); });
+$("#btnReaderSaver").addEventListener("click", () => {
+  SETTINGS.mangaDataSaver = !SETTINGS.mangaDataSaver;
+  applySettings(); syncReaderSaverBtn();
+  if (mangaCurPages.length) renderMangaPages();
+  toast(SETTINGS.mangaDataSaver ? "🌿 Mode Hemat aktif — gambar dimuat satu per satu saat mendekati layar." : "🌿 Mode Hemat nonaktif — kembali ke muat biasa.");
+});
 $("#btnReaderPrev").addEventListener("click", () => mangaStep(-1));
 $("#btnReaderNext").addEventListener("click", () => mangaStep(1));
 $("#btnReaderPrevB").addEventListener("click", () => mangaStep(-1));

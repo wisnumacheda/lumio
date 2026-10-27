@@ -429,3 +429,105 @@ def get_chapter_pages(chapter_slug):
     if not pages:
         raise ValueError("Halaman bab Manhwaindo tidak ditemukan")
     return {"id": "mi:" + chapter_slug, "pages": pages, "total": len(pages)}
+
+
+def latest_updates(limit=24, safe_mode=1):
+    """Feed bab terbaru dari bagian Latest Update beranda Manhwaindo.
+
+    Beranda adalah server-rendered. Satu judul muncul dua kali di
+    bagian ini sebagai dua anchor class=\"series\" berurutan: yang
+    pertama membungkus poster (img manga-images, tanpa daftar bab),
+    yang kedua membungkus judul + <ul> berisi <li> per bab (anchor ke
+    /<slug>-chapter-<num>/ berlabel \"Ch. N\" + <span> waktu relatif
+    seperti \"1 minute lalu\"). Parser menggabungkan kedua salinan
+    jadi satu kartu logis. Rail hanya memakai bab TERBARU tiap judul
+    (satu entri per judul, urutan beranda = terbaru dulu).
+    Judul dewasa selalu disaring (kata kunci dewasa pada judul; Mode
+    Aman juga menyaring ecchi/smut pada judul)."""
+    html = _fetch("/")
+    # Batas bagian dicari lewat heading h1/h2 (teks heading di HTML
+    # mentah bisa diselingi tag/span, jadi pencarian string mentah
+    # 'Latest Update' tidak bisa diandalkan — terbukti gagal pada
+    # fetch yang heading-nya tetap ada setelah tag di-strip).
+    heads = [(m.end(), _clean_text(m.group(1))) for m in
+             re.finditer(r"<h[12][^>]*>(.*?)</h[12]>", html, re.S | re.I)]
+    start = next((pos for pos, t in heads if t == "Latest Update"), None)
+    if start is None:
+        raise ValueError("Bagian Latest Update Manhwaindo tidak ditemukan")
+    end = next((pos for pos, t in heads
+                if t == "Blog Updates" and pos > start), None)
+    section = html[start:end] if end else html[start:]
+    series_anchors = list(re.finditer(
+        r'<a[^>]+class="series"[^>]+href="[^"]*/series/([^"/\?#]+)/?"[^>]*>',
+        section, re.I))
+    if not series_anchors:
+        raise ValueError("Bagian Latest Update Manhwaindo tidak ditemukan")
+    # Satu judul muncul DUA kali di HTML (dua anchor class="series"
+    # yang berurutan): salinan pertama membungkus poster (ada img,
+    # TANPA daftar bab), salinan kedua membungkus judul + <ul> daftar
+    # bab (tanpa img). Jadi kartu logis = gabungan semua salinan satu
+    # slug: judul/cover/bab diisi dari salinan mana pun yang punya.
+    cards = {}
+    order = []
+    for idx, m in enumerate(series_anchors):
+        slug = m.group(1).strip()
+        if not slug:
+            continue
+        end = series_anchors[idx + 1].start() if idx + 1 < len(series_anchors) \
+            else len(section)
+        region = section[m.start():end]
+        if slug not in cards:
+            cards[slug] = {"title": "", "cover": "", "chapter": "",
+                           "chapter_slug": "", "time_text": ""}
+            order.append(slug)
+        entry = cards[slug]
+        if not entry["title"]:
+            tm = re.search(r'title="([^"]+)"', m.group(0))
+            if tm:
+                entry["title"] = htmlmod.unescape(tm.group(1)).strip()
+            if not entry["title"]:
+                dm = re.search(r"truncate[^>]*>([^<]+)</div>", region)
+                entry["title"] = _clean_text(dm.group(1)) if dm else ""
+        if not entry["cover"]:
+            for tag in re.finditer(r"<img[^>]+>", region):
+                u = _img_from_tag(tag.group(0))
+                if u and "manga-images" in u and u.startswith("http"):
+                    entry["cover"] = u
+                    break
+        if not entry["chapter"]:
+            cm = re.search(
+                r'<a[^>]+href="[^"]*/([^"/\?#]+-chapter-[^"/\?#]+)/?"[^>]*>'
+                r"\s*Ch\.\s*([\d]+(?:\.[\d]+)?)",
+                region, re.I)
+            if cm:
+                entry["chapter_slug"] = cm.group(1).strip()
+                entry["chapter"] = cm.group(2).strip()
+                time_m = re.search(
+                    r'<span[^>]*class="text-xs"[^>]*>([^<]+)</span>',
+                    region[cm.end():cm.end() + 800], re.S)
+                entry["time_text"] = _clean_text(time_m.group(1)) \
+                    if time_m else ""
+    items = []
+    for slug in order:
+        e = cards[slug]
+        if not e["title"] or not e["chapter"]:
+            continue
+        if _adult_in_title(e["title"]):
+            continue
+        if safe_mode and any(k in _norm(e["title"]).split()
+                             for k in _ADULT_SAFE):
+            continue
+        items.append({
+            "title": e["title"],
+            "series_slug": slug,
+            "chapter": e["chapter"],
+            "chapter_slug": e["chapter_slug"],
+            "time_text": e["time_text"],
+            "cover": e["cover"],
+            "lang": "id",
+            "source": "Manhwaindo",
+        })
+    if not items:
+        raise ValueError("Bagian Latest Update Manhwaindo tidak ditemukan")
+    items = items[:max(1, limit)]
+    return {"items": items, "total": len(items), "source": "Manhwaindo"}

@@ -2044,6 +2044,29 @@ async def manga_mi_chapter_pages(chapter_slug: str):
         return fail(str(e))
 
 
+@app.get("/api/manga/mi/latest")
+async def manga_mi_latest(limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Feed bab terbaru Manhwaindo (bagian Latest Update beranda).
+    Manhwaindo SAJA — provider lain belum punya endpoint latest yang
+    setara, jadi feed ini tidak dipalsukan sebagai gabungan."""
+    try:
+        cache_key = f"manga_mi_latest_v1|{limit}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.latest_updates(limit=limit,
+                                               safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
 def _manga_norm_title(s):
     import re as _re
     s = (s or "").lower()
