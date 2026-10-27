@@ -1812,6 +1812,110 @@ async def browse_ep(
     except Exception as e:
         return fail(str(e))
 
+async def _filter_donghua_items(items):
+    """Saring item menjadi HANYA yang countryOfOrigin-nya dikenal CN.
+    Berbeda dengan _filter_anime_list_items (yang mempertahankan unknown),
+    di sini unknown DIBUANG: daftar Donghua tidak boleh kebanjiran judul
+    asal tak diketahui. Item diberi field 'country' bila dikenal."""
+    items = [it for it in (items or []) if isinstance(it, dict)]
+    if not items:
+        return items
+    missing = []
+    for it in items:
+        c = (it.get("country") or it.get("countryOfOrigin") or "").strip().upper()
+        if c:
+            it["country"] = c
+        else:
+            missing.append(it)
+    if missing:
+        sem = asyncio.Semaphore(5)
+
+        async def resolve_one(it):
+            async with sem:
+                c = await _origin_country_for_title(it.get("title") or "")
+                if c:
+                    it["country"] = c
+
+        await asyncio.gather(*(resolve_one(it) for it in missing), return_exceptions=True)
+    return [it for it in items if (it.get("country") or "").strip().upper() == "CN"]
+
+
+_DONGHUA_ADULT_TAGS = ("ecchi", "erotica", "magical-sex-shift")
+
+
+def _donghua_safe_filter(items, safe_mode_int):
+    """Blacklist dewasa untuk daftar Donghua (paritas dengan /api/browse):
+    hentai selalu dibuang (lapis kedua setelah parser kartu yang sudah
+    membuang hentai dari slug/judul); ecchi/erotica/magical-sex-shift
+    dibuang saat safe_mode=1. Pemeriksaan id/title karena kartu browse
+    tidak membawa genre terstruktur yang bisa diandalkan."""
+    out = []
+    for it in items or []:
+        hay = ((it.get("id") or "") + " " + (it.get("title") or "")).lower()
+        if "hentai" in hay:
+            continue
+        if safe_mode_int == 1 and any(tag in hay for tag in _DONGHUA_ADULT_TAGS):
+            continue
+        out.append(it)
+    return out
+
+
+@app.get("/api/donghua")
+async def donghua_ep(
+    page: int = Query(1, ge=1, le=100),
+    safe_mode: int = Query(1),
+):
+    """Daftar animasi Cina (countryOfOrigin == CN) dari katalog HiAnime,
+    memakai mesin video yang sama dengan Anime (detail/episode/player
+    dipakai ulang apa adanya). Asal tak dikenal TIDAK ikut — bila AniList
+    tak terjangkau (mis. sandbox), daftar ini kosong by design."""
+    try:
+        safe_mode_int = _parse_safe_mode(safe_mode)
+        c_page = page if isinstance(page, int) and page >= 1 else 1
+        key = f"donghua|page={c_page}|safe={safe_mode_int}"
+        hit = await get_browse_cache(key, ttl=600)
+        if hit:
+            hit["cached"] = True
+            return ok(hit)
+        loop = asyncio.get_running_loop()
+        # Satu halaman Donghua memindai hingga 5 halaman browse terbaru
+        # (30 judul per halaman), berhenti setelah 30 judul CN terkumpul.
+        per_page_scan = 5
+        start_bp = (c_page - 1) * per_page_scan + 1
+        cn_items, seen = [], set()
+        browse_total, scanned_last = 1, 0
+        for bp in range(start_bp, start_bp + per_page_scan):
+            res = await loop.run_in_executor(
+                None, lambda bp=bp: hi.browse({"sort": "release_date"}, bp))
+            browse_total = (res or {}).get("total_pages") or browse_total
+            items = (res or {}).get("items") or []
+            if not items:
+                break
+            scanned_last = bp
+            batch = await _filter_donghua_items(items)
+            batch = _donghua_safe_filter(batch, safe_mode_int)
+            for it in batch:
+                slug = it.get("id") or ""
+                if slug and slug not in seen:
+                    seen.add(slug)
+                    cn_items.append(it)
+                if len(cn_items) >= 30:
+                    break
+            if len(cn_items) >= 30 or bp >= browse_total:
+                break
+        has_more = scanned_last < browse_total
+        data = {
+            "items": cn_items,
+            "page": c_page,
+            "total_pages": c_page + 1 if has_more else c_page,
+            "cached": False,
+        }
+        await set_browse_cache(key, data)
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
 @app.get("/api/manga/search")
 async def manga_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
                        offset: int = Query(0, ge=0), safe_mode: int = Query(1)):
