@@ -15,6 +15,7 @@ from api import anichan
 from api import mangadex as md
 from api import komikcast as kcmod
 from api import asura as asmod
+from api import manhwaindo as mimod
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
@@ -1992,6 +1993,57 @@ async def manga_as_chapter_pages(series_slug: str, chapter_slug: str):
         return fail(str(e))
 
 
+@app.get("/api/manga/mi/search")
+async def manga_mi_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Cari judul di Manhwaindo (Bahasa Indonesia)."""
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.search_manga(q, limit=limit, safe_mode=safe_mode))
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/mi/series/{slug}/chapters")
+async def manga_mi_chapters(slug: str, safe_mode: int = Query(1)):
+    """Daftar bab satu judul Manhwaindo."""
+    try:
+        cache_key = f"manga_mi_chapters_v1|{slug}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.get_series_chapters(slug, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/mi/chapter/{chapter_slug}/pages")
+async def manga_mi_chapter_pages(chapter_slug: str):
+    """Daftar URL halaman satu bab Manhwaindo."""
+    try:
+        cache_key = f"manga_mi_pages_v1|{chapter_slug}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.get_chapter_pages(chapter_slug))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
 def _manga_norm_title(s):
     import re as _re
     s = (s or "").lower()
@@ -2037,8 +2089,9 @@ def _manga_merge_key(num):
 def _manga_merge_chapters(primary_chapters, extra_lists):
     """Gabung daftar bab per nomor bab. Satu entri per nomor: bab yang
     bisa dibaca mengalahkan tautan resmi; bahasa ID mengalahkan EN;
-    sumber diurut MangaDex > Komikcast > Asura sebagai penyeimbang."""
-    src_rank = {"MangaDex": 0, "Komikcast": 1, "Asura": 2}
+    sumber diurut MangaDex > Komikcast > Manhwaindo > Asura sebagai
+    penyeimbang."""
+    src_rank = {"MangaDex": 0, "Komikcast": 1, "Manhwaindo": 2, "Asura": 3}
     lang_rank = {"id": 0, "en": 1}
 
     def rank(ch):
@@ -2074,9 +2127,12 @@ def _manga_merge_chapters(primary_chapters, extra_lists):
     return out
 
 
-def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode):
+def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode,
+                        blocked_raise="Komikcast diblokir"):
     """Coba tiap varian judul (utama + alt, maks 6) sebagai kata kunci
-    cari; kembalikan bab dari kecocokan ketat pertama. Gagal = []."""
+    cari; kembalikan bab dari kecocokan ketat pertama. Gagal = [].
+    blocked_raise = pesan yang dilempar bila provider terblokir (KC dan
+    MI masing-masing punya catatan UI-nya sendiri)."""
     seen_q = set()
     blocked = False
     for q in titles:
@@ -2103,7 +2159,7 @@ def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode):
                     continue
                 return det.get("chapters") or []
     if blocked:
-        raise ValueError("Komikcast diblokir")
+        raise ValueError(blocked_raise)
     return []
 
 
@@ -2137,6 +2193,22 @@ def _as_match_chapters(titles, safe_mode):
         return [], ""
 
 
+def _mi_match_chapters(titles, safe_mode):
+    """Sama seperti _kc_match_chapters, untuk Manhwaindo."""
+    try:
+        chapters = _match_chapters_for(
+            lambda q, limit, safe_mode: mimod.search_manga(q, limit=limit, safe_mode=safe_mode),
+            lambda slug, safe_mode: mimod.get_series_chapters(slug, safe_mode=safe_mode),
+            "mi:", titles, safe_mode, blocked_raise="Manhwaindo diblokir")
+        return chapters, ""
+    except Exception as e:
+        msg = str(e)
+        if "diblokir" in msg:
+            return [], ("Manhwaindo belum bisa diakses saat ini — "
+                        "bab Indonesianya belum tergabung.")
+        return [], ""
+
+
 def _md_match_chapters(titles, safe_mode):
     """Cari judul di MangaDex (cocok ketat) lalu ambil daftar babnya."""
     try:
@@ -2151,14 +2223,16 @@ def _md_match_chapters(titles, safe_mode):
 
 @app.get("/api/manga/merged/{mid}/chapters")
 async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
-    """Daftar bab GABUNGAN per judul dari MangaDex + Komikcast + Asura,
-    dicocokkan per nomor bab. Bab yang bisa dibaca selalu mengalahkan
-    tautan resmi; bahasa ID didahulukan atas EN. Bab resmi MangaDex
-    tetap tampil sebagai tautan 'Buka di Situs Resmi' bila tidak ada
-    versi bacanya di provider lain. mid = UUID MangaDex, 'kc:<slug>',
-    atau 'as:<slug>'."""
+    """Daftar bab GABUNGAN per judul dari MangaDex + Komikcast + Asura +
+    Manhwaindo, dicocokkan per nomor bab. Bab yang bisa dibaca selalu
+    mengalahkan tautan resmi; bahasa ID didahulukan atas EN. Bab resmi
+    MangaDex tetap tampil sebagai tautan 'Buka di Situs Resmi' bila
+    tidak ada versi bacanya di provider lain. mid = UUID MangaDex,
+    'kc:<slug>', 'as:<slug>', atau 'mi:<slug>'."""
     try:
-        cache_key = f"manga_merged_v1|{mid}|{safe_mode}"
+        # Kunci v2 (payload v19): gabungan kini memakai 4 provider —
+        # cache v1 dari payload lama tidak boleh menyembunyikan MI.
+        cache_key = f"manga_merged_v2|{mid}|{safe_mode}"
         cached = await get_browse_cache(cache_key, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
@@ -2174,6 +2248,11 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
             primary = await loop.run_in_executor(
                 None, lambda: asmod.get_series_chapters(slug, safe_mode=safe_mode))
             primary_source = "Asura"
+        elif mid.startswith("mi:"):
+            slug = mid[3:]
+            primary = await loop.run_in_executor(
+                None, lambda: mimod.get_series_chapters(slug, safe_mode=safe_mode))
+            primary_source = "Manhwaindo"
         else:
             primary = await loop.run_in_executor(
                 None, lambda: md.get_manga_chapters(mid, safe_mode=safe_mode))
@@ -2189,6 +2268,9 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
         if primary_source != "Asura":
             jobs.append(loop.run_in_executor(
                 None, lambda: _as_match_chapters(titles, safe_mode)))
+        if primary_source != "Manhwaindo":
+            jobs.append(loop.run_in_executor(
+                None, lambda: _mi_match_chapters(titles, safe_mode)))
         if primary_source != "MangaDex":
             jobs.append(loop.run_in_executor(
                 None, lambda: _md_match_chapters(titles, safe_mode)))

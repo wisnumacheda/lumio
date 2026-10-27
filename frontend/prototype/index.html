@@ -2398,6 +2398,7 @@ async function mangaSearch(q){
     ["/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "MangaDex"],
     ["/api/manga/kc/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Komikcast"],
     ["/api/manga/as/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Asura"],
+    ["/api/manga/mi/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Manhwaindo"],
   ];
   const settled = await Promise.allSettled(eps.map(([u]) => api(u)));
   let items = [];
@@ -2478,6 +2479,8 @@ async function openMangaReader(chapterId){
   let pagesUrl;
   if (ch.source === "Komikcast") {
     pagesUrl = "/api/manga/kc/chapter/" + encodeURIComponent(chapterId.slice(3)) + "/pages";
+  } else if (ch.source === "Manhwaindo") {
+    pagesUrl = "/api/manga/mi/chapter/" + encodeURIComponent(chapterId.slice(3)) + "/pages";
   } else if (ch.source === "Asura") {
     const rest = chapterId.slice(3);
     const sep = rest.indexOf(":");
