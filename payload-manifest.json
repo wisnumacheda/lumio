@@ -1,9 +1,9 @@
 {
-  "version": 23,
-  "label": "Isi 2.28.1 - Perbaikan Donghua kosong",
-  "notes": "Perbaikan kategori Donghua kosong: hasil kosong tidak lagi di-cache sehingga buka ulang memindai ulang; pencocokan negara memakai synonyms AniList sehingga judul CN yang romanisasinya berbeda tetap terkonfirmasi; empty state menampilkan jumlah dipindai vs terkonfirmasi CN. Chips urutan terbukti hanya sortir client-side dan tidak mengosongkan hasil. Filter Anime tetap JP-only; blacklist dewasa dan Mode Aman tidak diubah.",
+  "version": 24,
+  "label": "Isi 2.28.1 - Pesan error resolve jujur",
+  "notes": "Pesan error resolve kini jujur: frontend membaca field error backend (sebelumnya selalu API mengembalikan error generik), dan bila semua sumber gagal, pesan menyebut tiap provider + alasannya, mis. HiAnime: 404; Otakudesu: tidak ditemukan; AniChan: tidak ada server. Logika failover, cache, dan jalur sukses tidak berubah. Episode yang tidak ada di sumber manapun tetap tidak bisa diputar — yang diperbaiki adalah pesannya.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-23/lumio-payload.zip",
-  "sha256": "154b2eb0a06b140d57aaf2f75fd5ca964ae8d233d05c316370bf4f7269163439",
-  "size": 1013931
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-24/lumio-payload.zip",
+  "sha256": "ed947a40f1687d9e4de3ddaab9eab770164140f6a0452083c5e2597316f275c8",
+  "size": 1014162
 }
