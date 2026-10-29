@@ -1,9 +1,9 @@
 {
-  "version": 24,
-  "label": "Isi 2.28.1 - Pesan error resolve jujur",
-  "notes": "Pesan error resolve kini jujur: frontend membaca field error backend (sebelumnya selalu API mengembalikan error generik), dan bila semua sumber gagal, pesan menyebut tiap provider + alasannya, mis. HiAnime: 404; Otakudesu: tidak ditemukan; AniChan: tidak ada server. Logika failover, cache, dan jalur sukses tidak berubah. Episode yang tidak ada di sumber manapun tetap tidak bisa diputar — yang diperbaiki adalah pesannya.",
+  "version": 25,
+  "label": "Isi 2.28.1 - Daftar Donghua lebih banyak",
+  "notes": "Daftar Donghua dari AniList (animasi Cina urut trending) dipetakan ke HiAnime agar bisa diputar, 20 judul per halaman. Judul yang tak ada di HiAnime dibuang jujur. AniList gagal = pesan error jujur, tanpa daftar basi. Metode pindai lama dipensiunkan. Filter Anime tetap JP-only; Mode Aman tidak diubah.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-24/lumio-payload.zip",
-  "sha256": "ed947a40f1687d9e4de3ddaab9eab770164140f6a0452083c5e2597316f275c8",
-  "size": 1014162
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-25/lumio-payload.zip",
+  "sha256": "0f52e0e3df04d9b9cec6bac044229f0c81d171be71935bd9464b00bb6dacff7c",
+  "size": 1015314
 }
