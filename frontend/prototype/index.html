@@ -894,7 +894,7 @@ async function api(path){
   const r = await fetch(path);
   if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
   const j = await r.json();
-  if (j && j.success === false) throw new Error(j.message || "API mengembalikan error");
+  if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
   return j.data;
 }
 
@@ -903,7 +903,7 @@ async function apiSend(method, path, body){
     body: body ? JSON.stringify(body) : undefined});
   if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
   const j = await r.json();
-  if (j && j.success === false) throw new Error(j.message || "API mengembalikan error");
+  if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
   return j.data;
 }
 

@@ -525,3 +525,53 @@ def search_anime_metadata(search_query: str, per_page: int = 12) -> list:
 
 
 
+
+
+DONGHUA_LIST_QUERY = """
+query ($page: Int, $perPage: Int) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { hasNextPage total }
+    media(countryOfOrigin: CN, type: ANIME, sort: TRENDING_DESC, isAdult: false) {
+      id
+      idMal
+      title { romaji english native }
+      synonyms
+      format
+      status
+      episodes
+      season
+      seasonYear
+      genres
+      coverImage { large medium }
+    }
+  }
+}
+"""
+
+
+def fetch_donghua_list(page: int = 1, per_page: int = 20) -> dict:
+    """Satu halaman daftar donghua (countryOfOrigin=CN) dari AniList,
+    urut TRENDING_DESC. Return {"items": [...], "has_next": bool, "total": int}.
+    Raise RuntimeError bila AniList tak terjangkau / rate-limited / respons tak
+    valid — pemanggil HARUS menampilkan error jujur, bukan fallback diam-diam."""
+    if _is_rate_limited():
+        raise RuntimeError("AniList sedang rate-limited — coba lagi sebentar lagi")
+    try:
+        c = _get_al_client()
+        r = c.post(ANILIST_URL, json={
+            "query": DONGHUA_LIST_QUERY,
+            "variables": {"page": max(1, int(page or 1)), "perPage": per_page},
+        })
+    except Exception as e:
+        raise RuntimeError(f"AniList tak terjangkau: {e}")
+    if r.status_code != 200:
+        _record_rate_limit(r)
+        raise RuntimeError(f"AniList HTTP {r.status_code}")
+    try:
+        page_obj = (r.json().get("data") or {}).get("Page") or {}
+        media = page_obj.get("media") or []
+        info = page_obj.get("pageInfo") or {}
+    except Exception:
+        raise RuntimeError("Respons AniList tak valid")
+    return {"items": media, "has_next": bool(info.get("hasNextPage")),
+            "total": info.get("total") or 0}

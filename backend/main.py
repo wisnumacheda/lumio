@@ -1821,45 +1821,78 @@ async def browse_ep(
     except Exception as e:
         return fail(str(e))
 
-async def _filter_donghua_items(items):
-    """Saring item menjadi HANYA yang countryOfOrigin-nya dikenal CN.
-    Berbeda dengan _filter_anime_list_items (yang mempertahankan unknown),
-    di sini unknown DIBUANG: daftar Donghua tidak boleh kebanjiran judul
-    asal tak diketahui. Item diberi field 'country' bila dikenal.
-    Mengembalikan (kept, stats): stats = {"scanned": n, "cn": k,
-    "known_non_cn": m, "unknown": u} untuk diagnostik /api/donghua."""
-    items = [it for it in (items or []) if isinstance(it, dict)]
-    if not items:
-        return items, {"scanned": 0, "cn": 0, "known_non_cn": 0, "unknown": 0}
-    missing = []
-    for it in items:
-        c = (it.get("country") or it.get("countryOfOrigin") or "").strip().upper()
-        if c:
-            it["country"] = c
-        else:
-            missing.append(it)
-    if missing:
-        sem = asyncio.Semaphore(5)
+# --- Daftar Donghua v25: sumber AniList (countryOfOrigin=CN, TRENDING_DESC) ---
+_DONGHUA_PER_PAGE = 20             # judul AniList per halaman Donghua
+_DONGHUA_PAGE_TTL = 12 * 3600      # cache halaman jadi (detik)
+_DONGHUA_MISS_TTL = 6 * 3600       # negative cache pemetaan judul->slug (detik)
+_DONGHUA_MAP_TTL = 30 * 24 * 3600  # cache pemetaan sukses judul->slug (detik)
 
-        async def resolve_one(it):
-            async with sem:
-                c = await _origin_country_for_title(it.get("title") or "")
-                if c:
-                    it["country"] = c
 
-        await asyncio.gather(*(resolve_one(it) for it in missing), return_exceptions=True)
-    kept, cn, known_non_cn, unknown = [], 0, 0, 0
-    for it in items:
-        c = (it.get("country") or "").strip().upper()
-        if c == "CN":
-            cn += 1
-            kept.append(it)
-        elif c:
-            known_non_cn += 1
-        else:
-            unknown += 1
-    return kept, {"scanned": len(items), "cn": cn,
-                  "known_non_cn": known_non_cn, "unknown": unknown}
+def _donghua_title_candidates(item):
+    """Kandidat judul (english, romaji, native, synonyms) satu item AniList."""
+    t = (item or {}).get("title") or {}
+    syns = (item or {}).get("synonyms") or []
+    if isinstance(syns, str):
+        syns = [syns]
+    out = []
+    for cand in [t.get("english"), t.get("romaji"), t.get("native")] + list(syns)[:4]:
+        c = (cand or "").strip()
+        if c and c not in out:
+            out.append(c)
+    return out
+
+
+async def _map_donghua_item_to_hianime(item):
+    """Petakan satu judul AniList ke slug HiAnime memakai mesin pencarian
+    HiAnime (variant merging + _is_title_match yang sama dengan pencocokan
+    slug). Return {"slug","title","poster"} atau None bila tak ketemu.
+    Sukses di-cache 30 hari; miss di-cache 6 jam (negative cache jujur —
+    HiAnime bisa menambah judul baru sehingga miss tidak permanen)."""
+    cands = _donghua_title_candidates(item)
+    if not cands:
+        return None
+    cache_key = "donghua_slug_v1|" + _slug_norm_match(cands[0])
+    try:
+        hit = await get_browse_cache(cache_key, ttl=_DONGHUA_MAP_TTL)
+        if hit:
+            if hit.get("slug"):
+                return {"slug": hit["slug"],
+                        "title": hit.get("title") or cands[0],
+                        "poster": hit.get("poster") or ""}
+            if hit.get("miss"):
+                miss_at = float(hit.get("miss_at") or 0)
+                if (time.time() - miss_at) < _DONGHUA_MISS_TTL:
+                    return None
+                # miss kedaluwarsa -> cari ulang di bawah
+    except Exception:
+        pass
+    loop = asyncio.get_running_loop()
+    for q in cands:
+        for sq in [q] + _search_query_variants(q):
+            try:
+                results = await loop.run_in_executor(
+                    None,
+                    lambda sq=sq: hi.hianime_search_page(sq, limit=8, page=1).get("results") or [],
+                )
+            except Exception:
+                continue
+            for r in results or []:
+                r_title = (r.get("title") or "").strip()
+                if not r.get("id") or not r_title:
+                    continue
+                if any(_is_title_match(r_title, c) for c in cands):
+                    mapped = {"slug": r["id"], "title": r_title,
+                              "poster": r.get("poster") or ""}
+                    try:
+                        await set_browse_cache(cache_key, mapped)
+                    except Exception:
+                        pass
+                    return mapped
+    try:
+        await set_browse_cache(cache_key, {"miss": True, "miss_at": time.time()})
+    except Exception:
+        pass
+    return None
 
 
 _DONGHUA_ADULT_TAGS = ("ecchi", "erotica", "magical-sex-shift")
@@ -1887,61 +1920,81 @@ async def donghua_ep(
     page: int = Query(1, ge=1, le=100),
     safe_mode: int = Query(1),
 ):
-    """Daftar animasi Cina (countryOfOrigin == CN) dari katalog HiAnime,
-    memakai mesin video yang sama dengan Anime (detail/episode/player
-    dipakai ulang apa adanya). Asal tak dikenal TIDAK ikut — bila AniList
-    tak terjangkau (mis. sandbox), daftar ini kosong by design.
-    Hasil KOSONG tidak di-cache (buka ulang memindai ulang, bukan menyajikan
-    kekosongan lama); respons membawa data.debug {scanned, cn_confirmed,
-    unknown} agar empty state bisa menunjukkan penyebabnya."""
+    """Daftar donghua (animasi Cina): sumber daftar = AniList
+    Page.media(countryOfOrigin=CN, type=ANIME, sort=TRENDING_DESC) — 20 judul
+    per halaman — lalu tiap judul dipetakan ke slug HiAnime agar bisa diputar
+    (detail/episode/player dipakai ulang apa adanya).
+    - Judul yang tak ketemu di HiAnime DIBUANG jujur (daftar hanya berisi yang
+      bisa diputar); miss pemetaan di-cache 6 jam, sukses 30 hari.
+    - AniList gagal = error jujur (TANPA fallback diam-diam, TANPA cache gagal).
+    - Halaman jadi di-cache 12 jam HANYA bila lengkap (semua terpetakan).
+    - Blacklist dewasa paritas browse: genre Hentai AniList selalu dibuang
+      (di samping isAdult=false di query); ecchi/erotica/magical-sex-shift
+      dibuang saat safe_mode=1. Filter list Anime tetap JP-only (tak tersentuh).
+    - Metode lama (pindai 5 halaman browse + anotasi per judul) DIPENSIUNKAN.
+    Respons kompatibel cardHTML; debug {scanned, cn_confirmed, unmapped,
+    dropped_adult, source} untuk baris diagnostik empty state."""
     try:
         safe_mode_int = _parse_safe_mode(safe_mode)
         c_page = page if isinstance(page, int) and page >= 1 else 1
-        key = f"donghua|page={c_page}|safe={safe_mode_int}"
-        hit = await get_browse_cache(key, ttl=600)
+        key = f"donghua_v2|page={c_page}|safe={safe_mode_int}"
+        hit = await get_browse_cache(key, ttl=_DONGHUA_PAGE_TTL)
         if hit and hit.get("items"):
             hit["cached"] = True
             return ok(hit)
         loop = asyncio.get_running_loop()
-        # Satu halaman Donghua memindai hingga 5 halaman browse terbaru
-        # (30 judul per halaman), berhenti setelah 30 judul CN terkumpul.
-        per_page_scan = 5
-        start_bp = (c_page - 1) * per_page_scan + 1
-        cn_items, seen = [], set()
-        browse_total, scanned_last = 1, 0
-        tot_scanned, tot_cn, tot_unknown = 0, 0, 0
-        for bp in range(start_bp, start_bp + per_page_scan):
-            res = await loop.run_in_executor(
-                None, lambda bp=bp: hi.browse({"sort": "release_date"}, bp))
-            browse_total = (res or {}).get("total_pages") or browse_total
-            items = (res or {}).get("items") or []
-            if not items:
-                break
-            scanned_last = bp
-            batch, stats = await _filter_donghua_items(items)
-            tot_scanned += stats["scanned"]
-            tot_cn += stats["cn"]
-            tot_unknown += stats["unknown"]
-            batch = _donghua_safe_filter(batch, safe_mode_int)
-            for it in batch:
-                slug = it.get("id") or ""
-                if slug and slug not in seen:
-                    seen.add(slug)
-                    cn_items.append(it)
-                if len(cn_items) >= 30:
-                    break
-            if len(cn_items) >= 30 or bp >= browse_total:
-                break
-        has_more = scanned_last < browse_total
+        try:
+            dl = await loop.run_in_executor(
+                None, lambda: al.fetch_donghua_list(c_page, _DONGHUA_PER_PAGE))
+        except Exception as e:
+            return fail(f"Daftar Donghua tak bisa dimuat: {e}")
+        raw_items = (dl or {}).get("items") or []
+        has_next = bool((dl or {}).get("has_next"))
+        sem = asyncio.Semaphore(4)
+
+        async def _one(it):
+            async with sem:
+                return await _map_donghua_item_to_hianime(it)
+
+        mapped = await asyncio.gather(
+            *(_one(it) for it in raw_items), return_exceptions=True)
+        items, dropped_unmapped, dropped_adult = [], 0, 0
+        for src, m in zip(raw_items, mapped):
+            if isinstance(m, Exception) or not m:
+                dropped_unmapped += 1
+                continue
+            genres = [g for g in ((src or {}).get("genres") or []) if g]
+            if any((g or "").strip().lower() == "hentai" for g in genres):
+                dropped_adult += 1
+                continue
+            fmt = (src.get("format") or "").upper()
+            card = {
+                "id": m["slug"],
+                "title": m["title"],
+                "poster": m["poster"] or ((src.get("coverImage") or {}).get("large") or ""),
+                "type": {"TV_SHORT": "TV"}.get(fmt, fmt) or None,
+            }
+            st = (src.get("status") or "").upper()
+            if st == "RELEASING":
+                card["badge"] = "ONGOING"
+                card["is_finished"] = False
+            elif st == "FINISHED":
+                card["badge"] = "TAMAT"
+                card["is_finished"] = True
+            if not _donghua_safe_filter([card], safe_mode_int):
+                dropped_adult += 1
+                continue
+            items.append(card)
         data = {
-            "items": cn_items,
+            "items": items,
             "page": c_page,
-            "total_pages": c_page + 1 if has_more else c_page,
+            "total_pages": c_page + 1 if has_next else c_page,
             "cached": False,
-            "debug": {"scanned": tot_scanned, "cn_confirmed": tot_cn,
-                      "unknown": tot_unknown},
+            "debug": {"scanned": len(raw_items), "cn_confirmed": len(items),
+                      "unmapped": dropped_unmapped,
+                      "dropped_adult": dropped_adult, "source": "anilist-cn"},
         }
-        if cn_items:
+        if items and dropped_unmapped == 0:
             await set_browse_cache(key, data)
         return ok(data)
     except Exception as e:
@@ -2966,25 +3019,31 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         last_error = None
         is_failover = False
         failover_from = None
+        fail_reasons = []  # [(provider, ringkas_alasan)] utk pesan akhir bila semua gagal
+        def _note(provider, exc):
+            msg = " ".join(str(exc or "").split())[:140]
+            fail_reasons.append((provider, msg or "gagal tanpa pesan"))
 
         if active_source == "anichan":
             try:
                 got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
             except Exception as e:
                 last_error = e
+                _note("AniChan", e)
                 if source == "auto" or not source:
                     try:
                         maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
                         got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
                         active_source = "hianime"
                         cache_slug = slug
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        _note("HiAnime", e2)
         elif active_source == "otakudesu":
             try:
                 got = await loop.run_in_executor(None, lambda: otaku.resolve_stream(slug, ep))
             except Exception as e:
                 last_error = e
+                _note("Otakudesu", e)
                 # Fallback ke hianime kalau user pakai auto
                 if source == "auto" or not source:
                     try:
@@ -2992,8 +3051,8 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
                         active_source = "hianime"
                         cache_slug = slug
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        _note("HiAnime", e2)
                     if not got:
                         try:
                             got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
@@ -3002,22 +3061,23 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "otakudesu"
                             _ANIME_FAILOVER_CACHE[slug] = "anichan"
-                        except Exception:
-                            pass
+                        except Exception as e3:
+                            _note("AniChan", e3)
         else:
             try:
                 maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
                 got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
             except Exception as e:
                 last_error = e
+                _note("HiAnime", e)
                 # Fallback ke otakudesu jika hianime gagal
                 if source == "auto" or not source:
                     try:
                         got = await loop.run_in_executor(None, lambda: otaku.resolve_stream(slug, ep))
                         active_source = "otakudesu"
                         cache_slug = f"otakudesu:{slug}"
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        _note("Otakudesu", e2)
                     # JIKA HIANIME & OTAKUDESU GAGAL (KASUS EYESHIELD 21):
                     # Failover otomatis per-judul ke AniChan langsung ke HLS M3U8
                     if not got:
@@ -3030,8 +3090,12 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             _ANIME_FAILOVER_CACHE[slug] = "anichan"
                         except Exception as anichan_err:
                             last_error = anichan_err
+                            _note("AniChan", anichan_err)
 
         if not got:
+            if fail_reasons:
+                parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
+                raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
             raise last_error or RuntimeError("Stream gagal di-resolve dari semua sumber")
 
         got["source"] = active_source
