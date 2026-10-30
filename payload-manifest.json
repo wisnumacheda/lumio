@@ -1,9 +1,9 @@
 {
-  "version": 25,
-  "label": "Isi 2.28.1 - Daftar Donghua lebih banyak",
-  "notes": "Daftar Donghua dari AniList (animasi Cina urut trending) dipetakan ke HiAnime agar bisa diputar, 20 judul per halaman. Judul yang tak ada di HiAnime dibuang jujur. AniList gagal = pesan error jujur, tanpa daftar basi. Metode pindai lama dipensiunkan. Filter Anime tetap JP-only; Mode Aman tidak diubah.",
+  "version": 26,
+  "label": "Optimasi kecepatan: resolve paralel + translate + DB",
+  "notes": "Port optimasi upstream v2.12.5: resolve server paralel dengan prioritas tier, cache positif servers dan embed, pooled HTTP client, prompt master fansub TLC, worker translate 3 ke 6, DB connection pool plus index dan TTL sweeper, cache body master m3u8, Range forwarding untuk seek, prewarm subtitle gtx+ dengan dedup job key, dan tuning HLS start buffer. Benchmark sandbox: resolve tidak lebih lambat dari sebelumnya, tanpa regresi.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-25/lumio-payload.zip",
-  "sha256": "0f52e0e3df04d9b9cec6bac044229f0c81d171be71935bd9464b00bb6dacff7c",
-  "size": 1015314
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-26/lumio-payload.zip",
+  "sha256": "79ed67d5b84271a17206f87b9817b953385bbd5e96780883b18a47cbce9bcc0c",
+  "size": 1025421
 }
