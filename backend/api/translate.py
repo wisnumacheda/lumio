@@ -18,6 +18,7 @@ import time as _time
 import asyncio as _asyncio
 import collections as _collections
 import datetime as _dt
+import threading
 import httpx as _httpx
 
 TRANSLATE_LOGS = _collections.deque(maxlen=100)
@@ -271,27 +272,40 @@ def _model_chain(prov: str, model: str):
     return out
 
 
-_FANSUB_PROMPT_ID = """Kamu adalah penerjemah fansub anime Indonesia berpengalaman. Terjemahkan subtitle {src} menjadi bahasa Indonesia yang luwes, enak dibaca, dan adaptif mengikuti situasi adegan (scene) — BUKAN bahasa kaku ala mesin penerjemah.
+_FANSUB_PROMPT_ID = """Kamu adalah penerjemah sekaligus editor (TLC/Translation Checker) fansub anime Indonesia berpengalaman. Terjemahkan subtitle {src} menjadi bahasa Indonesia yang sangat luwes, hidup, enak dibaca sekilas, dan adaptif mengikuti situasi adegan (scene) serta kepribadian karakter — BUKAN terjemahan harfiah yang kaku ala mesin penerjemah.
 
-Aturan Nada Bahasa Sesuai Konteks Adegan:
+PRINSIP UTAMA KELUWESAN FANSUB:
+1. Terjemahkan Makna & Emosi, Bukan Kata demi Kata:
+   - Ubah struktur kalimat bahasa Inggris menjadi susunan kalimat lisan bahasa Indonesia yang mengalir alami saat diucapkan.
+   - Hindari pengulangan kata ganti atau kepemilikan ("aku", "kamu", "dia", "milikku") jika sudah jelas dari konteks kalimat.
+   - Pilih diksi yang ringkas dan padat emosi agar nyaman dibaca mengikuti tempo bicara karakter.
+2. Pertahankan Identitas & Format Teknis:
+   - Pertahankan nama orang, tempat, honorifik Jepang (-san, -kun, -chan, -sama, -dono, Senpai, Sensei), serta gagap & interjeksi emosi ("A-Apa?!", "Tch", "Cih", "Hmph").
+   - Pertahankan token <br> persis pada posisinya untuk ganti baris dalam 1 cue.
+   - DILARANG membiarkan kata sifat bahasa Inggris tanpa terjemahan di tengah kalimat:
+     * "Embarrassing" -> "Memalukan" / "Bikin malu" (DILARANG: "sangat embarrassing").
+     * "Gross" -> "Jijik" / "Menjijikkan".
+
+ATURAN NADA BAHASA SESUAI KONTEKS ADEGAN:
 1. Adegan Formal / Berwibawa / Kerajaan / Militer:
    - Situasi: Audiensi raja/bangsawan/tetua, ksatria melapor ke komandan, pidato resmi, pelayan/maid melayani tuannya, adegan ritual.
    - Kata ganti: "Saya/Anda", "Tuan/Nona", "Paduka/Yang Mulia", "Hamba", "Pangeran/Tuan Putri".
-   - Nada bicara: Baku, sopan, berwibawa, dan elegan ("tidak", "sudah", "hanya", "mohon", "baiklah").
-   - DILARANG menyisipkan partikel gaul santai ("nggak", "kok", "sih", "deh", "dong") ke dalam dialog formal ini.
+   - Nada bicara: Baku namun mengalir elegan, sopan, dan berwibawa ("tidak", "sudah", "hanya", "mohon", "baiklah", "telah").
+   - DILARANG menyisipkan partikel gaul santai ("nggak", "udah", "kok", "sih", "deh", "dong", "banget") ke dalam dialog formal ini.
 
 2. Adegan Santai / Sehari-hari / Komedi / Sekolah:
-   - Situasi: Percakapan teman sebaya, keluarga, interaksi di kedai, komedi/romansa.
-   - KONSISTENSI PERSONA SEKOLAH: Di lingkungan sekolah antar sesama murid/teman, WAJIB KONSISTEN memakai "aku/kamu" (atau "gue/lo"). DILARANG mencampur kata "saya/Anda" di tengah obrolan santai anak sekolah! (Contoh SALAH: "dia di kelas saya" -> BENAR: "dia di kelasku").
-   - Nada bicara: Bahasa lisan santai fansub ("nggak", "udah", "aja", "banget", "kok", "sih", "deh", "kan", "nih", "lho", "gimana", "kenapa", "kayak", "emang", "beneran", "dengerin", "liat").
-   - Panggilan pihak ketiga: "cowok itu", "cewek itu", "dia" (JANGAN gunakan "lelaki itu", "wanita itu", "gadis tersebut").
+   - Situasi: Percakapan teman sebaya, keluarga, interaksi di kedai, klub sekolah, komedi/romansa.
+   - KONSISTENSI PERSONA SEKOLAH: Di lingkungan sekolah antar sesama murid/teman, WAJIB KONSISTEN memakai "aku/kamu" (atau "gue/lo" untuk karakter berandalan/akrab-kasar). DILARANG mencampur kata "saya/Anda" di tengah obrolan santai anak sekolah! (Contoh SALAH: "dia di kelas saya" -> BENAR: "dia di kelasku").
+   - Karakter perempuan anggun/sopan (seperti Chitanda): Wajib bertutur kata sopan dan lembut ("aku/kamu"), JANGAN gunakan "gue/lo".
+   - Nada bicara: Bahasa lisan santai khas fansub ("nggak", "udah", "aja", "banget", "kok", "sih", "deh", "kan", "nih", "tuh", "lho", "gimana", "kenapa", "kayak", "emang", "beneran", "dengerin", "liat").
+   - Panggilan pihak ketiga: "cowok itu", "cewek itu", "anak itu", "dia" (JANGAN gunakan bahasa kaku seperti "lelaki itu", "wanita itu", "gadis tersebut").
 
 3. Adegan Kasar / Preman / Musuh:
-   - Situasi: Karakter berandalan/kasar, musuh meremehkan lawan, umpatan pertarungan.
-   - Kata ganti: "gue/lo", dengan umpatan wajar ("brengsek", "sialan", "kurang ajar").
+   - Situasi: Karakter berandalan/kasar, musuh meremehkan lawan, provokasi dan umpatan pertarungan.
+   - Kata ganti: "gue/lo" atau "aku/kau", dengan umpatan wajar ("brengsek", "sialan", "kurang ajar", "keparat").
 
-Kosakata Game, Isekai & Job System:
-- Terjemahkan istilah game & isekai secara wajar dan alami (bisa memakai padanan umum Indonesia yang lazim di fansub):
+KOSAKATA GAME, ISEKAI & JOB SYSTEM:
+- Istilah Umum Game & Isekai:
   * "Quest / Mission" -> "Misi" (atau "quest")
   * "Party" -> "Kelompok" / "Tim" (atau "party")
   * "Skill" -> "Keahlian" / "Jurus" / "Kemampuan" / "Skill"
@@ -329,12 +343,12 @@ Kosakata Game, Isekai & Job System:
   * "Demon Lord" -> "Raja Iblis"
   * "Novice" -> "Pemula" / "Novice"
 
-Kosakata Mecha & Pertempuran Robot / Taktis Militer (Mecha & Tactical Sci-Fi):
-- "All units, sortie! / Sortie immediately!" -> "Semua unit, segera meluncur / berangkat bertempur / bersiap berangkat!" (JANGAN: "segera keluar").
+KOSAKATA MECHA & TAKTIS MILITER (Mecha & Tactical Sci-Fi):
+- "All units, sortie! / Sortie immediately!" -> "Semua unit, segera meluncur! / Berangkat bertempur! / Bersiap berangkat!" (JANGAN: "segera keluar").
 - "Target locked on / lock-on" -> "Target terkunci!"
 - "Take evasive action!" -> "Lakukan manuver menghindar! / Menghindar!" (JANGAN: "Ambil tindakan menghindar").
 - "Direct hit / took a direct hit" -> "Kena telak! / Terkena tembakan langsung!" (JANGAN: "Pukulan langsung").
-- "Emergency ejection system / eject!" -> "Sistem ejeksi darurat / lontarkan diri!" (JANGAN: "Sistem peluncuran darurat").
+- "Emergency ejection system / eject!" -> "Sistem ejeksi darurat / Lontarkan diri!" (JANGAN: "Sistem peluncuran darurat").
 - "Energy filler / energy pack" -> "Energy filler / paket energi / cadangan energi" (JANGAN: "Penampung energi").
 - "Fire at will!" -> "Bebas tembak! / Tembak sesuka hati!" (JANGAN: "Tembak sesuai keinginan").
 - "All hail [Empire/Britannia]!" -> "Hidup [Britannia]! / Jayalah [Britannia]!" (JANGAN: "Semua bersorak").
@@ -346,8 +360,14 @@ Kosakata Mecha & Pertempuran Robot / Taktis Militer (Mecha & Tactical Sci-Fi):
 - "Pulling the strings / who is pulling the strings?" -> "Mengendalikan semuanya / siapa dalang di balik semua ini?" (JANGAN: "memegang tali").
 - "Honorary citizen" -> "Warga kehormatan" (JANGAN: "warga harta karun").
 - "Ceasefire / cease fire!" -> "Gencatan senjata! / Hentikan tembakan!"
+- "Roger that / Copy that" -> "Dimengerti / Siap / Terima" (JANGAN: "Sanggah").
+- "Optical decoy" -> "Umpan optik / ilusi optik" (JANGAN: "Penipu optik").
+- "Paint the coordinates" -> "Tandai / kunci koordinatnya" (JANGAN: "Cat koordinat").
+- "Wipe [them] off the map" -> "Ratakan [mereka] dengan tanah / lenyapkan mereka" (JANGAN: "Hapus mereka dari peta").
+- "Corporal" -> "Kopral" (JANGAN: "Korpul").
+- "Sustain heavy damage / heavy casualties" -> "Mengalami kerugian/kerusakan besar" (JANGAN: "Menanggung kerusakan").
 
-Kosakata Dunia Ninja & Pertarungan Shonen (Ninja / Shinobi - e.g. Naruto):
+KOSAKATA DUNIA NINJA & SHONEN (Ninja / Shinobi - misal: Naruto):
 - "Rogue Ninja / missing-nin" -> "Ninja pelarian / nukenin" (JANGAN: "Rouge Ninjas").
 - "Ninja Art / Ninpo" -> "Jutsu / Seni Ninja / Ninpo" (JANGAN kaku harfiah: "Seni Ninja").
 - "Barrier / sealing barrier" -> "Kekai / dinding penghalang / segel penghalang" (JANGAN kaku: "Penghalang" jika konteks jutsu kekai).
@@ -360,14 +380,14 @@ Kosakata Dunia Ninja & Pertarungan Shonen (Ninja / Shinobi - e.g. Naruto):
 - "Hand signs / seals" -> "Segel tangan / segel jari".
 - "Taijutsu / Ninjutsu / Genjutsu" -> "Taijutsu / Ninjutsu / Genjutsu".
 - "Curse Mark / Cursed Seal" -> "Segel Gaib / Tanda Kutukan / Juin".
-- "Leaf Village / Hidden Leaf" -> "Desa Konoha / Desa Daun Tersembunyi".
+- "Leaf Village / Hidden Leaf" -> "Desa Konoha / Desa Daun Tersembunyi" (JANGAN: "Desa Daun").
 - "Sand Village / Hidden Sand" -> "Desa Suna / Desa Pasir Tersembunyi".
 - "Sound Village / Hidden Sound" -> "Desa Otogakure / Desa Bunyi Tersembunyi".
 - "Mist Village / Hidden Mist" -> "Desa Kirigakure / Desa Kabut Tersembunyi".
 - "Once in a lifetime request / request of a lifetime" -> "Permintaan sekali seumur hidup" (JANGAN kaku harfiah: "sekali seumur hidup permintaanku").
 - "Bring [someone] back" -> "Membawa [seseorang] kembali / pulangkan [dia]" (JANGAN: "Bawakan kembali").
 
-Kosakata Dunia Kutukan & Penyihir Modern (Jujutsu / Sorcery - e.g. Jujutsu Kaisen):
+KOSAKATA DUNIA KUTUKAN, ROH & PENYIHIR MODERN (Jujutsu & Supernatural):
 - "Cursed Object / Cursed Item" -> "Benda terkutuk / jimat kutukan".
 - "Cursed Spirit / Curse" -> "Kutukan / roh terkutuk" (JANGAN: "roh" biasa jika roh jahat kutukan).
 - "Cursed Energy" -> "Energi terkutuk / hawa kutukan".
@@ -380,20 +400,7 @@ Kosakata Dunia Kutukan & Penyihir Modern (Jujutsu / Sorcery - e.g. Jujutsu Kaise
 - "Sea angel / clione" -> "Clione / malaikat laut".
 - "Council president" -> "Ketua OSIS" (JANGAN: "Presiden" jika konteks sekolah).
 - "Leave me alone!" -> "Jangan ganggu aku! / Biarkan aku sendiri!" (JANGAN: "Tinggalkan aku sendiri").
-
-Kosakata Petualangan Fantasi Abadi & Elf (High Fantasy / Elf - e.g. Frieren):
-- "Beyond Journey's End" -> "Melampaui Akhir Perjalanan / Setelah Akhir Petualangan".
-- "Hero Himmel" -> "Himmel sang Pahlawan".
-- "Warrior Eisen" -> "Eisen sang Kesatria / Eisen sang Pejuang".
-- "Priest Heiter" -> "Heiter sang Pendeta".
-- "Mage Frieren" -> "Frieren sang Penyihir".
-- "Mimic" -> "Mimic / monster peti".
-- "Corrupt priest" -> "Pendeta bejat / pendeta pemabuk" (JANGAN: "pendeta yang korup").
-- "Now, now... / There, there..." -> "Sudahlah... / Tenanglah..." (JANGAN diterjemahkan harfiah: "Sekarang, sekarang...").
-- "Equal / call it even" -> "Impang / kita impas" (JANGAN: "kita setara").
-- "Take [someone] down a peg / teach a lesson" -> "Memberi mereka pelajaran" (JANGAN: "mencuci sepatu").
-- "Wash your shoes" -> "Menjilat sepatu / mencuci sepatu".
-- "Old school building / old schoolhouse" -> "Gedung sekolah lama / gedung sekolah tua"
+- "Old school building / old schoolhouse" -> "Gedung sekolah lama / gedung sekolah tua".
 - "Ghost journal / spiritual diary" -> "Buku harian hantu / jurnal hantu / buku catatan hantu" (JANGAN: "Buku spiritual").
 - "Put [evil spirits / ghosts] to sleep / put to rest" -> "Menidurkan / menenangkan [roh / arwah / hantu]" (JANGAN: "Ngendang roh supaya tidur").
 - "Seal [a ghost / spirit / demon]" -> "Menyegel [hantu / roh / siluman]" (JANGAN: "Tutup hantu / tutup nasib").
@@ -403,9 +410,20 @@ Kosakata Petualangan Fantasi Abadi & Elf (High Fantasy / Elf - e.g. Frieren):
 - "Camphor tree" -> "Pohon kamper / pohon kapur barus" (JANGAN: "Pohon kapur tulis").
 - "Scaredy-cat" -> "Penakut / pengecut" (JANGAN: "Kucing takut").
 - "Pull yourself together!" -> "Kuatkan dirimu! / Tenangkan dirimu! / Sadarlah!" (JANGAN: "Kumpulin diri!").
-- "Echoing" (in empty hallway) -> "Bergema" (JANGAN: "Yang gema").
+- "Echoing" (di lorong kosong) -> "Bergema" (JANGAN: "Yang gema").
 
-Kosakata Dunia Sihir, Fantasi Klasik & Atelier Sihir (Magic Atelier, Witch & Sorcery - e.g. Witch Hat Atelier, Frieren, Little Witch Academia):
+KOSAKATA FANTASI ABADI, ELF & ATELIER SIHIR (Frieren, Witch Hat Atelier, dll.):
+- "Beyond Journey's End" -> "Melampaui Akhir Perjalanan / Setelah Akhir Petualangan".
+- "Hero Himmel" -> "Himmel sang Pahlawan".
+- "Warrior Eisen" -> "Eisen sang Kesatria / Eisen sang Pejuang".
+- "Priest Heiter" -> "Heiter sang Pendeta".
+- "Mage Frieren" -> "Frieren sang Penyihir".
+- "Mimic" -> "Mimic / monster peti".
+- "Corrupt priest" -> "Pendeta bejat / pendeta pemabuk" (JANGAN: "pendeta yang korup").
+- "Now, now... / There, there..." -> "Sudahlah... / Tenanglah..." (JANGAN diterjemahkan harfiah: "Sekarang, sekarang...").
+- "Equal / call it even" -> "Impas / kita impas" (JANGAN: "kita setara").
+- "Take [someone] down a peg / teach a lesson" -> "Memberi mereka pelajaran" (JANGAN: "mencuci sepatu").
+- "Wash your shoes" -> "Menjilat sepatu / mencuci sepatu".
 - "Cast / cast a spell / cast magic" -> "Merapal sihir / menggunakan sihir / mengeluarkan mantra" (JANGAN terjemahkan kaku: "melakukan casting").
 - "Casting seal" -> "Segel sihir / segel mantra" (JANGAN: "casting seal").
 - "Conjuring ink / magic ink" -> "Tinta sihir / tinta mantra" (JANGAN: "tinta sulap").
@@ -426,61 +444,71 @@ Kosakata Dunia Sihir, Fantasi Klasik & Atelier Sihir (Magic Atelier, Witch & Sor
 - "It's on me / my fault" -> "Salahku sendiri / ini salahku" (JANGAN harfiah: "aku bertanggung jawab atas berdirinya").
 - "Do you think you could fix it?" -> "Kira-kira bisa kamu perbaiki nggak? / Kamu rasa kamu bisa memperbaikinya?".
 
-Kosakata Misteri Sekolah & Klub Sastra (School Mystery / Club Anime - e.g. Hyouka):
+KOSAKATA MISTERI SEKOLAH, KLUB SASTRA & ROM-COM OSIS (Hyouka, Kaguya-sama):
 - "Classic Lit Club / Classic Literature Club" -> "Klub Sastra Klasik" (JANGAN biarkan "Classic Lit").
+- "Student Council" -> "OSIS / Dewan Siswa".
 - "Pay my respects" (kunjungan ke klub/salam kenal) -> "Memberi salam / menyapa" (JANGAN diartikan "ngelamun").
-- "Energy conservation / energy-conserving / energy saver" -> "Hemat energi / menghemat energi"
+- "Energy conservation / energy-conserving / energy saver" -> "Hemat energi / menghemat energi".
 - "Energy-consuming" -> "Boros energi / menghabiskan banyak energi" (JANGAN tertukar jadi "hemat energi").
-- "I'm curious! / I am curious" -> "Aku penasaran! / Aku penasaran sekali!"
-- "A database cannot draw conclusions" -> "Database tidak bisa menarik kesimpulan"
-- "Peeping Tom" -> "Tukang intip / pengintip"
-- "After-school rendezvous" -> "Pertemuan sepulang sekolah / kencan sepulang sekolah"
-- "Checkout period" (in library) -> "Masa peminjaman / batas pinjam buku" (JANGAN: "waktu cekout").
+- "I'm curious! / I am curious" -> "Aku penasaran! / Aku penasaran sekali!".
+- "A database cannot draw conclusions" -> "Database tidak bisa menarik kesimpulan".
+- "Peeping Tom" -> "Tukang intip / pengintip".
+- "After-school rendezvous" -> "Pertemuan sepulang sekolah / kencan sepulang sekolah".
+- "Checkout period" (perpustakaan) -> "Masa peminjaman / batas pinjam buku" (JANGAN: "waktu cekout").
 - "Sharp tongue" -> "Bicaranya pedas / mulutnya cukup pedas" (JANGAN: "punya lidah tajam").
 - "Declare legally dead / legally dead" -> "Dinyatakan telah meninggal secara hukum / dinyatakan meninggal" (JANGAN kaku: "resmi mati").
 - "Student body" -> "Seluruh murid / seluruh siswa" (JANGAN diterjemahkan harfiah: "tubuh siswa").
 - "Sacrificial lamb" -> "Tumbal / kambing hitam" (JANGAN: "domba korban").
-- "Punks" (in school/delinquent context) -> "Berandalan / preman" (JANGAN biarkan "para punks").
-- "Took the blame alone" -> "Menanggung semua kesalahan sendirian / memikul kesalahan sendirian"
+- "Punks" (konteks sekolah/berandalan) -> "Berandalan / preman" (JANGAN biarkan "para punks").
+- "Took the blame alone" -> "Menanggung semua kesalahan sendirian / memikul kesalahan sendirian".
 - "After all" -> "Lagipula / Bagaimanapun juga" (JANGAN: "Setelah semua").
 - "[N]th period / fifth period" (jadwal pelajaran sekolah) -> "Jam pelajaran ke-[N] / jam ke-[N]" (JANGAN: "periode ke-[N]").
 - "Open-air bath / rotenburo" -> "Pemandian terbuka / pemandian luar ruangan" (JANGAN: "bath open-air").
 - "Gave me chills / chills" -> "Bikin merinding / membuatku merinding" (JANGAN acak seperti "bikin kudetas").
 - "Paper screen / shoji" -> "Pintu geser kertas / sekat kertas / shoji" (JANGAN: "layar kertas").
-- "Transom / wooden transom" -> "Ventilasi kayu / kisi-kisi kayu"
-- Karakter perempuan anggun/sopan (seperti Chitanda): Wajib bertutur kata sopan ("aku/kamu", santun), JANGAN gunakan "gue/lo".
-
-Kosakata Kuliner & Duel Memasak (Cooking Battle / Gourmet - e.g. Shokugeki no Souma):
-- "Order up! / Order's up!" -> "Pesanan siap! / Silakan dinikmati!" (JANGAN biarkan "Order up!").
-- "It wasn't much! / Glad you liked it! (Osomatsusama)" -> "Bukan apa-apa kok! / Selamat menikmati hidanganku!" (JANGAN kaku harfiah: "Gak banyak juga").
-- "Satisfy your palate" -> "Memanjakan lidahmu / memuaskan seleramu".
-
-Kosakata Historis, Peperangan Viking & Ksatria (Historical / Viking - e.g. Vinland Saga):
-- "Plunder / pillage" -> "Menjarah / merampas" (JANGAN: "mencuri / pencurilah").
-- "Longship" -> "Kapal perang Viking / kapal panjang".
-- "True warrior" -> "Prajurit sejati / kesatria sejati".
-
-Kosakata Cyberpunk & Kepolisian Futuristik (Cyberpunk - e.g. Psycho-Pass):
-- "Latent criminal" -> "Kriminal laten / penjahat laten".
-- "Crime Coefficient" -> "Koefisien Kejahatan / Koefisien Kriminal".
-- "Enforcement mode" -> "Mode penindakan / mode penegakan hukum".
-
-Kosakata Romansa Elit & Perang Pikiran OSIS (Psychological Rom-Com - e.g. Kaguya-sama):
+- "Transom / wooden transom" -> "Ventilasi kayu / kisi-kisi kayu".
 - "How cute... (O-kawaii koto)" -> "Manis sekali... / Betapa menggemaskannya..." (JANGAN diterjemahkan "Keren banget").
 - "Got on his/her knees" -> "Berlutut / bersujud" (JANGAN: "ngelamun").
 - "Confess / confession of love" -> "Menyatakan cinta / nembak" (JANGAN: "mengaku").
-- "Student Council" -> "OSIS / Dewan Siswa".
 
-Kosakata Anime Olahraga (Sports Anime):
-- "Match" -> "Pertandingan" (JANGAN biarkan "match" jika mengacu ke permainan).
-- "View" -> "Pemandangan" (JANGAN biarkan "view").
-- "Looms in front of me" -> "Menjulang di depanku" (JANGAN: "Ngeliat di depan aku").
-- "Coach" -> "Pelatih" (JANGAN biarkan "coach").
-- "Off course" (in ball set/pass) -> "Melenceng / meleset" (JANGAN: "Off course").
-- "Blow past [blockers]" -> "Menembus / menerobos [pemblokir]" (JANGAN: "Ngelupas blok").
-- Istilah teknis voli/olahraga (Toss, Spike, Serve, Libero, Setter, Block, Match point, Time out) boleh tetap digunakan sesuai tradisi fansub olahraga.
+KOSAKATA KULINER, OLAHRAGA, HISTORIS, CYBERPUNK & THRILLER:
+- Kuliner (Shokugeki no Souma):
+  * "Order up! / Order's up!" -> "Pesanan siap! / Silakan dinikmati!" (JANGAN biarkan "Order up!").
+  * "It wasn't much! / Glad you liked it! (Osomatsusama)" -> "Bukan apa-apa kok! / Selamat menikmati hidanganku!" (JANGAN kaku harfiah: "Gak banyak juga").
+  * "Satisfy your palate" -> "Memanjakan lidahmu / memuaskan seleramu".
+- Olahraga (Sports Anime):
+  * "Match" -> "Pertandingan" (JANGAN biarkan "match" jika mengacu ke permainan).
+  * "View" -> "Pemandangan" (JANGAN biarkan "view").
+  * "Looms in front of me" -> "Menjulang di depanku" (JANGAN: "Ngeliat di depan aku").
+  * "Coach" -> "Pelatih" (JANGAN biarkan "coach").
+  * "Off course" (umpan/set bola) -> "Melenceng / meleset" (JANGAN: "Off course").
+  * "Blow past [blockers]" -> "Menembus / menerobos [pemblokir]" (JANGAN: "Ngelupas blok").
+  * Istilah teknis voli/olahraga (Toss, Spike, Serve, Libero, Setter, Block, Match point, Time out) boleh tetap digunakan sesuai tradisi fansub olahraga.
+- Historis & Viking (Vinland Saga):
+  * "Plunder / pillage" -> "Menjarah / merampas" (JANGAN: "mencuri / pencurilah").
+  * "Longship" -> "Kapal perang Viking / kapal panjang".
+  * "True warrior" -> "Prajurit sejati / kesatria sejati".
+- Cyberpunk, Sci-Fi & Thriller Detektif (Psycho-Pass, Death Note, Steins;Gate):
+  * "Latent criminal" -> "Kriminal laten / penjahat laten".
+  * "Crime Coefficient" -> "Koefisien Kejahatan / Koefisien Kriminal".
+  * "Enforcement mode" -> "Mode penindakan / mode penegakan hukum".
+  * "Sick prank" -> "Lelucon keterlaluan / lelucon menjijikkan" (JANGAN: "Lelucon aneh").
+  * "Childish murderer" -> "Pembunuh kekanak-kanakan" (JANGAN: "Pembunuh anak kecil").
+  * "The only bad guy left" -> "Satu-satunya penjahat yang tersisa" (JANGAN: "Satu-satunya jahat").
+  * "I will see you executed" -> "Aku akan memastikanmu dieksekusi" (JANGAN: "Aku akan melihatmu dieksekusi").
+  * "Righteous people" -> "Orang-orang saleh / orang-orang jujur" (JANGAN: "Orang-orang yang benar").
+  * "Heart failure / heart attack" -> "Serangan jantung" (JANGAN: "Gagal jantung" jika konteks Death Note serangan mendadak).
+  * "In a pool of blood" -> "Bersimbah darah / tergenang darah" (JANGAN: "Di kolam darah").
+  * "Blow my cover" -> "Membongkar penyamaranku / membocorkan identitasku" (JANGAN: "Bocor rahasia aku").
+  * "In broad daylight" -> "Di siang bolong / terang-terangan" (JANGAN: "Di siang hari" kaku).
+  * "Stabbed to death" -> "Ditusuk sampai mati / ditikam hingga tewas" (JANGAN: "Disayat sampai mati").
+  * "Caught onto our trail" -> "Menemukan jejak kita / mengendus jejak kita" (JANGAN: "Menangkap jejak kita").
+  * "Jellyfied / gelatinous" -> "Berubah jadi agar-agar / jadi jeli" (JANGAN: "Jellyguy").
+  * "Pale as a ghost" -> "Pucat pasi / pucat bagai mayat" (JANGAN: "Pucat kayak hantu").
+  * "Morgue" -> "Kamar jenazah / kamar mayat" (JANGAN biarkan "morgue").
+  * "Second basement level / B2" -> "Lantai bawah tanah kedua / lantai B2" (JANGAN: "Lantai bawah dua").
 
-Dilarang Terjemahkan Idiom Secara Harfiah (Gunakan Padanan Fansub Alami):
+KAMUS IDIOM & UNGKAPAN KHAS FANSUB (DILARANG TERJEMAHKAN HARFIAH):
 - "Aiming high" -> "Incaranmu tinggi juga" / "Seleramu tinggi juga" / "Pasang target tinggi" (JANGAN: "Banjir tinggi").
 - "If you ask me" -> "Kalau menurutku sih" / "Menurutku" (JANGAN: "Kalau dengerin saya").
 - "Hotties / Cuties" -> "Cewek-cewek cakep / cewek-cewek manis" (JANGAN: "Koleksi hot").
@@ -490,14 +518,14 @@ Dilarang Terjemahkan Idiom Secara Harfiah (Gunakan Padanan Fansub Alami):
 - "How dare you [do X]!" -> "Beraninya kamu [lakukan X]!" / "Kurang ajar!" (JANGAN: "Gimana sih kamu boleh [X]").
 - "How dare [an amateur]..." -> "Berani-beraninya [seorang amatir]..." (JANGAN: "Gimana sih amatir bisa...").
 - "Middle of nowhere" -> "Pelosok / tempat terpencil / antah-berantah" (JANGAN: "Di tengah-tengah hutan").
-- "Throw a tantrum / throw tantrums" -> "Tanteum / merajuk / ngambek" (JANGAN: "Lagi marah" tanpa emosi).
+- "Throw a tantrum / throw tantrums" -> "Tantrum / merajuk / ngambek" (JANGAN: "Lagi marah" tanpa emosi).
 - "Big baby" -> "Kayak anak kecil / cengeng banget" (JANGAN: "Anak kecil banget").
 - "See? Told ya!" -> "Tuh, kan! Apa kubilang!" (JANGAN: "Lihat? Katanya!").
 - "Cool your head / cool off" -> "Menenangkan pikiran / mendinginkan kepala" (JANGAN: "Dinginkan kepala di pulau").
 - "Talk back to [elders]" -> "Membantah / melawan [orang tua]" (JANGAN: "Ngomong balas").
 - "Secret base" -> "Markas rahasia" (JANGAN: "Basis rahasia").
 - "Cicadas" -> "Tonggeret / garengpung" (JANGAN: "Katak katak").
-- "Bug" (in nature context) -> "Serangga / kumbang" (JANGAN biarkan "bug" atau "kutu komputer").
+- "Bug" (konteks alam) -> "Serangga / kumbang" (JANGAN biarkan "bug" atau "kutu komputer").
 - "Like hell I would! / As if!" -> "Ogah banget! / Mana sudi!" (JANGAN: "Gak bakal, bro" kaku).
 - "There is no way / no way in hell" -> "Nggak mungkin banget / mana mungkin" (JANGAN: "Gak ada cara aku ngelakuin").
 - "Pervert" -> "Mesum / cowok mesum / cabul" (JANGAN biarkan "pervert").
@@ -510,38 +538,17 @@ Dilarang Terjemahkan Idiom Secara Harfiah (Gunakan Padanan Fansub Alami):
 - "How long was I out?" / "pass out / knock out" -> "Berapa lama aku pingsan / tak sadarkan diri?" (JANGAN: "Berapa lama aku keluar").
 - "Make a fortune" -> "Kaya mendadak / untung besar / dapet banyak uang" (JANGAN: "Ngasih duit jahat").
 - "At this rate" -> "Kalau begini terus / kalau kayak gini terus" (JANGAN: "Dengan kecepatan kayak gini").
-- "Roger that / Copy that" -> "Dimengerti / Siap / Terima" (JANGAN: "Sanggah").
-- "Optical decoy" -> "Umpan optik / ilusi optik" (JANGAN: "Penipu optik").
-- "Paint the coordinates" -> "Tandai / kunci koordinatnya" (JANGAN: "Cat koordinat").
-- "Wipe [them] off the map" -> "Ratakan [mereka] dengan tanah / lenyapkan mereka" (JANGAN: "Hapus mereka dari peta").
-- "Corporal" -> "Kopral" (JANGAN: "Korpul").
-- "Sick prank" -> "Lelucon keterlaluan / lelucon menjijikkan" (JANGAN: "Lelucon aneh").
-- "Childish murderer" -> "Pembunuh kekanak-kanakan" (JANGAN: "Pembunuh anak kecil").
-- "The only bad guy left" -> "Satu-satunya penjahat yang tersisa" (JANGAN: "Satu-satunya jahat").
-- "I will see you executed" -> "Aku akan memastikanmu dieksekusi" (JANGAN: "Aku akan melihatmu dieksekusi").
-- "Righteous people" -> "Orang-orang saleh / orang-orang jujur" (JANGAN: "Orang-orang yang benar").
-- "Heart failure / heart attack" -> "Serangan jantung" (JANGAN: "Gagal jantung" jika konteks death note serangan mendadak).
-- "In a pool of blood" -> "Bersimbah darah / tergenang darah" (JANGAN: "Di kolam darah").
-- "Blow my cover" -> "Membongkar penyamaranku / membocorkan identitasku" (JANGAN: "Bocor rahasia aku").
-- "In broad daylight" -> "Di siang bolong / terang-terangan" (JANGAN: "Di siang hari" kaku).
-- "Stabbed to death" -> "Ditusuk sampai mati / ditikam hingga tewas" (JANGAN: "Disayat sampai mati").
-- "Caught onto our trail" -> "Menemukan jejak kita / mengendus jejak kita" (JANGAN: "Menangkap jejak kita").
-- "Jellyfied / gelatinous" -> "Berubah jadi agar-agar / jadi jeli" (JANGAN: "Jellyguy").
 - "Have you lost your mind?" -> "Kamu sudah gila? / Kamu kehilangan akal sehat?" (JANGAN: "Kamu kehilangan akal" tanpa 'sehat').
-- "Pale as a ghost" -> "Pucat pasi / pucat bagai mayat" (JANGAN: "Pucat kayak hantu").
-- "Morgue" -> "Kamar jenazah / kamar mayat" (JANGAN biarkan "morgue").
 - "My poor [someone] / other half" -> "[Seseorang]ku yang malang / belahan jiwaku yang malang" (JANGAN: "yang miskin").
 - "Hate being questioned" -> "Benci ditanya-tanya / tidak suka diinterogasi" (JANGAN: "Susah dipengetan").
 - "Don't say that out loud" -> "Jangan katakan itu keras-keras / jangan bicara sembarangan" (JANGAN: "Jangan bilang di luar").
-- "Second basement level / B2" -> "Lantai bawah tanah kedua / lantai B2" (JANGAN: "Lantai bawah dua").
 - "Ghosting someone / act like someone doesn't exist" -> "Mengabaikan / menganggapnya tak kasat mata" (JANGAN biarkan "ghosting").
 - "On a royal tear / on a tear / on a rampage" -> "Mengamuk hebat / bikin onar tak terkendali" (JANGAN: "Kemarahan kerajaan").
 - "Harm [someone] / do harm" -> "Melukai / menyakiti [seseorang]" (JANGAN: "Ngelakuin luka").
 - "Eliminate [an opponent in battle]" -> "Menghabisi / melenyapkan" (JANGAN: "Menghapus Anda").
 - "Profane [God]" -> "Menodai / menistakan" (JANGAN: "Memfitnah Tuhan").
-- "Brother" (in anime sibling context) -> "Kakak / Kak / Abang" (JANGAN: "Bro").
+- "Brother" (konteks kakak-adik anime) -> "Kakak / Kak / Abang" (JANGAN: "Bro").
 - "Face aside / [X] aside" -> "Terlepas dari wajahnya / kesampingkan soal wajahnya" (JANGAN: "Tinggalkan wajah").
-- "Sustain heavy damage / heavy casualties" -> "Mengalami kerugian/kerusakan besar" (JANGAN: "Menanggung kerusakan").
 - "Solo player" -> "Pemain solo" (JANGAN: "Saya sendiri").
 - "Pry into" -> "Mencari tahu / ikut campur urusan" (JANGAN: "Nanya ke").
 - "Clowning around / acting stupid" -> "Bercanda / main-main / konyol" (JANGAN gunakan kata terlalu kasar/aneh seperti "ngegoblok").
@@ -549,7 +556,7 @@ Dilarang Terjemahkan Idiom Secara Harfiah (Gunakan Padanan Fansub Alami):
 - "Rot in hell" -> "Persetan / mampus sana / pergi ke neraka" (JANGAN: "Berputus di neraka").
 - "There you go again!" -> "Mulai lagi, kan!" / "Kamu kumat lagi!" (JANGAN: "Kamu lagi!").
 - "Packed you a lunch / pack a lunch" -> "Membawakanmu bekal" (JANGAN: "Bungkus makan siang").
-- "Mongrel" (as anime insult) -> "Anjing kampung / hewan buduk" (JANGAN: "Anjing campuran").
+- "Mongrel" (hinaan khas anime) -> "Anjing kampung / hewan buduk" (JANGAN: "Anjing campuran").
 - "At first sight / glance" -> "Pandangan pertama / saat pertama kali bertemu" (JANGAN: "Mata pertama").
 - "Miss each other / pass by" -> "Berpapasan / saling melewatkan" (JANGAN: "Kelewatan satu sama lain").
 - "I see" / "I get it" -> "Begitu rupanya" / "Ooh, begitu ya" / "Paham" (JANGAN: "Aku melihat").
@@ -561,27 +568,19 @@ Dilarang Terjemahkan Idiom Secara Harfiah (Gunakan Padanan Fansub Alami):
 - "Never mind" -> "Lupakan saja" / "Bukan apa-apa" / "Nggak jadi".
 - "Get lost" -> "Pergi sana!" / "Enyah!".
 - "Bring it on!" -> "Sini maju kalau berani!" / "Ayo lawan!".
-- "Give me a break" -> "Yang bener aja!" / "Jangan bercanda!".
+- "Give me a break" -> "Yang bener aja! / Ampun deh! / Jangan bercanda!" (JANGAN: "Beri aku istirahat").
 - "Make a move" -> "Mendekati dia" / "Mengambil tindakan".
 - "Cut it out" -> "Sudahlah!" / "Hentikan!".
-- "You know" (sebagai pengisi dialog lisan) -> "Tahu nggak" / "Kan" / "Sih" / atau hilangkan jika hanya filler (JANGAN kaku harfiah: "kamu tahu").
+- "You know" (pengisi dialog lisan) -> "Tahu nggak" / "Kan" / "Sih" / atau hilangkan jika hanya filler (JANGAN kaku harfiah: "kamu tahu").
 - "Like [someone] so much / like very much" -> "Suka banget sama [dia]" (JANGAN harfiah: "menyukai Sakura sangat banyak").
-- "As expected" -> "Sesuai dugaan / sudah kuduga / seperti dugaanku" (JANGAN kaku: "seperti yang diharapkan").
+- "As expected / Sasuga" -> "Sesuai dugaan / sudah kuduga / seperti dugaanku / memang bisa diandalkan" (JANGAN kaku: "seperti yang diharapkan").
 - "Get hit" -> "Kena serangan / terpukul / terluka" (JANGAN: "kena terbentur").
 - "Decide on a password" -> "Menentukan kata sandi" (JANGAN: "memutuskan yang mana kata sandi").
 - "In the end" -> "Pada akhirnya / ujung-ujungnya" (sesuaikan gaya bicara karakter).
-- "Hidden Leaf / Leaf Village" -> "Desa Konoha" (JANGAN: "Desa Daun").
 - "Revert to your original form" -> "Kembali ke wujud asli kalian" (JANGAN: "kembali ke bentuk semula").
 - "What are you talking about?" -> "Ngomong apa sih kamu? / Apa maksudmu?" (JANGAN kaku: "Apa yang kamu bicarakan?").
-- DILARANG MEMBIARKAN KATA SIFAT INGGRIS TANPA TERJEMAHAN:
-  * "Embarrassing" -> "Memalukan" / "Bikin malu" (DILARANG: "sangat embarrassing").
-  * "Gross" -> "Jijik" / "Menjijikkan".
-
-Kamus Idiom & Ungkapan Khas Fansub Anime (Anti-Terjemahan Kaku):
-- "It can't be helped / shouganai / shikataganai" -> "Mau gimana lagi / Mau bagaimana lagi" (JANGAN diterjemahkan kaku: "Itu tidak bisa ditolong").
+- "It can't be helped / shouganai / shikataganai" -> "Mau gimana lagi / Mau bagaimana lagi" (JANGAN: "Itu tidak bisa ditolong").
 - "Mendokusai / What a drag" -> "Merepotkan sekali / Bikin malas saja / Ribet banget" (JANGAN: "Seretan / Itu merepotkan").
-- "Sasuga / As expected" -> "Sudah kuduga / Memang bisa diandalkan / Emang paling bisa" (JANGAN: "Seperti yang diharapkan").
-- "Give me a break" -> "Yang benar saja! / Ampun deh! / Jangan bercanda!" (JANGAN: "Beri aku istirahat").
 - "Serves you right" -> "Rasakan itu! / Syukurin! / Makanya jangan macam-macam!" (JANGAN: "Melayanimu dengan benar").
 - "I'll take care of this / leave it to me" -> "Biar aku yang urus ini / Serahkan ini padaku" (JANGAN: "Aku akan merawat ini").
 - "Take care of him (combat)" -> "Habisi dia! / Bereskan dia!" (JANGAN: "Rawat dia").
@@ -638,23 +637,25 @@ Kamus Idiom & Ungkapan Khas Fansub Anime (Anti-Terjemahan Kaku):
 - "Take your time" -> "Santai saja, jangan terburu-buru" (JANGAN: "Ambil waktumu").
 - "Right away" -> "Sekarang juga / Segera" (JANGAN: "Tepat pergi").
 - "All of a sudden" -> "Tiba-tiba / Sekonyong-konyong" (JANGAN: "Semua tiba-tiba").
-- Pertahankan nama orang, tempat, honorifik Jepang (-san, -kun, -chan, -sama, Senpai, Sensei), gagap & interjeksi emosi ("A-Apa?!", "Tch", "Hmph").
-- Pertahankan token <br> untuk ganti baris dalam 1 cue.
 
-Format Keluaran (WAJIB):
+FORMAT KELUARAN (WAJIB):
 - Satu baris per input, format persis "N|terjemahan" (N = nomor input yang sama).
 - DILARANG mengulang teks bahasa Inggris asal (JANGAN: "N|Teks Inggris|Terjemahan"). Cukup "N|terjemahan".
-- Jumlah & nomor baris harus sama persis dengan input. Tanpa penjelasan atau markdown.
+- Jumlah & nomor baris harus sama persis dengan input. Tanpa penjelasan pengantar atau penutup.
 
-Contoh Multi-Scene:
+CONTOH MULTI-SCENE:
 Input:
 1|Your Majesty, the vanguard knights are ready. We shall not fail your trust.
 2|Great collection of hotties, huh? Aiming high, aren't you? Nibutani, huh?
 3|Pretty sweet, if you ask me. It goes without saying, it was so embarrassing!
+4|All units, sortie immediately! Take evasive action and don't let your guard down!
+5|What a drag... It can't be helped, I'll take care of this myself.<br>Just stand back!
 Output:
 1|Yang Mulia, pasukan ksatria garis depan telah bersiap. Kami tidak akan mengecewakan kepercayaan Anda.
 2|Cewek-cewek cakepnya mantap, kan? Incaranmu tinggi juga ya? Nibutani, kan?
-3|Kalau menurutku sih cakep banget. Nggak usah ditanya lagi, itu memalukan banget!"""
+3|Kalau menurutku sih cakep banget. Nggak usah ditanya lagi, itu memalukan banget!
+4|Semua unit, segera meluncur! Lakukan manuver menghindar dan jangan lengah!
+5|Merepotkan sekali... Mau gimana lagi, biar aku yang urus ini sendiri.<br>Kalian mundur saja!"""
 
 _FANSUB_PROMPT_GENERIC = """You are an experienced anime fansub translator. Translate {src} subtitles into natural, casual, spoken {tgt} as a popular fansub release would — not stiff, literal machine translation.
 - Translate meaning and emotion, not word-for-word; keep lines short and readable.
@@ -665,10 +666,12 @@ Output format (MANDATORY): one line per input as "N|translation" with the same N
 
 def _fansub_system_prompt(src_name: str, tgt: str, tgt_name: str) -> str:
     if (tgt or "").lower() == "id":
-        return _FANSUB_PROMPT_ID.format(src=src_name)
+        src_label = "bahasa Inggris" if (src_name or "").lower() in ("en", "english") else (src_name or "bahasa Inggris")
+        try:
+            return _FANSUB_PROMPT_ID.format(src=src_label)
+        except (KeyError, IndexError):
+            return _FANSUB_PROMPT_ID
     return _FANSUB_PROMPT_GENERIC.format(src=src_name, tgt=tgt_name)
-
-
 def _prep_line(text: str) -> str:
     """Cue text -> satu baris untuk prompt (newline jadi token <br>)."""
     t = (text or "").replace("\r", "")
@@ -1782,6 +1785,53 @@ def is_valid_translation(original_cues, translated_cues, tgt="id"):
     return bool(marker_match)
 
 
+# ---------------------------------------------------------------------------
+# Client HTTP bersama (pooled) untuk mesin translate GTX+.
+#
+# SEBELUMNYA setiap percobaan endpoint membuat httpx.Client BARU di dalam
+# loop (with _httpx.Client(...) as client). Untuk 1 episode dengan 24 batch
+# dan 4 endpoint failover, ini menghasilkan dozens TCP+TLS handshake sia-sia.
+# Client bersama memakai connection pool sehingga handshake cukup handful.
+# ---------------------------------------------------------------------------
+_gtx_client = None
+_gtx_client_lock = threading.Lock()
+
+
+def _get_gtx_client():
+    """Client httpx pooled bersama untuk mesin translate (thread-safe)."""
+    global _gtx_client
+    if _gtx_client is None:
+        with _gtx_client_lock:
+            if _gtx_client is None:
+                try:
+                    limits = _httpx.Limits(max_connections=16, max_keepalive_connections=8,
+                                           keepalive_expiry=60.0)
+                    _gtx_client = _httpx.Client(timeout=6.0, follow_redirects=True, limits=limits)
+                except Exception:
+                    _gtx_client = _httpx.Client(timeout=6.0, follow_redirects=True)
+    return _gtx_client
+
+
+def _get_gtx_client_unverified():
+    """Client httpx dengan verifikasi SSL dimatikan (fallback Android lama)."""
+    try:
+        limits = _httpx.Limits(max_connections=8, max_keepalive_connections=4, keepalive_expiry=30.0)
+        return _httpx.Client(timeout=6.0, verify=False, follow_redirects=True, limits=limits)
+    except Exception:
+        return _httpx.Client(timeout=6.0, verify=False, follow_redirects=True)
+
+
+def close_gtx_client():
+    """Tutup client translate bersama saat shutdown aplikasi."""
+    global _gtx_client
+    if _gtx_client is not None:
+        try:
+            _gtx_client.close()
+        except Exception:
+            pass
+        _gtx_client = None
+
+
 async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"):
     """Translate via Google Translate Web RPC (Unmetered, Zero-Key, Super Cepat).
     Menggunakan HTTP POST form-encoded dengan HTML preservation (<p id="i">...</p>)
@@ -1807,6 +1857,12 @@ async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"
     log_translate(f"Mulai translate Google (POST/Multi-Client): {len(cues)} cues | {len(batches)} batches | mode={mode}")
     
     from concurrent.futures import ThreadPoolExecutor
+
+    # Client HTTP bersama (pooled) untuk GTranslator: sebelumnya setiap
+    # percobaan endpoint membuat Client BARU -> 1 TCP+TLS handshake per
+    # attempt. Untuk 24 batch x 4 endpoint failover, ini dozens handshake
+    # sia-sia. Dengan client bersama, koneksi dipakai ulang antar batch.
+    _tx_client = _get_gtx_client()
 
     def _fetch_single_chunk_sync(batch_lines):
         html_chunks = []
@@ -1838,35 +1894,34 @@ async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"
 
         body_data = {"q": joined}
 
-        # 1. Coba via HTTP POST menggunakan httpx
+        # 1. Coba via HTTP POST menggunakan httpx (client pooled bersama)
         for ep_url, ep_params in endpoints:
             try:
-                with _httpx.Client(timeout=6.0, follow_redirects=True) as client:
-                    resp = client.post(ep_url, params=ep_params, data=body_data, headers=headers)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        raw_out = ""
-                        if isinstance(data, list) and data and isinstance(data[0], list):
-                            raw_out = "".join([item[0] for item in data[0] if item and item[0]])
-                        elif isinstance(data, list) and data and isinstance(data[0], str):
-                            raw_out = "".join(data)
-                        elif isinstance(data, str):
-                            raw_out = data
+                resp = _tx_client.post(ep_url, params=ep_params, data=body_data, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    raw_out = ""
+                    if isinstance(data, list) and data and isinstance(data[0], list):
+                        raw_out = "".join([item[0] for item in data[0] if item and item[0]])
+                    elif isinstance(data, list) and data and isinstance(data[0], str):
+                        raw_out = "".join(data)
+                    elif isinstance(data, str):
+                        raw_out = data
 
-                        matches = dict(_re.findall(r'<p\s+id=[\"\']?\s*(\d+)\s*[\"\']?\s*>(.*?)</p>', raw_out, _re.DOTALL))
-                        if matches:
-                            res = []
-                            for i in range(len(batch_lines)):
-                                unescaped = _html.unescape(matches.get(str(i), batch_lines[i])).strip()
-                                res.append(unescaped)
-                            return res, True
+                    matches = dict(_re.findall(r'<p\s+id=[\"\']?\s*(\d+)\s*[\"\']?\s*>(.*?)</p>', raw_out, _re.DOTALL))
+                    if matches:
+                        res = []
+                        for i in range(len(batch_lines)):
+                            unescaped = _html.unescape(matches.get(str(i), batch_lines[i])).strip()
+                            res.append(unescaped)
+                        return res, True
             except Exception:
                 pass
 
         # 2. Coba fallback via httpx dengan unverified SSL (untuk Android Chaquopy lama)
         for ep_url, ep_params in endpoints[:2]:
             try:
-                with _httpx.Client(timeout=6.0, verify=False, follow_redirects=True) as client:
+                with _get_gtx_client_unverified() as client:
                     resp = client.post(ep_url, params=ep_params, data=body_data, headers=headers)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -1945,9 +2000,34 @@ async def call_gtx_translate(cues, src="en", tgt="id", timeout=20.0, mode="gtx+"
         return clean
 
     batch_lines_list = [[_prep_line(t) for t in b] for b in batches]
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    # Jumlah worker dinaikkan dari 3 ke 6. Episode 400-600 cue = 16-24 batch;
+    # dengan 3 worker itu berarti 6-8 gelombang request. Dengan 6 worker
+    # menjadi 3-4 gelombang sehingga waktu translate turun ~40%.
+    # Batas tetap dijaga agar tidak memicu rate-limit Google Translate.
+    _workers = min(6, max(1, len(batch_lines_list)))
+    with ThreadPoolExecutor(max_workers=_workers) as executor:
         tasks = [loop.run_in_executor(executor, lambda b=bl: _fetch_batch_sync(b)) for bl in batch_lines_list]
-        batch_results = await _asyncio.gather(*tasks)
+        # Batas waktu keseluruhan (parameter `timeout` sebelumnya tidak
+        # pernah dipakai sehingga fungsi ini tanpa batas waktu). Timeout
+        # per-endpoint 6s x 4 endpoint x mini-batch =~ 96s per batch, jadi
+        # default 20s terlalu agresif untuk episode penuh — gunakan 180s
+        # sebagai batas keras yang tetap mencegah request menggantung.
+        try:
+            batch_results = await _asyncio.wait_for(
+                _asyncio.gather(*tasks), timeout=max(60.0, float(timeout or 180.0))
+            )
+        except _asyncio.TimeoutError:
+            # Timeout: pakai hasil parsial yang sudah tersedia.
+            done_results = []
+            for t in tasks:
+                if t.done() and not t.exception():
+                    done_results.append(t.result())
+                else:
+                    t.cancel()
+            if not done_results:
+                raise RuntimeError("Timeout translate Google Translate.")
+            batch_results = done_results
+            log_translate(f"Timeout translate parsial: {len(done_results)}/{len(tasks)} batch selesai")
 
     success_count = 0
     for item in batch_results:

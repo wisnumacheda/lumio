@@ -2001,7 +2001,18 @@ async function playEpisode(slug, ep, fromAuto){
   attachSubtitle(data, referer);
   warmNextEpisode();
   if (window.Hls && Hls.isSupported()) {
-    hls = new Hls({maxBufferLength: 30});
+    hls = new Hls({
+      maxBufferLength: 30,
+      // Estimasi bandwidth awal dinaikkan dari default HLS.js (500 kbps) ke
+      // 3 Mbit/s. Dengan startLevel:-1 HLS.js memulai dari estimasi ini; pada
+      // 500 kbps player butuh 10-30 detik meramping ke resolusi layak sehingga
+      // terasa lambat saat start. 3 Mbit/s titik tengah realistis untuk koneksi
+      // lokal (proxy di 127.0.0.1) tanpa langsung melompat ke 1080p di jaringan lambat.
+      abrEwmaDefaultEstimate: 3*1000*1000,
+      // Buffer awal lebih agresif supaya playback tidak sering rebuffer
+      // saat kualitas naik (ABR switch = renegosiasi + unduhan baru).
+      startBufferDuration: 3
+    });
     hls.loadSource(proxied);
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
