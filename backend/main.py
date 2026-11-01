@@ -1875,6 +1875,15 @@ async def browse_ep(
             c_sm = clean_month
             c_em = clean_month
 
+        # "Rilisan Terbaru" (sort=release_date) TANPA tahun eksplisit: batasi ke
+        # anime yang mulai tayang maksimal tahun lalu. Tanpa ini, judul-judul lama
+        # yang baru diunggah ulang sumber (mis. Perman 1983) tampil sebagai "rilisan baru".
+        # Tahun yang dipilih eksplisit (year/sy/ey) selalu dihormati — tidak ditimpa.
+        if _to_str(sort) == "release_date" and not c_sy and not c_ey and not clean_year:
+            import datetime as _dt
+            _yy = _dt.datetime.now().year
+            c_sy, c_ey = str(_yy - 1), str(_yy + 1)
+
         c_page = page if isinstance(page, int) and page >= 1 else 1
 
         import json as _json
