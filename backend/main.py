@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, FileResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from config import APP_PORT, APP_HOST, HI_BASE, HI_UA
-from database import init_db, get_search_cache, set_search_cache, get_episode_cache, get_episode_cache_modes, set_episode_cache, delete_episode_cache, clear_episode_cache_for_slug, get_cached_episode, cache_episode, add_history, get_history, clear_history, save_progress, get_progress, clear_progress, add_bookmark, remove_bookmark, get_bookmarks, is_bookmarked, clear_bookmarks, get_setting, get_settings_bulk, set_setting, get_browse_cache, set_browse_cache, get_slug_map, set_slug_map, get_subtitle_cache, set_subtitle_cache, delete_subtitle_cache, get_today_char_count, add_today_char_count
+from database import init_db, get_search_cache, set_search_cache, get_episode_cache, get_episode_cache_modes, set_episode_cache, delete_episode_cache, clear_episode_cache_for_slug, get_cached_episode, cache_episode, add_history, get_history, clear_history, save_progress, get_progress, clear_progress, add_bookmark, remove_bookmark, get_bookmarks, get_bookmark, update_bookmark_eps, is_bookmarked, clear_bookmarks, get_setting, get_settings_bulk, set_setting, get_browse_cache, set_browse_cache, get_slug_map, set_slug_map, get_subtitle_cache, set_subtitle_cache, delete_subtitle_cache, get_today_char_count, add_today_char_count
 from api import hianime as hi
 from api import anilist as al
 from api import otakudesu as otaku
@@ -1208,6 +1208,36 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                     seen_slugs.add(slug)
                     seasonal_items.append(item_copy)
 
+            # 2b. Cross-check status tayang ke AniList (sumber kebenaran).
+            # HiAnime sering tak tahu total episode ("?") sehingga anime yang
+            # sudah tamat tak terdeteksi is_fin dan tampil ONGOING basi
+            # (mis. Yani Neko, Liar Game). Untuk tiap item yang akan ONGOING
+            # (lewati long_running & yang sudah TAMAT), tanya AniList paralel;
+            # bila FINISHED -> badge TAMAT. Fail-open: AniList mati/ragu ->
+            # badge lama dipertahankan. Frontend ongoingLatestLoader sudah
+            # memfilter TAMAT dari grid, jadi judul basi hilang dari daftar.
+            _ongoing_cands = [it for it in seasonal_items
+                              if isinstance(it, dict)
+                              and it.get("lane") == "seasonal"
+                              and it.get("badge") == "ONGOING"
+                              and not it.get("is_header")]
+            if _ongoing_cands:
+                _st_sem = asyncio.Semaphore(5)
+
+                async def _fix_one(_it):
+                    async with _st_sem:
+                        try:
+                            st = await _anilist_status_for_title(_it.get("title") or "")
+                        except Exception:
+                            st = ""
+                    if st == "FINISHED":
+                        _it["badge"] = "TAMAT"
+                        _it["is_finished"] = True
+                        _it["status"] = "finished"
+
+                await asyncio.gather(*(_fix_one(it) for it in _ongoing_cands),
+                                     return_exceptions=True)
+
             # 3. Rakit items dengan section headers pembatas dua jalur
             items_dual_lane = []
             if seasonal_items:
@@ -1463,6 +1493,76 @@ async def _origin_country_for_title(title):
         except Exception:
             pass
     return country
+
+
+def _pick_status_from_metadata(title, meta_list):
+    """Pilih status tayang dari kandidat AniList yang judulnya benar-benar
+    cocok (pola persis _pick_country_from_metadata: _is_title_match ketat per
+    kandidat english/romaji/native + synonyms). Return status UPPERCASE
+    (FINISHED/RELEASING/dll) atau '' bila tak yakin."""
+    for m in meta_list or []:
+        status = (m.get("status") or "").strip().upper()
+        if not status:
+            continue
+        t_obj = m.get("title") or {}
+        cands = [t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")]
+        syn = m.get("synonyms") or []
+        if isinstance(syn, str):
+            syn = [syn]
+        if isinstance(syn, list):
+            cands.extend(syn)
+        for cand in cands:
+            if cand and _is_title_match(title, cand):
+                return status
+    return ""
+
+
+async def _anilist_status_for_title(title):
+    """Status tayang satu judul dari AniList (sumber kebenaran untuk badge
+    Masih Tayang — HiAnime sering basi/tak tahu total episode).
+    TTL cerdas: FINISHED -> 30 hari (tak akan berubah), RELEASING -> 1 hari
+    (bisa tamat kapan saja), '' -> JANGAN cache (coba lagi lain waktu).
+    Fail-open: exception / AniList mati -> '' (badge lama dipertahankan)."""
+    title = (title or "").strip()
+    if not title:
+        return ""
+    cache_key = "airing_status_v1|" + _slug_norm_match(title)
+    try:
+        hit = await get_browse_cache(cache_key, ttl=30 * 24 * 3600)
+        if hit and hit.get("status"):
+            st = (hit.get("status") or "").strip().upper()
+            if st == "FINISHED":
+                return st
+            if st == "RELEASING":
+                # TTL cerdas 1 hari via fetched_at (set_browse_cache tak punya TTL per-key).
+                try:
+                    fa = float(hit.get("fetched_at") or 0)
+                except Exception:
+                    fa = 0
+                if fa and (time.time() - fa) < 24 * 3600:
+                    return st
+                # kedaluwarsa -> fetch ulang di bawah
+    except Exception:
+        pass
+    try:
+        loop = asyncio.get_running_loop()
+        meta = await loop.run_in_executor(None, lambda: al.search_anime_metadata(title, per_page=6))
+        status = _pick_status_from_metadata(title, meta)
+    except Exception:
+        status = ""
+    if status == "FINISHED":
+        try:
+            await set_browse_cache(cache_key, {"status": status})
+        except Exception:
+            pass
+    elif status == "RELEASING":
+        # TTL 1 hari: set_browse_cache tidak mendukung TTL per-key berbeda,
+        # jadi simpan juga fetched_at dan validasi manual saat baca.
+        try:
+            await set_browse_cache(cache_key, {"status": status, "fetched_at": time.time()})
+        except Exception:
+            pass
+    return status
 
 
 async def _filter_anime_list_items(items):
@@ -2727,6 +2827,13 @@ async def episodes(slug: str):
         cached = await get_browse_cache(cache_key, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
+            # Write-through bookmark: data <=6 jam, cukup segar untuk favorit.
+            try:
+                _ct = cached.get("total")
+                if isinstance(_ct, int):
+                    await _write_through_bookmark_eps(slug, _ct)
+            except Exception:
+                pass
             return ok(cached)
         loop = asyncio.get_running_loop()
         eps = []
@@ -2771,6 +2878,11 @@ async def episodes(slug: str):
         }
         await set_browse_cache(cache_key, data)
         data["cached"] = False
+        # Write-through bookmark: episode list baru saja di-fetch segar.
+        try:
+            await _write_through_bookmark_eps(slug, len(eps))
+        except Exception:
+            pass
         return ok(data)
     except Exception as e:
         return fail(str(e))
@@ -4511,9 +4623,103 @@ async def delete_watch_progress(slug: str = Query(""), ep: int = Query(None), ep
     await clear_progress(s, int(e) if e is not None else None)
     return ok(True)
 
+def _rebuild_eps_counter(stored_eps, new_total):
+    """Rekonstruksi eps_counter bookmark: pertahankan total tersimpan.
+    '17/26' + 18 -> '18/26'; '3/?' + 4 -> '4/?'."""
+    s = (stored_eps or "").strip()
+    total_part = "?"
+    if "/" in s:
+        total_part = s.split("/", 1)[1].strip() or "?"
+    if total_part != "?" and not total_part.isdigit():
+        total_part = "?"
+    return f"{new_total}/{total_part}"
+
+
+async def _fresh_episode_total(slug):
+    """Total episode rilis satu slug. Urutan: cache episodes_v1 (6 jam) dulu
+    (tanpa fetch mentah bila hit); bila miss, fetch HiAnime sekali lalu cache.
+    Return int atau None bila gagal."""
+    slug = (slug or "").strip()
+    if not slug:
+        return None
+    cache_key = f"episodes_v1|{slug}"
+    try:
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached and isinstance(cached.get("total"), int):
+            return cached["total"]
+    except Exception:
+        pass
+    try:
+        loop = asyncio.get_running_loop()
+        eps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
+        if eps:
+            total = len(eps)
+            try:
+                await set_browse_cache(cache_key, {"slug": slug, "episodes": eps, "total": total})
+            except Exception:
+                pass
+            return total
+    except Exception:
+        pass
+    return None
+
+
+async def _write_through_bookmark_eps(slug, total):
+    """Write-through eps/sub ke bookmark bila slug di-bookmark.
+    Dipakai saat detail dibuka dan saat GET /api/bookmarks refresh."""
+    if not slug or total is None:
+        return
+    try:
+        row = await get_bookmark(slug)
+    except Exception:
+        return
+    if not row:
+        return
+    try:
+        new_sub = str(total)
+        new_eps = _rebuild_eps_counter(row.get("eps") or "", total)
+        if row.get("sub") == new_sub and row.get("eps") == new_eps:
+            return
+        await update_bookmark_eps(slug, new_sub, new_eps)
+    except Exception:
+        pass
+
+
 @app.get("/api/bookmarks")
 async def list_bookmarks():
-    return ok(await get_bookmarks())
+    rows = await get_bookmarks()
+    # Refresh eps/sub bookmark yang datanya basi (>6 jam), paralel.
+    # Memakai cache episodes_v1 bila hit (tanpa fetch mentah); write-through
+    # hasilnya ke penyimpanan agar GET berikutnya langsung segar.
+    now = time.time()
+    try:
+        stale = [r for r in (rows or [])
+                 if (now - float(r.get("eps_updated_at") or 0)) > 6 * 3600]
+    except Exception:
+        stale = []
+    if stale:
+        _bm_sem = asyncio.Semaphore(5)
+
+        async def _refresh_one(_r):
+            async with _bm_sem:
+                try:
+                    total = await _fresh_episode_total(_r.get("slug") or "")
+                except Exception:
+                    total = None
+            if total is not None:
+                new_sub = str(total)
+                new_eps = _rebuild_eps_counter(_r.get("eps") or "", total)
+                _ts = time.time()
+                _r["sub"] = new_sub
+                _r["eps"] = new_eps
+                _r["eps_updated_at"] = _ts
+                try:
+                    await update_bookmark_eps(_r.get("slug") or "", new_sub, new_eps)
+                except Exception:
+                    pass
+
+        await asyncio.gather(*(_refresh_one(r) for r in stale), return_exceptions=True)
+    return ok(rows)
 
 @app.post("/api/bookmarks")
 async def save_bookmark(body: dict = None):

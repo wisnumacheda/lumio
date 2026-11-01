@@ -183,6 +183,12 @@ async def init_db():
             score REAL DEFAULT 0.0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        # Migrasi payload v28: kolom eps_updated_at (REAL epoch) — kapan eps/sub
+        # bookmark terakhir di-refresh. Idempotent via try/except.
+        try:
+            await db.execute("ALTER TABLE bookmarks ADD COLUMN eps_updated_at REAL DEFAULT 0")
+        except Exception:
+            pass
         # Tabel watch_progress: mencatat menit & detik tontonan per episode anime
         await db.execute("""CREATE TABLE IF NOT EXISTS watch_progress(
             slug TEXT,
@@ -559,6 +565,29 @@ async def is_bookmarked(slug: str) -> bool:
         async with db.execute("SELECT 1 FROM bookmarks WHERE slug=? LIMIT 1", (slug,)) as cur:
             row = await cur.fetchone()
             return bool(row)
+
+
+async def get_bookmark(slug: str):
+    """Ambil satu row bookmark (atau None bila tidak di-bookmark)."""
+    if not slug:
+        return None
+    async with _connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM bookmarks WHERE slug=? LIMIT 1", (slug.strip(),)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def update_bookmark_eps(slug: str, sub: str = "", eps: str = ""):
+    """Write-through eps/sub bookmark + cap eps_updated_at=now.
+    Hanya bila slug ter-bookmark (UPDATE ... WHERE slug)."""
+    if not slug:
+        return
+    async with _write_db() as db:
+        await db.execute(
+            "UPDATE bookmarks SET sub=?, eps=?, eps_updated_at=? WHERE slug=?",
+            (sub or "", eps or "", time.time(), slug.strip()))
+        await db.commit()
 
 async def clear_bookmarks():
     """Hapus seluruh bookmark favorit."""

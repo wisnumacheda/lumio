@@ -499,6 +499,7 @@ query ($search: String, $perPage: Int) {
       season
       seasonYear
       startDate { year }
+      status
     }
   }
 }
