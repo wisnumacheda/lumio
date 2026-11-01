@@ -1,9 +1,9 @@
 {
-  "version": 26,
-  "label": "Optimasi kecepatan: resolve paralel + translate + DB",
-  "notes": "Port optimasi upstream v2.12.5: resolve server paralel dengan prioritas tier, cache positif servers dan embed, pooled HTTP client, prompt master fansub TLC, worker translate 3 ke 6, DB connection pool plus index dan TTL sweeper, cache body master m3u8, Range forwarding untuk seek, prewarm subtitle gtx+ dengan dedup job key, dan tuning HLS start buffer. Benchmark sandbox: resolve tidak lebih lambat dari sebelumnya, tanpa regresi.",
+  "version": 27,
+  "label": "Isi 2.28.1 - Rilisan Terbaru dirapikan",
+  "notes": "Rilisan Terbaru tanpa tahun eksplisit kini hanya menampilkan anime yang mulai tayang maksimal tahun lalu, sehingga judul lama yang baru diunggah ulang tidak tampil sebagai rilisan baru. Tahun pilihan eksplisit tetap dihormati.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-26/lumio-payload.zip",
-  "sha256": "79ed67d5b84271a17206f87b9817b953385bbd5e96780883b18a47cbce9bcc0c",
-  "size": 1025421
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-27/lumio-payload.zip",
+  "sha256": "0c29cd432b9061b52c049a10bedc5f8f12f1680f587ef5e50bbc1fc42ad5189e",
+  "size": 1025489
 }
