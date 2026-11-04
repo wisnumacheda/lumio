@@ -1,9 +1,9 @@
 {
-  "version": 28,
-  "label": "Isi 2.28.1 - Status tayang & episode favorit akurat",
-  "notes": "Masih Tayang kini cross-check status ke AniList sehingga anime yang sudah tamat tidak tampil ONGOING basi. Info episode Favorit otomatis di-refresh dan disimpan.",
+  "version": 29,
+  "label": "Isi 2.28.1 - Pesan error DPI tidak terpotong",
+  "notes": "Pesan error pemblokiran DPI ditulis ulang lebih ringkas sehingga saran Aktifkan Cloudflare WARP atau VPN tampil utuh dan tidak terpotong.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-28/lumio-payload.zip",
-  "sha256": "f7d75610b05dfed8097753eea4bcc3c8c99f82c66a5207e7e0ff8b8627799a71",
-  "size": 1027681
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-29/lumio-payload.zip",
+  "sha256": "b7c5329e4512146ec8e684de221360796f7bdc6c02a17b161cadbe4ed1ded587",
+  "size": 1027698
 }
