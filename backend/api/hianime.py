@@ -1607,10 +1607,11 @@ def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
 
         return got
     if "dramahot.top" in last_err.lower() or "zokoanime" in last_err.lower():
+        # CATATAN: pesan ini dipotong 140 karakter oleh _note() di main.py —
+        # tulis ringkas agar saran aksi (WARP/VPN) tidak terpotong.
         raise RuntimeError(
-            "Server video anime baru ini (ZokoAnime) diblokir DPI/ISP (hls.dramahot.top). "
-            "Server utama (Megaplay) belum diunggah oleh penyedia. "
-            "Aktifkan Cloudflare WARP (1.1.1.1) / VPN untuk memutar judul ini."
+            "ZokoAnime diblokir DPI/ISP (hls.dramahot.top); "
+            "Megaplay belum upload. Aktifkan Cloudflare WARP/VPN."
         )
     raise RuntimeError(last_err or "m3u8 not found")
 
