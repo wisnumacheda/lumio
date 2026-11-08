@@ -1,9 +1,9 @@
 {
-  "version": 29,
-  "label": "Isi 2.28.1 - Pesan error DPI tidak terpotong",
-  "notes": "Pesan error pemblokiran DPI ditulis ulang lebih ringkas sehingga saran Aktifkan Cloudflare WARP atau VPN tampil utuh dan tidak terpotong.",
+  "version": 30,
+  "label": "Isi 2.28.1 - Jadwal Rilis",
+  "notes": "Jadwal Rilis kini ketemu namanya + ketukan pertama instan. (1) Tab web 'Terbaru' dan item drawer 'Sedang Rilis / Terbaru' diganti jadi 'Jadwal Rilis' (perintah :jadwal ditambahkan, :terbaru tetap jalan). (2) Cache jadwal pekan berjalan dihangatkan saat backend boot, jadi ketukan pertama tab Jadwal langsung tampil tanpa menunggu pencocokan slug HiAnime yang dinginnya bisa belasan detik-menit. (3) Perbaiki bug proxy: klien AniList kini mengabaikan variabel proxy host (NO_PROXY berisi '[::1]' membuat /api/schedule gagal 'Invalid port'). Data jadwal tetap dari AniList live, hanya judul yang ada di aplikasi yang tampil, jam WIB + nomor episode. Tidak ada perubahan APK (tetap 2.28.1); aktifkan dari Pengaturan -> Isi Aplikasi -> ketik v30.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-29/lumio-payload.zip",
-  "sha256": "b7c5329e4512146ec8e684de221360796f7bdc6c02a17b161cadbe4ed1ded587",
-  "size": 1027698
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-30/lumio-payload.zip",
+  "sha256": "ad06835df154d3bfee82b82db846d84217c4e70127622fb9d1b99015e1b2055d",
+  "size": 1028675
 }
