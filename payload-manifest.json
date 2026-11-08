@@ -1,9 +1,9 @@
 {
-  "version": 30,
-  "label": "Isi 2.28.1 - Jadwal Rilis",
-  "notes": "Jadwal Rilis kini ketemu namanya + ketukan pertama instan. (1) Tab web 'Terbaru' dan item drawer 'Sedang Rilis / Terbaru' diganti jadi 'Jadwal Rilis' (perintah :jadwal ditambahkan, :terbaru tetap jalan). (2) Cache jadwal pekan berjalan dihangatkan saat backend boot, jadi ketukan pertama tab Jadwal langsung tampil tanpa menunggu pencocokan slug HiAnime yang dinginnya bisa belasan detik-menit. (3) Perbaiki bug proxy: klien AniList kini mengabaikan variabel proxy host (NO_PROXY berisi '[::1]' membuat /api/schedule gagal 'Invalid port'). Data jadwal tetap dari AniList live, hanya judul yang ada di aplikasi yang tampil, jam WIB + nomor episode. Tidak ada perubahan APK (tetap 2.28.1); aktifkan dari Pengaturan -> Isi Aplikasi -> ketik v30.",
+  "version": 31,
+  "label": "Isi 2.28.1 - Tab Manhwa kembali (Fase 1)",
+  "notes": "Tab Manhwa kembali (Fase 1, pola Kotatsu): tab setelah Masih Tayang, grid Terbaru + Populer + Cari, detail bab gabungan multi-provider, reader Webtoon (default) + Halaman, Lanjut Baca, Mode Hemat. Provider: Asura jalan, MangaDex jalan (lisensi hanya tautan resmi), Manhwaindo diperbaiki setelah ganti tema, Komikcast mati (Cloudflare) tampil jujur. 18+ tetap terkunci; jalur anime tak disentuh. Butuh tes HP: tampilkan tab + buka Solo Leveling ch1.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-30/lumio-payload.zip",
-  "sha256": "ad06835df154d3bfee82b82db846d84217c4e70127622fb9d1b99015e1b2055d",
-  "size": 1028675
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-31/lumio-payload.zip",
+  "sha256": "795433348e3029420cc30583e491616345ec2d5ec9e6fed09eac8f95ef1c19f2",
+  "size": 1034950
 }

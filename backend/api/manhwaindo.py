@@ -170,12 +170,15 @@ def _adult_in_text(text):
 
 def _img_from_tag(tag):
     """Ambil URL gambar dari satu tag <img>: utamakan data-src bila src
-    berupa placeholder, lalu src biasa. Abaikan data: URI."""
-    m = re.search(r'data-src="([^"]+)"', tag)
-    src = re.search(r'\ssrc="([^"]+)"', tag)
-    src = src.group(1) if src else ""
-    if m and (not src or "placeholder" in src or src.startswith("data:")):
-        return m.group(1)
+    berupa placeholder, lalu src biasa. Abaikan data: URI.
+    Terima atribut kutip-ganda MAUPUN kutip-tunggal (tema baru situs
+    memakai src='...' pada gambar halaman bab)."""
+    m = re.search(r'data-src=(?:"([^"]+)"|\'([^\']+)\')', tag)
+    ds = (m.group(1) or m.group(2)) if m else ""
+    s = re.search(r'\ssrc=(?:"([^"]+)"|\'([^\']+)\')', tag)
+    src = (s.group(1) or s.group(2)) if s else ""
+    if ds and (not src or "placeholder" in src or src.startswith("data:")):
+        return ds
     return src
 
 
@@ -218,11 +221,25 @@ def search_manga(query, limit=24, safe_mode=1):
     for idx, (start, slug) in enumerate(starts):
         end = starts[idx + 1][0] if idx + 1 < len(starts) else len(html)
         region = html[start:end]
-        tm = re.search(r'title="([^"]+)"', region)
-        title = tm.group(1).strip() if tm else ""
+        # Judul: tema baru memakai <span class="bm-card__title">; lalu
+        # aria-label anchor; baru fallback lama (title="..." /
+        # font-semibold). Teks tombol iklan TIDAK PERNAH jadi judul.
+        title = ""
+        cm = re.search(r'bm-card__title[^>]*>([^<]+)<', region)
+        if cm:
+            title = _clean_text(cm.group(1))
+        if not title:
+            am = re.search(r'aria-label="([^"]+)"', region)
+            if am:
+                title = htmlmod.unescape(am.group(1)).strip()
+        if not title:
+            tm = re.search(r'title="([^"]+)"', region)
+            title = tm.group(1).strip() if tm else ""
         if not title:
             dm = re.search(r'font-semibold[^>]*>([^<]+)</div>', region)
             title = _clean_text(dm.group(1)) if dm else ""
+        if title.lower() in ("tutup iklan", "close ad", "close", "iklan"):
+            title = ""
         if not title or _adult_in_title(title):
             continue
         # Sinopsis: <p class="line-clamp-2 ..."> pertama di kartu.
@@ -457,8 +474,10 @@ def latest_updates(limit=24, safe_mode=1):
     end = next((pos for pos, t in heads
                 if t == "Blog Updates" and pos > start), None)
     section = html[start:end] if end else html[start:]
+    # Tema baru: class cover "bm-row__cover series" (kata "series" di
+    # dalam class, bukan class="series" persis).
     series_anchors = list(re.finditer(
-        r'<a[^>]+class="series"[^>]+href="[^"]*/series/([^"/\?#]+)/?"[^>]*>',
+        r'<a[^>]+class="[^"]*\bseries\b[^"]*"[^>]+href="[^"]*/series/([^"/\?#]+)/?"[^>]*>',
         section, re.I))
     if not series_anchors:
         raise ValueError("Bagian Latest Update Manhwaindo tidak ditemukan")
@@ -482,9 +501,19 @@ def latest_updates(limit=24, safe_mode=1):
             order.append(slug)
         entry = cards[slug]
         if not entry["title"]:
-            tm = re.search(r'title="([^"]+)"', m.group(0))
-            if tm:
-                entry["title"] = htmlmod.unescape(tm.group(1)).strip()
+            # Tema baru: aria-label di anchor cover, atau teks
+            # <a class="bm-row__title">; baru fallback lama.
+            am = re.search(r'aria-label="([^"]+)"', m.group(0))
+            if am:
+                entry["title"] = htmlmod.unescape(am.group(1)).strip()
+            if not entry["title"]:
+                rm = re.search(r'bm-row__title[^>]*>([^<]+)<', region)
+                if rm:
+                    entry["title"] = _clean_text(rm.group(1))
+            if not entry["title"]:
+                tm = re.search(r'title="([^"]+)"', m.group(0))
+                if tm:
+                    entry["title"] = htmlmod.unescape(tm.group(1)).strip()
             if not entry["title"]:
                 dm = re.search(r"truncate[^>]*>([^<]+)</div>", region)
                 entry["title"] = _clean_text(dm.group(1)) if dm else ""
@@ -495,16 +524,22 @@ def latest_updates(limit=24, safe_mode=1):
                     entry["cover"] = u
                     break
         if not entry["chapter"]:
+            # Tema baru: <a class="bm-ch" href="...-chapter-N/">
+            # <span>Ch. N</span><small>waktu</small></a>
             cm = re.search(
                 r'<a[^>]+href="[^"]*/([^"/\?#]+-chapter-[^"/\?#]+)/?"[^>]*>'
-                r"\s*Ch\.\s*([\d]+(?:\.[\d]+)?)",
+                r"\s*(?:<span[^>]*>)?\s*Ch\.\s*([\d]+(?:\.[\d]+)?)",
                 region, re.I)
             if cm:
                 entry["chapter_slug"] = cm.group(1).strip()
                 entry["chapter"] = cm.group(2).strip()
                 time_m = re.search(
-                    r'<span[^>]*class="text-xs"[^>]*>([^<]+)</span>',
+                    r'<small[^>]*>([^<]+)</small>',
                     region[cm.end():cm.end() + 800], re.S)
+                if not time_m:
+                    time_m = re.search(
+                        r'<span[^>]*class="text-xs"[^>]*>([^<]+)</span>',
+                        region[cm.end():cm.end() + 800], re.S)
                 entry["time_text"] = _clean_text(time_m.group(1)) \
                     if time_m else ""
     items = []
