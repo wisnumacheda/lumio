@@ -2510,6 +2510,37 @@ function mangaSaverStop(){
   if (mangaSaverObs) { try { mangaSaverObs.disconnect(); } catch (e) {} mangaSaverObs = null; }
   mangaSaverQueue = []; mangaSaverBusy = false;
 }
+/* ---- Fallback gambar reader Manhwa: rantai sama seperti poster ----
+   (a) coba ulang lewat proksi sekali (?r=1, jeda 700ms),
+   (b) coba URL gambar langsung,
+   (c) baru tampilkan "❌ Gambar gagal dimuat". */
+function mangaImgFallback(el, onFail){
+  const step = +(el.dataset.fb || 0);
+  if (step === 0) {
+    el.dataset.fb = 1;
+    const px = el.dataset.proxy || el.src;
+    setTimeout(() => { el.src = px + (px.indexOf("?") >= 0 ? "&" : "?") + "r=1"; }, 700);
+    return;
+  }
+  const direct = el.dataset.direct || "";
+  if (step === 1 && direct && !el.src.endsWith(direct)) { el.dataset.fb = 2; el.src = direct; return; }
+  if (onFail) onFail(el); else mangaImgFail(el);
+}
+function mangaImgFail(el){
+  const box = document.getElementById("readerPages");
+  if (box && SETTINGS.mangaReaderMode === "page" && box.contains(el)) {
+    // Mode Halaman: tampilkan pesan gagal + tombol Coba lagi (render ulang bab).
+    box.innerHTML = "<p style='text-align:center;color:var(--muted);padding:30px 0'>❌ Gambar gagal dimuat</p>"
+      + "<p style='text-align:center'><button onclick='renderMangaPages()' style='padding:10px 18px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--text)'>🔄 Coba lagi</button></p>";
+    syncPageNav();
+    return;
+  }
+  // Mode Webtoon: ganti gambar yang gagal dengan baris pesan di tempatnya.
+  const p = document.createElement("p");
+  p.textContent = "❌ Gambar gagal dimuat";
+  p.style.cssText = "text-align:center;color:var(--muted);padding:30px 0";
+  if (el.parentNode) el.parentNode.replaceChild(p, el);
+}
 function mangaSaverPump(){
   if (mangaSaverBusy) return;
   const job = mangaSaverQueue.shift();
@@ -2518,8 +2549,11 @@ function mangaSaverPump(){
   const img = new Image();
   const done = () => { mangaSaverBusy = false; mangaSaverPump(); };
   img.onload = () => { job.el.innerHTML = ""; job.el.appendChild(img); done(); };
-  img.onerror = () => { job.el.textContent = "❌ Gambar gagal dimuat"; done(); };
+  img.onerror = () => mangaImgFallback(img, () => { job.el.textContent = "❌ Gambar gagal dimuat"; done(); });
   img.alt = "";
+  img.dataset.proxy = job.src;
+  img.dataset.direct = job.direct || "";
+  img.dataset.fb = "0";
   img.src = job.src;
 }
 function mangaPageStep(dir){
@@ -2547,25 +2581,24 @@ function renderMangaPages(){
     if (!pages.length) { box.innerHTML = ""; syncPageNav(); return; }
     if (mangaCurPageIdx >= pages.length) mangaCurPageIdx = pages.length - 1;
     if (mangaCurPageIdx < 0) mangaCurPageIdx = 0;
-    box.innerHTML = `<img src="${esc(posterSrc(pages[mangaCurPageIdx]))}" alt="">`;
+    box.innerHTML = `<img src="${esc(posterSrc(pages[mangaCurPageIdx]))}" data-proxy="${esc(posterSrc(pages[mangaCurPageIdx]))}" data-direct="${esc(pages[mangaCurPageIdx])}" data-fb="0" alt="" onerror="mangaImgFallback(this)">`;
     const img = box.querySelector("img");
     if (img) {
-      img.addEventListener("error", () => { box.innerHTML = "<p style='text-align:center;color:var(--muted);padding:30px 0'>❌ Gambar gagal dimuat</p>"; });
       img.addEventListener("click", () => mangaPageStep(1));
     }
     syncPageNav();
     return;
   }
   if (!SETTINGS.mangaDataSaver) {
-    box.innerHTML = pages.map(u => `<img src="${esc(posterSrc(u))}" alt="" loading="lazy">`).join("");
+    box.innerHTML = pages.map(u => `<img src="${esc(posterSrc(u))}" data-proxy="${esc(posterSrc(u))}" data-direct="${esc(u)}" data-fb="0" alt="" loading="lazy" onerror="mangaImgFallback(this)">`).join("");
     return;
   }
-  box.innerHTML = pages.map(u => `<div class="saver-ph" data-src="${esc(posterSrc(u))}"><span>Memuat…</span></div>`).join("");
+  box.innerHTML = pages.map(u => `<div class="saver-ph" data-src="${esc(posterSrc(u))}" data-direct="${esc(u)}"><span>Memuat…</span></div>`).join("");
   const phs = Array.from(box.querySelectorAll(".saver-ph"));
   const enqueue = ph => {
     if (ph.dataset.queued) return;
     ph.dataset.queued = "1";
-    mangaSaverQueue.push({ el: ph, src: ph.dataset.src });
+    mangaSaverQueue.push({ el: ph, src: ph.dataset.src, direct: ph.dataset.direct });
     mangaSaverPump();
   };
   phs.slice(0, 2).forEach(enqueue);

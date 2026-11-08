@@ -3587,6 +3587,59 @@ async def proxy_video(url: str = Query(""), referer: str = Query(""), range: str
                headers={"Access-Control-Allow-Origin": "*"})
 
 
+def _sniff_image_type(data: bytes):
+    """Tebak tipe gambar dari magic bytes — untuk hasil desync yang tidak
+    membawa header HTTP (tls_desync_request hanya mengembalikan body)."""
+    if not data or len(data) < 12:
+        return None
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[4:8] == b"ftyp" and data[8:12] in (b"avif", b"avis"):
+        return "image/avif"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    head = data[:256].lstrip()
+    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        return "image/svg+xml"
+    return None
+
+
+def _dechunk_http_body(data: bytes):
+    """Lepas chunked transfer-encoding (RFC 9112) dari body mentah desync.
+    Kembalikan None bila data bukan chunked yang valid (body utuh bukan
+    chunked — mis. gambar biner — tidak pernah diubah)."""
+    if not data:
+        return None
+    out = bytearray()
+    pos = 0
+    n = len(data)
+    while pos < n:
+        end = data.find(b"\r\n", pos)
+        if end < 0 or end - pos > 16:
+            return None
+        size_s = data[pos:end].split(b";", 1)[0].strip()
+        try:
+            size = int(size_s, 16)
+        except ValueError:
+            return None
+        pos = end + 2
+        if size == 0:
+            return bytes(out)
+        if pos + size > n:
+            return None
+        out += data[pos:pos + size]
+        pos += size
+        if data[pos:pos + 2] == b"\r\n":
+            pos += 2
+    return None
+
+
 @app.get("/api/img")
 async def proxy_image(url: str = Query("")):
     """Proxy poster/gambar lewat backend — satu jalur jaringan dengan katalog,
@@ -3598,15 +3651,37 @@ async def proxy_image(url: str = Query("")):
     except Exception:
         return Response(status_code=400)
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             r = await client.get(url, headers={"User-Agent": "Lumio-App (image proxy)", "Accept": "image/*,*/*;q=0.5"})
         ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
-        if r.status_code != 200 or not ctype.startswith("image/"):
-            return Response(status_code=502)
-        return Response(content=r.content, media_type=ctype,
-                        headers={"Cache-Control": "public, max-age=86400"})
+        if r.status_code == 200 and ctype.startswith("image/"):
+            return Response(content=r.content, media_type=ctype,
+                            headers={"Cache-Control": "public, max-age=86400"})
     except Exception:
-        return Response(status_code=502)
+        pass
+    # Fetch normal gagal (timeout / status != 200 / bukan gambar): coba sekali
+    # via TLS desync — jalur yang sama dipakai video untuk host DPI-blocked.
+    try:
+        from api.desync import tls_desync_request
+        import asyncio
+        loop = asyncio.get_running_loop()
+        body = await loop.run_in_executor(
+            None, lambda: tls_desync_request(
+                url, headers={"User-Agent": "Lumio-App (image proxy)", "Accept": "image/*,*/*;q=0.5"}, timeout=10.0))
+        ctype = _sniff_image_type(body or b"")
+        if not ctype and body:
+            # Respons desync bisa ber-chunked: lepas dulu, lalu validasi ulang.
+            dec = _dechunk_http_body(body)
+            if dec is not None:
+                ctype = _sniff_image_type(dec)
+                if ctype:
+                    body = dec
+        if ctype:
+            return Response(content=body, media_type=ctype,
+                            headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        pass
+    return Response(status_code=502)
 
 
 def _rewrite_m3u8_content(txt: str, base_url: str, referer: str) -> str:
