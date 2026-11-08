@@ -2438,7 +2438,7 @@ function mangaHistRemove(chapterId){ saveMangaHist(loadMangaHist().filter(x => x
 function mangaHistCardHTML(h){
   const cover = h.cover ? posterSrc(h.cover) : "";
   return `<article class="card hist-card" data-mid="${esc(h.mid)}" data-ch="${esc(h.chapterId)}" tabindex="0" role="button" aria-label="${esc(h.title)}">`
-    + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" alt="">` : ""}<button class="hist-x" data-mhist-del="${esc(h.chapterId)}" title="Hapus dari riwayat" aria-label="Hapus dari riwayat">✕</button><span class="eps-badge">Bab ${esc(h.chapter || "?")}</span><div class="play-ico">📖</div></div>`
+    + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" data-proxy="${esc(cover)}" data-direct="${esc(h.cover || "")}" data-fb="0" alt="" onerror="imgFallback(this)">` : ""}<button class="hist-x" data-mhist-del="${esc(h.chapterId)}" title="Hapus dari riwayat" aria-label="Hapus dari riwayat">✕</button><span class="eps-badge">Bab ${esc(h.chapter || "?")}</span><div class="play-ico">📖</div></div>`
     + `<div class="meta"><div class="ttl">${esc(h.title)}</div><div class="sub-meta"><span>${esc(h.source || "")}${h.lang ? " · " + esc(h.lang) : ""}</span></div></div></article>`;
 }
 function renderMangaHistRail(){
@@ -2476,7 +2476,7 @@ async function loadMangaLatest(){
     $("#mangaLatestGrid").innerHTML = items.map(it => {
       const cover = it.cover ? posterSrc(it.cover) : "";
       return `<article class="card" data-mid="mi:${esc(it.series_slug)}" data-ch="mi:${esc(it.chapter_slug)}" tabindex="0" role="button" aria-label="${esc(it.title)}">`
-        + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" alt="">` : ""}<span class="eps-badge">Bab ${esc(it.chapter || "?")}</span><div class="play-ico">📖</div></div>`
+        + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" data-proxy="${esc(cover)}" data-direct="${esc(it.cover || "")}" data-fb="0" alt="" onerror="imgFallback(this)">` : ""}<span class="eps-badge">Bab ${esc(it.chapter || "?")}</span><div class="play-ico">📖</div></div>`
         + `<div class="meta"><div class="ttl">${esc(it.title)}</div><div class="sub-meta"><span>${esc(it.time_text || "")} · Manhwaindo</span></div></div></article>`;
     }).join("");
     $$(".card", $("#mangaLatestGrid")).forEach(c => {
@@ -2621,7 +2621,7 @@ function mangaCardHTML(it){
   const cover = it.cover ? posterSrc(it.cover) : "";
   const meta = [it.source || "", it.status || "", it.year || ""].filter(Boolean).join(" · ");
   return `<article class="card" data-mid="${esc(it.id)}">`
-    + `<div class="poster">${cover ? `<img src="${esc(cover)}" alt="" loading="lazy">` : ""}<span class="play-ico">📖</span></div>`
+    + `<div class="poster">${cover ? `<img src="${esc(cover)}" data-proxy="${esc(cover)}" data-direct="${esc(it.cover || "")}" data-fb="0" alt="" loading="lazy" onerror="imgFallback(this)">` : ""}<span class="play-ico">📖</span></div>`
     + `<div class="meta"><div class="ttl">${esc(it.title)}</div>`
     + `<div class="sub-meta">${meta ? `<span>${esc(meta)}</span>` : ""}</div></div></article>`;
 }
@@ -2648,6 +2648,7 @@ async function mangaSearch(q){
     ["/api/manga/kc/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Komikcast"],
     ["/api/manga/as/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Asura"],
     ["/api/manga/mi/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Manhwaindo"],
+    ["/api/manga/km/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Komiku"],
   ];
   const settled = await Promise.allSettled(eps.map(([u]) => api(u)));
   let items = [];
@@ -2667,7 +2668,8 @@ async function openMangaDetail(id){
   try {
     const d = await api("/api/manga/merged/" + encodeURIComponent(id) + "/chapters?safe_mode=" + (SETTINGS.safeMode ? 1 : 0));
     mangaDetail = d; mangaChapters = d.chapters || [];
-    $("#mdPoster").src = d.cover ? posterSrc(d.cover) : "";
+    const mdp = $("#mdPoster");
+    mdp.dataset.direct = d.cover || ""; mdp.dataset.proxy = d.cover ? posterSrc(d.cover) : ""; mdp.dataset.fb = 0; mdp.style.visibility = ""; mdp.src = d.cover ? posterSrc(d.cover) : "";
     $("#mdTitle").textContent = d.title || "—";
     $("#mdMeta").textContent = [d.status || "", d.year || ""].filter(Boolean).join(" · ");
     $("#mdSyn").textContent = d.description || "";
@@ -2735,6 +2737,10 @@ async function openMangaReader(chapterId){
     pagesUrl = "/api/manga/kc/chapter/" + encodeURIComponent(chapterId.slice(3)) + "/pages";
   } else if (ch.source === "Manhwaindo") {
     pagesUrl = "/api/manga/mi/chapter/" + encodeURIComponent(chapterId.slice(3)) + "/pages";
+  } else if (ch.source === "Komiku") {
+    const rest = chapterId.slice(3);
+    const series = rest.replace(/-chapter-.*$/, "");
+    pagesUrl = "/api/manga/km/series/" + encodeURIComponent(series) + "/chapter/" + encodeURIComponent(rest) + "/pages";
   } else if (ch.source === "Asura") {
     const rest = chapterId.slice(3);
     const sep = rest.indexOf(":");
@@ -2859,7 +2865,7 @@ async function maybeShowUpdatePopup(){
 $("#updOk").addEventListener("click", () => $("#updModal").classList.add("hidden"));
 maybeShowUpdatePopup();
 checkPayload(false);
-["#heroImg", "#dPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
+["#heroImg", "#dPoster", "#mdPoster"].forEach(sel => { const im = $(sel); if (im) im.onerror = () => imgFallback(im); });
 $("#dFavBtn").addEventListener("click", async () => {
   const btn = $("#dFavBtn");
   const slug = btn.dataset.slug || currentSlug;
