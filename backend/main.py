@@ -107,6 +107,11 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_feedback_flush_bg())
     except Exception:
         pass
+    # Hangatkan cache Jadwal Rilis di background (sekali per boot bila belum ada).
+    try:
+        _spawn_background(_schedule_warmup_bg())
+    except Exception:
+        pass
     # Bersihkan cache kedaluwarsa saat startup. Semua TTL di modul database
     # bersifat "ignore on read" — tanpa sweeper ini tabel cache (terutama
     # subtitle_cache yang menyimpan payload VTT utuh) tumbuh tanpa batas.
@@ -1752,123 +1757,160 @@ ID_TO_EN = {
     "kamis": "thursday", "jumat": "friday", "sabtu": "saturday", "minggu": "sunday"
 }
 
+
+def _schedule_week_bounds():
+    """Batas pekan berjalan (Senin 00:00 — Minggu 23:59:59 WIB).
+    Return (mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday)."""
+    import datetime as _dt
+    tz_offset = 7 * 3600  # WIB (UTC+7)
+    now_utc = int(time.time())
+    now_wib = now_utc + tz_offset
+    now_dt_wib = _dt.datetime.fromtimestamp(now_utc, _dt.timezone(_dt.timedelta(hours=7)))
+    cur_weekday = now_dt_wib.weekday()  # 0=Monday, ..., 6=Sunday
+    today_mid_wib = (now_wib // 86400) * 86400
+    mon_mid_wib = today_mid_wib - (cur_weekday * 86400)
+    mon_mid_utc = mon_mid_wib - tz_offset
+    sun_end_wib = mon_mid_wib + (7 * 86400) - 1
+    sun_end_utc = sun_end_wib - tz_offset
+    return mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday
+
+
+async def _compute_schedule_week():
+    """Hitung jadwal rilis 7 hari (Senin-Minggu WIB) dari AniList + pencocokan
+    slug in-app. Dipakai endpoint /api/schedule dan warm-up startup.
+    Return dict cached_data (BELUM disimpan ke cache — pemanggil yang menyimpan)."""
+    import datetime as _dt
+    loop = asyncio.get_running_loop()
+    mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday = _schedule_week_bounds()
+    today_key = DAYS_KEYS[cur_weekday]
+    yesterday_key = DAYS_KEYS[(cur_weekday - 1) % 7]
+    tomorrow_key = DAYS_KEYS[(cur_weekday + 1) % 7]
+
+    schedules = await loop.run_in_executor(
+        None, lambda: al.anilist_schedules_range(mon_mid_utc, sun_end_utc, max_pages=6)
+    )
+
+    pending = []
+    seen_ids = set()
+    for s in schedules:
+        m = s.get("media") or {}
+        mid = m.get("id")
+        if not mid or mid in seen_ids:
+            continue
+        seen_ids.add(mid)
+        t_en = (m.get("title") or {}).get("english") or ""
+        t_ro = (m.get("title") or {}).get("romaji") or ""
+        primary_title = t_en or t_ro or ""
+        if not primary_title:
+            continue
+        if _known_non_jp_country(m.get("countryOfOrigin")):
+            continue
+        alt_title = t_ro if primary_title != t_ro else ""
+        pending.append((s, primary_title, alt_title))
+
+    slug_pairs = await _match_slug_batch([(t, alt) for _, t, alt in pending]) if pending else []
+    slug_by_title = {t: sl for t, sl in slug_pairs}
+
+    buckets = {k: [] for k in DAYS_KEYS}
+
+    for s, title, _ in pending:
+        slug = slug_by_title.get(title)
+        # FILTER KETAT: Yang tidak ada di dalam app Tatap di-REMOVE dari jadwal
+        if not slug:
+            continue
+
+        airing_at = int(s["airingAt"])
+        dt_wib = _dt.datetime.fromtimestamp(airing_at, _dt.timezone(_dt.timedelta(hours=7)))
+        time_str = dt_wib.strftime("%H:%M WIB")
+        date_str = dt_wib.strftime("%d %b")
+        item_weekday = dt_wib.weekday()
+        day_cat = DAYS_KEYS[item_weekday]
+        day_name = EN_TO_ID.get(day_cat, "Senin")
+
+        cover = (s.get("media") or {}).get("coverImage", {})
+        fmt = (s.get("media") or {}).get("format") or "TV"
+        score = (s.get("media") or {}).get("averageScore") or 0
+
+        item = {
+            "id": slug,
+            "title": title,
+            "episode": s.get("episode") or 0,
+            "airing_at": airing_at,
+            "time": time_str,
+            "date": date_str,
+            "day": day_cat,
+            "day_name": day_name,
+            "poster": cover.get("large") or cover.get("medium") or "",
+            "type": _format_to_type(fmt),
+            "score": round(score / 10.0, 1) if score else 0.0,
+            "country": ((s.get("media") or {}).get("countryOfOrigin") or "").upper(),
+            "matched": True,
+        }
+        buckets[day_cat].append(item)
+
+    for k in buckets:
+        buckets[k].sort(key=lambda x: x["airing_at"])
+
+    return {
+        "week_start": mon_mid_utc,
+        "week_end": sun_end_utc,
+        "current_day": today_key,
+        "current_day_name": EN_TO_ID[today_key],
+        "days": {k: buckets[k] for k in DAYS_KEYS},
+        "monday": buckets["monday"],
+        "tuesday": buckets["tuesday"],
+        "wednesday": buckets["wednesday"],
+        "thursday": buckets["thursday"],
+        "friday": buckets["friday"],
+        "saturday": buckets["saturday"],
+        "sunday": buckets["sunday"],
+        "today": buckets[today_key],
+        "yesterday": buckets[yesterday_key],
+        "tomorrow": buckets[tomorrow_key],
+        "counts": {
+            **{k: len(buckets[k]) for k in DAYS_KEYS},
+            "today": len(buckets[today_key]),
+            "yesterday": len(buckets[yesterday_key]),
+            "tomorrow": len(buckets[tomorrow_key]),
+        },
+        "total": sum(len(v) for v in buckets.values()),
+        "cached": False,
+    }
+
+
+async def _schedule_warmup_bg():
+    """Hangatkan cache /api/schedule pekan berjalan sekali saat boot bila belum ada.
+    Ketukan pertama tab Jadwal jadi instan (<1 dtk) tanpa menunggu pencocokan
+    slug HiAnime yang dinginnya bisa belasan detik hingga menit — di atas
+    batas baca 15 dtk klien native. Gagal diam-diam: endpoint tetap
+    menghitung saat diminta."""
+    try:
+        mon_mid_wib, _mon_mid_utc, _sun_end_utc, _wd = _schedule_week_bounds()
+        cache_key = f"schedule_7days_v2_{mon_mid_wib}"
+        if await get_browse_cache(cache_key, ttl=3600 * 2):
+            return
+        data = await _compute_schedule_week()
+        if data:
+            await set_browse_cache(cache_key, data)
+    except Exception:
+        pass
+
 @app.get("/api/schedule")
 async def anime_schedule(day: str = Query("today")):
     """Jadwal rilis anime 7 hari mingguan (Senin - Minggu) waktu WIB.
     HANYA menampilkan anime yang tersedia di aplikasi Tatap (memiliki slug valid).
     Anime yang tidak ada di aplikasi Tatap otomatis di-remove."""
     try:
-        import datetime as _dt
-        loop = asyncio.get_running_loop()
-        tz_offset = 7 * 3600  # WIB (UTC+7)
-        now_utc = int(time.time())
-        now_wib = now_utc + tz_offset
-        now_dt_wib = _dt.datetime.fromtimestamp(now_utc, _dt.timezone(_dt.timedelta(hours=7)))
-        cur_weekday = now_dt_wib.weekday()  # 0=Monday, ..., 6=Sunday
+        mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday = _schedule_week_bounds()
         today_key = DAYS_KEYS[cur_weekday]
         yesterday_key = DAYS_KEYS[(cur_weekday - 1) % 7]
         tomorrow_key = DAYS_KEYS[(cur_weekday + 1) % 7]
-
-        today_mid_wib = (now_wib // 86400) * 86400
-        mon_mid_wib = today_mid_wib - (cur_weekday * 86400)
-        mon_mid_utc = mon_mid_wib - tz_offset
-        sun_end_wib = mon_mid_wib + (7 * 86400) - 1
-        sun_end_utc = sun_end_wib - tz_offset
 
         cache_key = f"schedule_7days_v2_{mon_mid_wib}"
         cached_data = await get_browse_cache(cache_key, ttl=3600 * 2)
 
         if not cached_data:
-            schedules = await loop.run_in_executor(
-                None, lambda: al.anilist_schedules_range(mon_mid_utc, sun_end_utc, max_pages=6)
-            )
-
-            pending = []
-            seen_ids = set()
-            for s in schedules:
-                m = s.get("media") or {}
-                mid = m.get("id")
-                if not mid or mid in seen_ids:
-                    continue
-                seen_ids.add(mid)
-                t_en = (m.get("title") or {}).get("english") or ""
-                t_ro = (m.get("title") or {}).get("romaji") or ""
-                primary_title = t_en or t_ro or ""
-                if not primary_title:
-                    continue
-                if _known_non_jp_country(m.get("countryOfOrigin")):
-                    continue
-                alt_title = t_ro if primary_title != t_ro else ""
-                pending.append((s, primary_title, alt_title))
-
-            slug_pairs = await _match_slug_batch([(t, alt) for _, t, alt in pending]) if pending else []
-            slug_by_title = {t: sl for t, sl in slug_pairs}
-
-            buckets = {k: [] for k in DAYS_KEYS}
-
-            for s, title, _ in pending:
-                slug = slug_by_title.get(title)
-                # FILTER KETAT: Yang tidak ada di dalam app Tatap di-REMOVE dari jadwal
-                if not slug:
-                    continue
-
-                airing_at = int(s["airingAt"])
-                dt_wib = _dt.datetime.fromtimestamp(airing_at, _dt.timezone(_dt.timedelta(hours=7)))
-                time_str = dt_wib.strftime("%H:%M WIB")
-                date_str = dt_wib.strftime("%d %b")
-                item_weekday = dt_wib.weekday()
-                day_cat = DAYS_KEYS[item_weekday]
-                day_name = EN_TO_ID.get(day_cat, "Senin")
-
-                cover = (s.get("media") or {}).get("coverImage", {})
-                fmt = (s.get("media") or {}).get("format") or "TV"
-                score = (s.get("media") or {}).get("averageScore") or 0
-
-                item = {
-                    "id": slug,
-                    "title": title,
-                    "episode": s.get("episode") or 0,
-                    "airing_at": airing_at,
-                    "time": time_str,
-                    "date": date_str,
-                    "day": day_cat,
-                    "day_name": day_name,
-                    "poster": cover.get("large") or cover.get("medium") or "",
-                    "type": _format_to_type(fmt),
-                    "score": round(score / 10.0, 1) if score else 0.0,
-                    "country": ((s.get("media") or {}).get("countryOfOrigin") or "").upper(),
-                    "matched": True,
-                }
-                buckets[day_cat].append(item)
-
-            for k in buckets:
-                buckets[k].sort(key=lambda x: x["airing_at"])
-
-            cached_data = {
-                "week_start": mon_mid_utc,
-                "week_end": sun_end_utc,
-                "current_day": today_key,
-                "current_day_name": EN_TO_ID[today_key],
-                "days": {k: buckets[k] for k in DAYS_KEYS},
-                "monday": buckets["monday"],
-                "tuesday": buckets["tuesday"],
-                "wednesday": buckets["wednesday"],
-                "thursday": buckets["thursday"],
-                "friday": buckets["friday"],
-                "saturday": buckets["saturday"],
-                "sunday": buckets["sunday"],
-                "today": buckets[today_key],
-                "yesterday": buckets[yesterday_key],
-                "tomorrow": buckets[tomorrow_key],
-                "counts": {
-                    **{k: len(buckets[k]) for k in DAYS_KEYS},
-                    "today": len(buckets[today_key]),
-                    "yesterday": len(buckets[yesterday_key]),
-                    "tomorrow": len(buckets[tomorrow_key]),
-                },
-                "total": sum(len(v) for v in buckets.values()),
-                "cached": False,
-            }
+            cached_data = await _compute_schedule_week()
             await set_browse_cache(cache_key, cached_data)
 
         req_day = (day or "today").strip().lower()

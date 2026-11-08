@@ -147,7 +147,12 @@ def _get_al_client():
         _al_client = httpx.Client(
             timeout=httpx.Timeout(12.0, connect=5.0),
             limits=limits,
-            headers={"Content-Type": "application/json", "User-Agent": UA}
+            headers={"Content-Type": "application/json", "User-Agent": UA},
+            # Abaikan proxy env host: NO_PROXY berisi '[::1]' membuat httpx
+            # gagal parse (InvalidURL 'Invalid port') sehingga seluruh
+            # /api/schedule ikut gagal. Di Android tidak ada proxy env,
+            # jadi perilaku di HP tidak berubah.
+            trust_env=False,
         )
     return _al_client
 
