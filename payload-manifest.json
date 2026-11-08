@@ -1,9 +1,9 @@
 {
-  "version": 32,
-  "label": "Isi 2.28.1 - Perbaikan gambar reader Manhwa",
-  "notes": "Gambar reader Manhwa kini punya fallback 3 tahap seperti poster: coba ulang proksi, coba URL langsung, baru tampilkan pesan gagal; mode Halaman dapat tombol Coba lagi. Proksi gambar /api/img: timeout 30 detik dan fallback TLS desync sekali bila fetch normal gagal. Manhwaindo Age of Terror Bab 325 terverifikasi 31 halaman di sandbox.",
+  "version": 33,
+  "label": "Isi 2.28.1 - Cover manga + provider Komiku",
+  "notes": "Fallback cover manga di 4 tempat (grid, Lanjut Baca, rail Terbaru, poster detail) + provider baru Komiku (komiku.org): cari, detail, bab, halaman. Merge v18-V21 dipertahankan; Komiku di atas Manhwaindo.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-32/lumio-payload.zip",
-  "sha256": "50389a28c5bb6e2a7b54f798151f071c9dc7bbc86701e974f4a00957c2c1d6ba",
-  "size": 1036197
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-33/lumio-payload.zip",
+  "sha256": "8b4f9d1ba61d1ecfdbde7c82647325412ed8a8162b383e0bf138dd28468b1daa",
+  "size": 1041287
 }
