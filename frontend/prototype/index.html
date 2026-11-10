@@ -3155,6 +3155,9 @@ window.LUMIO_back = function(){
   if (!$("#detailModal").classList.contains("hidden")) { closeModal("detailModal"); return true; }
   if (!$("#viewSoon").classList.contains("hidden")) { showCategory("anime"); return true; }
   if (!$("#viewGrid").classList.contains("hidden")) { goHome(); return true; }
+  if (!$("#viewMangaReader").classList.contains("hidden")) { mangaSaverStop(); showView("mangaDetail"); return true; }
+  if (!$("#viewMangaDetail").classList.contains("hidden")) { showView("manga"); renderMangaHistRail(); return true; }
+  if (!$("#viewManga").classList.contains("hidden")) { goHome(); return true; }
   return false;
 };
 
