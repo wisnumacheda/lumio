@@ -491,6 +491,109 @@
   .upd-banner button{border:0;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
   .upd-banner .go{background:var(--acc,#7c5cff);color:#fff}
   .upd-banner .no{background:transparent;color:var(--faint,#9a9ab0)}
+
+  /* ---------- MODE TV v1 (10-foot UI — hanya saat body.tv-mode) ---------- */
+  #tvNav{display:none}
+  #heroFav{display:none}
+  body.tv-mode header.nav{display:none}
+  body.tv-mode #tvNav{display:flex;position:fixed;left:0;top:0;bottom:0;width:272px;z-index:70;
+    flex-direction:column;gap:6px;padding:28px 18px;
+    background:linear-gradient(180deg,#141128,#0b0a12);border-right:1px solid var(--line)}
+  body.tv-mode .tv-brand{display:flex;align-items:center;gap:12px;padding:6px 10px 22px;white-space:nowrap}
+  body.tv-mode .tv-brand .logo{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--acc),#6d28d9);font-size:25px;
+    box-shadow:0 4px 18px rgba(139,92,246,.45)}
+  body.tv-mode .tv-brand .name{font-size:30px;font-weight:800;letter-spacing:.5px}
+  body.tv-mode .tv-brand .name em{font-style:normal;color:var(--acc2)}
+  body.tv-mode .tv-badge{font-size:11px;font-weight:800;letter-spacing:1px;color:#1a1207;
+    background:linear-gradient(90deg,var(--amber),var(--amber-d));padding:4px 9px;border-radius:99px}
+  body.tv-mode .tv-nav-item{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+    padding:16px 18px;border-radius:14px;font-size:21px;font-weight:700;color:var(--muted);transition:.18s}
+  body.tv-mode .tv-nav-item:hover{color:var(--txt);background:rgba(255,255,255,.06)}
+  body.tv-mode .tv-nav-item.active{color:#fff;background:linear-gradient(135deg,var(--acc),#7c3aed);
+    box-shadow:0 4px 14px rgba(139,92,246,.4)}
+  body.tv-mode main{max-width:none;margin:0;padding:0 44px 60px 316px}
+  body.tv-mode #animeSubNav,body.tv-mode #genreRow,body.tv-mode #allAnimeSec,
+  body.tv-mode .rail-nav,body.tv-mode #mangaSearchForm,body.tv-mode #mangaChips,
+  body.tv-mode .manga-filters,body.tv-mode #btnReaderMode,body.tv-mode footer,
+  body.tv-mode #ptrPill{display:none !important}
+  body.tv-mode .hero{min-height:560px;margin:28px 0 8px;border-radius:24px}
+  body.tv-mode .hero .inner{padding:52px 36px 48px;max-width:860px}
+  body.tv-mode .hero h1{font-size:64px}
+  body.tv-mode .hero p{font-size:20px;max-width:780px}
+  body.tv-mode .hero .btn{font-size:20px;padding:16px 32px}
+  body.tv-mode #heroFav{display:inline-flex}
+  body.tv-mode .rail-sec{margin-top:44px}
+  body.tv-mode .rail-head h2{font-size:30px}
+  body.tv-mode .rail-head .sub{font-size:16px}
+  body.tv-mode .see-all{font-size:17px}
+  body.tv-mode .rail{gap:20px;padding:10px 4px 22px}
+  body.tv-mode .rail .card{flex:0 0 210px}
+  body.tv-mode .card .ttl{font-size:18px;min-height:48px}
+  body.tv-mode .card .sub-meta .mini{font-size:12px}
+  body.tv-mode .grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:28px 20px}
+  body.tv-mode .grid-head h2{font-size:30px}
+  body.tv-mode .grid-head .count{font-size:17px}
+  body.tv-mode .btn-back{font-size:18px;padding:12px 24px}
+  body.tv-mode .load-more{font-size:18px;padding:16px 40px}
+  body.tv-mode .modal{padding:40px}
+  body.tv-mode .detail-box{max-width:1240px}
+  body.tv-mode .detail-top{grid-template-columns:300px 1fr;gap:30px;padding:36px}
+  body.tv-mode .detail-top h2{font-size:38px}
+  body.tv-mode .detail-top .syn{font-size:19px}
+  body.tv-mode .detail-body .syn{font-size:18px}
+  body.tv-mode .fav-btn{font-size:18px;padding:13px 24px}
+  body.tv-mode .eps-sec h3{font-size:22px}
+  body.tv-mode .eps-sec .hint{font-size:15px}
+  body.tv-mode .eps-grid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px}
+  body.tv-mode .ep-btn{font-size:22px;padding:18px 0}
+  body.tv-mode .eps-pill{font-size:17px;padding:10px 18px}
+  body.tv-mode .gtags button{font-size:15px;padding:8px 16px}
+  body.tv-mode .kv div{min-width:120px}
+  body.tv-mode .kv b{font-size:12px}
+  body.tv-mode .kv span{font-size:16px}
+  body.tv-mode .player-box{max-width:1600px}
+  body.tv-mode .player-head h3{font-size:20px}
+  body.tv-mode .ctl-btn{font-size:17px;padding:12px 18px}
+  body.tv-mode .ctl-center{width:96px;height:96px;font-size:34px}
+  body.tv-mode .ctl-mid-btn{font-size:17px;padding:13px 20px}
+  body.tv-mode .ctl-time{font-size:16px}
+  body.tv-mode .skip-btn{font-size:18px;padding:14px 26px;bottom:110px}
+  body.tv-mode .ctl-panel{min-width:320px}
+  body.tv-mode .ctl-panel button{font-size:17px;padding:13px 14px}
+  body.tv-mode .ctl-panel .ph{font-size:13px}
+  body.tv-mode .ep-picker-grid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px}
+  body.tv-mode .ep-picker-grid button{font-size:20px;padding:16px 4px}
+  body.tv-mode .next-ep-title{font-size:19px}
+  body.tv-mode .drawer{width:min(680px,62vw);padding:30px}
+  body.tv-mode .drawer-head h3{font-size:24px}
+  body.tv-mode .set-row .lbl{font-size:18px}
+  body.tv-mode .set-row .desc{font-size:15px}
+  body.tv-mode .seg button{font-size:16px;padding:11px 18px}
+  body.tv-mode .set-select{font-size:17px;padding:13px}
+  body.tv-mode .btn-reset{font-size:16px;padding:14px}
+  body.tv-mode .reader-top .rt-title{font-size:19px}
+  body.tv-mode .reader-pages{max-width:900px}
+  body.tv-mode .manga-ch{font-size:17px;padding:14px 8px}
+  body.tv-mode .manga-chapters{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  body.tv-mode .manga-detail h2{font-size:30px}
+  body.tv-mode .manga-detail .meta{font-size:16px}
+  body.tv-mode .manga-detail .syn{font-size:17px}
+  body.tv-mode .page-nav button,body.tv-mode .reader-nav button{font-size:17px;padding:16px}
+  body.tv-mode .page-nav .pg-count{font-size:16px}
+  body.tv-mode .manga-head h2{font-size:28px}
+  body.tv-mode .soon-wrap h2{font-size:34px}
+  body.tv-mode .soon-wrap p{font-size:18px}
+  body.tv-mode .state-box h3{font-size:24px}
+  body.tv-mode .state-box p{font-size:17px}
+  /* Cincin fokus D-pad: kartu/nav yang terfokus membesar + ring ungu menyala. */
+  body.tv-mode .tv-focus{outline:none !important;
+    box-shadow:0 0 0 4px #c4b5fd,0 0 28px rgba(167,139,250,.9) !important;
+    transform:scale(1.06);z-index:5;position:relative}
+  body.tv-mode .card.tv-focus{transform:scale(1.07)}
+  body.tv-mode .card.tv-focus .poster{border-color:var(--acc2)}
+  body.tv-mode .card.tv-focus .play-ico{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  body.tv-mode .tv-nav-item.tv-focus{transform:scale(1.04)}
 </style>
 </head>
 <body>
@@ -512,6 +615,22 @@
   </form>
   
 </header>
+
+<!-- ============ NAV RAIL TV v1 (hanya tampil saat body.tv-mode) ============ -->
+<nav id="tvNav" aria-label="Navigasi TV">
+  <div class="tv-brand">
+    <div class="logo">🎬</div>
+    <div class="name">Lum<em>io</em></div>
+    <span class="tv-badge">TV</span>
+  </div>
+  <button class="tv-nav-item active" data-tvnav="home">🏠 LUMIO</button>
+  <button class="tv-nav-item" data-tvnav="anime">🎌 Anime</button>
+  <button class="tv-nav-item" data-tvnav="donghua">🐉 Donghua</button>
+  <button class="tv-nav-item" data-tvnav="manhwa">📖 Manhwa</button>
+  <button class="tv-nav-item" data-tvnav="jadwal">📅 Jadwal Rilis</button>
+  <button class="tv-nav-item" data-tvnav="fav">❤ Favorit</button>
+  <button class="tv-nav-item" data-tvnav="settings">⚙️ Pengaturan</button>
+</nav>
 
 <!-- ============ DRAWER NAVIGASI (hamburger) ============ -->
 <div class="nav-overlay hidden" id="navOverlay"></div>
@@ -562,6 +681,7 @@
         <div class="actions">
           <button class="btn btn-play" id="heroPlay">▶ Putar</button>
           <button class="btn btn-ghost" id="heroDetail">ℹ Detail</button>
+          <button class="btn btn-ghost" id="heroFav">🤍 Favorit</button>
         </div>
       </div>
     </section>
@@ -1025,6 +1145,19 @@
 <script>
 "use strict";
 /* ============================================================
+   MODE TV v1 (payload v39) — deteksi, dibaca SEBELUM render pertama.
+   Kontrak: PRIMER ?tv=1 | SEKUNDER LumioNative.isTv() | OPSIONAL localStorage lumio_tv=1.
+   Semua perubahan TV dijaga IS_TV; layout/logika HP tidak berubah.
+   ============================================================ */
+const TV_QS = new URLSearchParams(location.search);
+let TV_BRIDGE = false;
+try { TV_BRIDGE = !!(window.LumioNative && LumioNative.isTv && LumioNative.isTv()); } catch (e) {}
+let TV_LS = false;
+try { TV_LS = localStorage.getItem("lumio_tv") === "1"; } catch (e) {}
+window.LUMIO_TV = TV_QS.get("tv") === "1" || TV_BRIDGE || TV_LS;
+const IS_TV = !!window.LUMIO_TV;
+if (IS_TV) document.body.classList.add("tv-mode");
+/* ============================================================
    Lumio — Prototype UI Baru
    Semua data dari backend lokal Lumio yang sama (/api/...).
    Bentuk respons terverifikasi langsung dari server berjalan:
@@ -1174,6 +1307,7 @@ function fillHero(it){
   $("#heroChips").innerHTML = chips.join("");
   $("#heroSkel").classList.add("hidden");
   $("#hero").classList.remove("hidden");
+  if (IS_TV) { refreshHeroFavBtn(); tvEnsureFocus(tvInitialForScreen()); }
 }
 $("#heroDetail").addEventListener("click", () => { if (heroItem) openDetail(heroItem.id); });
 $("#heroPlay").addEventListener("click", async () => {
@@ -1330,6 +1464,8 @@ const SEE_ALL = {
   railPopuler: {title: "Populer Sekarang", loader: p => api("/api/catalog?page=" + p)},
   railMusim:   {title: "Musim Ini", loader: nowGridLoader},
   railTayang:  {title: "Masih Tayang", loader: airingGridLoader},
+  railDonghua: {title: "🐉 Donghua", loader: donghuaLoader},
+  railManhwa:  {title: "📖 Manhwa", loader: null, tvGo: () => openMangaBrowser()},
 };
 async function loadBaruRail(){
   // "Baru Diupdate" = anime ONGOING yang episodenya paling segar dari sumber.
@@ -1379,8 +1515,15 @@ async function loadAllAnime(append){
 $("#btnAllMore").addEventListener("click", () => { allAnimePage++; loadAllAnime(true); });
 async function loadHome(){
   hideState();
-  $("#rails").innerHTML =
-    railSection("railHist", "▶️ Lanjut Nonton", "Terakhir kamu tonton — klik untuk melanjutkan", false) +
+  // Mode TV v1: rail TV (Lanjut Nonton, Trending, Musim Ini, Donghua, Manhwa).
+  // Tanpa rail Baru/Rilis/Tayang dan tanpa grid Semua Anime (disembunyikan CSS TV).
+  $("#rails").innerHTML = IS_TV
+    ? railSection("railHist", "▶️ Lanjut Nonton", "Terakhir kamu tonton — lanjutkan dari episode terakhir", false)
+    + railSection("railPopuler", "🔥 Trending", "Paling banyak ditonton di katalog", true)
+    + railSection("railMusim", "Musim Ini", "Rilisan musim berjalan", true)
+    + railSection("railDonghua", "🐉 Donghua", "Animasi Cina — video", true)
+    + railSection("railManhwa", "📖 Manhwa", "Manhwa populer — baca di TV mode halaman", true)
+    : railSection("railHist", "▶️ Lanjut Nonton", "Terakhir kamu tonton — klik untuk melanjutkan", false) +
     railSection("railBaru", "🆕 Baru Diupdate", "Anime ongoing dengan episode paling segar dari sumber", true) +
     (SETTINGS.sort === "terbaru" ? railSection("railRilis", "📅 Jadwal Rilis", "Jadwal rilis minggu ini — hari ini paling atas, kemarin di bawahnya") : "") +
     railSection("railPopuler", "Populer Sekarang", "Paling banyak ditonton di katalog", true) +
@@ -1394,10 +1537,12 @@ async function loadHome(){
   $$(".see-all").forEach(b => b.addEventListener("click", () => {
     const cfg = SEE_ALL[b.dataset.seeall];
     if (!cfg) return;
+    if (cfg.tvGo) { cfg.tvGo(); return; }
     setActiveSection("");
     openGrid(cfg.title, cfg.loader);
   }));
   renderHistRail();
+  if (IS_TV) { await tvLoadHome(); return; }
 
   let firstError = null;
   const jobs = [
@@ -1527,7 +1672,10 @@ function showView(name){
   $("#viewMangaDetail").classList.toggle("hidden", name !== "mangaDetail");
   $("#viewMangaReader").classList.toggle("hidden", name !== "mangaReader");
   hideState();
-  window.scrollTo({top: 0, behavior: "smooth"});
+  /* Di TV scroll instan (lihat tvSetFocus): smooth membuat rect berubah
+     saat tombol berikutnya ditekan sehingga geometri D-pad salah sasaran. */
+  window.scrollTo({top: 0, behavior: IS_TV ? "auto" : "smooth"});
+  if (IS_TV) setTimeout(() => tvEnsureFocus(tvInitialForScreen()), 60);
 }
 /* ---------------- Seksi aktif di drawer (v34: drawer menggantikan tab bar) ---------------- */
 function setActiveSection(sec){
@@ -1565,6 +1713,7 @@ async function openGrid(title, loader, append){
     const total = grid.querySelectorAll(".card").length;
     $("#gridCount").textContent = total + " judul" + (gridTotalPages > 1 ? ` · halaman ${gridPage} dari ${gridTotalPages}` : "");
     $("#btnMore").classList.toggle("hidden", !(gridPage < gridTotalPages));
+    if (IS_TV) tvEnsureFocus();
   } catch (e) {
     if (!append) grid.innerHTML = "";
     showState("⚠️", "Gagal memuat data", e.message, () => openGrid(title, gridLoader));
@@ -1608,6 +1757,7 @@ document.addEventListener("touchend", async () => {
 $("#btnBack").addEventListener("click", goHome);
 function goHome(){
   setActiveSection("anime");
+  if (IS_TV) tvSetActiveNav("home");
   setActiveSub("all");
   $$("#genreRow .gchip.active").forEach(x => x.classList.remove("active"));
   showView("home");
@@ -1666,12 +1816,13 @@ $("#searchInput").addEventListener("input", e => {
 
 /* ---------------- Detail modal ---------------- */
 let currentSlug = null, currentItem = null;
-function openModal(id){ document.getElementById(id).classList.remove("hidden"); document.body.style.overflow = "hidden"; }
+function openModal(id){ document.getElementById(id).classList.remove("hidden"); document.body.style.overflow = "hidden"; if (IS_TV) setTimeout(() => tvEnsureFocus(tvInitialForScreen()), 60); }
 function closeModal(id){
   document.getElementById(id).classList.add("hidden");
   if (id === "playerModal") { stopPlayer(); renderHistRail(); exitFs(); }
   if ($("#playerModal").classList.contains("hidden") && $("#detailModal").classList.contains("hidden"))
     document.body.style.overflow = "";
+  if (IS_TV) setTimeout(() => tvEnsureFocus(tvInitialForScreen()), 60);
 }
 $$("[data-close]").forEach(b => b.addEventListener("click", () => closeModal(b.dataset.close)));
 $$(".modal").forEach(m => m.addEventListener("click", e => { if (e.target === m) closeModal(m.id); }));
@@ -1797,6 +1948,7 @@ function renderEpisodeGrid(slug, focusEp){
     return `<button class="${cls}" data-ep="${e.ep}">${e.ep}${isNew ? " 🆕" : (isLast ? " ▶" : "")}</button>`;
   }).join("");
   $$("#epsGrid .ep-btn").forEach(b => b.addEventListener("click", () => playEpisode(slug, Number(b.dataset.ep))));
+  if (IS_TV) tvEnsureFocus();
 }
 
 async function openDetail(slug, autoplayEp){
@@ -1923,6 +2075,7 @@ function startNextEpCountdown(){
   const c = $("#nextEpCount"); if (c) c.textContent = nextEpLeft;
   const ov = $("#nextEpOverlay"); if (ov) ov.classList.remove("hidden");
   showCtl();
+  if (IS_TV) tvSetFocus($("#nextEpNow"));
   nextEpTimer = setInterval(() => {
     nextEpLeft -= 1;
     if (nextEpLeft <= 0) { playNextEpisode(); return; }
@@ -1944,6 +2097,7 @@ function openEpPicker(){
   }));
   $("#epPicker").classList.remove("hidden");
   showCtl();
+  if (IS_TV) tvSetFocus(grid.querySelector("button"));
 }
 video.addEventListener("timeupdate", () => {
   const cand = [window._intro, window._outro].filter(Boolean)
@@ -2021,6 +2175,7 @@ function showCtl(){
     if (!ctlOn || video.paused || ctlSeeking) return;
     if (!$("#ctlPanel").classList.contains("hidden")) { showCtl(); return; }
     bar.classList.add("off"); $("#ctlPanel").classList.add("hidden");
+    if (typeof IS_TV !== "undefined" && IS_TV) tvClearFocus();
   }, 3200);
 }
 function hideCtl(){ const bar = $("#ctlBar"); if (bar) bar.classList.add("off"); }
@@ -2073,6 +2228,7 @@ function ctlPanelShow(kind){
   }));
   panel.classList.remove("hidden");
   showCtl();
+  if (typeof IS_TV !== "undefined" && IS_TV) tvSetFocus(panel.querySelector("button"));
 }
 document.addEventListener("fullscreenchange", () => {
   const wrap = document.querySelector(".video-wrap");
@@ -2990,6 +3146,7 @@ async function openMangaDetail(id){
     $("#mdChapters").innerHTML = desc.map(c =>
       `<button class="manga-ch" data-ch="${esc(c.id)}">Bab ${esc(c.chapter || "?")}${c.external ? " ↗" : ""}`
       + `<small>${esc(c.source || "")}${c.lang ? " · " + esc(c.lang) : ""}${c.external ? " · Resmi" : ""}${c.title ? " · " + esc(c.title) : ""}</small></button>`).join("");
+    if (IS_TV) tvSetFocus($("#mdChapters .manga-ch"));
   } catch (e) { $("#mdChHint").textContent = "❌ Gagal memuat: " + e.message; }
 }
 function mangaChapterIndex(){ return mangaChapters.findIndex(c => c.id === (mangaCurChapter && mangaCurChapter.id)); }
@@ -3017,6 +3174,9 @@ async function openMangaReader(chapterId){
   if (!ch) return;
   mangaCurChapter = ch;
   mangaCurPageIdx = 0;
+  // Mode TV v1: reader HANYA Mode Halaman (Webtoon nonaktif — scroll vertikal
+  // pakai remote buruk). Dipaksa di sini supaya SETTINGS lama tidak bocor.
+  if (IS_TV) { SETTINGS.mangaReaderMode = "page"; syncReaderModeBtn(); }
   showView("mangaReader");
   window.scrollTo({top: 0});
   $("#readerHint").textContent = "Memuat halaman…";
@@ -3061,6 +3221,7 @@ async function openMangaReader(chapterId){
       : d.total + " halaman — geser ke bawah untuk membaca." + (SETTINGS.mangaDataSaver ? " 🌿 Mode Hemat aktif: gambar dimuat satu per satu saat mendekati layar." : "");
     $("#btnReaderSaver").classList.remove("hidden"); syncReaderSaverBtn(); syncReaderModeBtn();
     renderMangaPages();
+    if (IS_TV) tvSetFocus(($("#btnPageNext") && !$("#btnPageNext").disabled) ? $("#btnPageNext") : $("#btnReaderBack"));
   } catch (e) { mangaCurPages = []; $("#readerHint").textContent = "❌ " + e.message; }
 }
 $("#mangaGrid").addEventListener("click", e => {
@@ -3151,7 +3312,12 @@ async function checkUpdate(){
 window.LUMIO_back = function(){
   if ($("#navDrawer").classList.contains("open")) { closeNavDrawer(); return true; }
   if (!$("#settingsWrap").classList.contains("hidden")) { closeSettings(); return true; }
-  if (!$("#playerModal").classList.contains("hidden")) { closeModal("playerModal"); return true; }
+  if (!$("#playerModal").classList.contains("hidden")) {
+    // Panel pengaturan player / pemilih episode ditutup dulu sebelum player.
+    if (!$("#ctlPanel").classList.contains("hidden")) { $("#ctlPanel").classList.add("hidden"); showCtl(); if (IS_TV) setTimeout(() => tvEnsureFocus(), 60); return true; }
+    if (!$("#epPicker").classList.contains("hidden")) { $("#epPicker").classList.add("hidden"); showCtl(); if (IS_TV) setTimeout(() => tvEnsureFocus(), 60); return true; }
+    closeModal("playerModal"); return true;
+  }
   if (!$("#detailModal").classList.contains("hidden")) { closeModal("detailModal"); return true; }
   if (!$("#viewSoon").classList.contains("hidden")) { showCategory("anime"); return true; }
   if (!$("#viewGrid").classList.contains("hidden")) { goHome(); return true; }
@@ -3160,6 +3326,364 @@ window.LUMIO_back = function(){
   if (!$("#viewManga").classList.contains("hidden")) { goHome(); return true; }
   return false;
 };
+
+/* ---------------- Mode TV v1: navigasi D-pad ----------------
+   Model fokus SPASIAL (geometri): dari elemen terfokus, panah memilih
+   kandidat terdekat ke arah itu (jarak sumbu utama + 2.5x jarak sumbu
+   silang). Satu model untuk semua layar: beranda, grid, detail,
+   player, manhwa, reader, pengaturan. Fokus tidak pernah hilang:
+   tvEnsureFocus() dipanggil di tiap transisi layar (showView/openModal/
+   closeModal/renderEpisodeGrid/openGrid) dan menjaga fokus yang masih
+   terlihat, atau memulihkan ke fokus awal layar itu.
+   Player: saat kontrol tersembunyi, kiri/kanan = seek ±10 dtk dan
+   atas/bawah/Enter = munculkan kontrol; saat kontrol tampil, panah
+   memindah fokus antar tombol dan Enter mengaktifkan (⏪10/10⏩ = seek).
+   Reader Manhwa TV: HANYA Mode Halaman (dipaksa di openMangaReader);
+   kiri/kanan = ganti halaman, di ujung bab lanjut ke bab sebelah. */
+let tvCur = null;
+function tvVisible(el){
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return false;
+  const cs = getComputedStyle(el);
+  return cs.display !== "none" && cs.visibility !== "hidden";
+}
+function tvLayerScope(){
+  const vis = id => { const e = document.getElementById(id); return e && !e.classList.contains("hidden"); };
+  if (vis("playerModal")) return document.getElementById("playerModal");
+  if (vis("detailModal")) return document.getElementById("detailModal");
+  const sw = document.getElementById("settingsWrap");
+  if (sw && !sw.classList.contains("hidden")) return sw;
+  if (vis("updModal")) return document.getElementById("updModal");
+  return null;
+}
+function tvFocusables(){
+  const layer = tvLayerScope();
+  let roots = [];
+  if (layer) roots = [layer];
+  else {
+    roots = [document.getElementById("tvNav")];
+    ["viewHome","viewGrid","viewSoon","viewManga","viewMangaDetail","viewMangaReader"].forEach(id => {
+      const v = document.getElementById(id);
+      if (v && !v.classList.contains("hidden")) roots.push(v);
+    });
+    const sb = document.getElementById("stateBox");
+    if (sb && !sb.classList.contains("hidden")) roots.push(sb);
+  }
+  let els = [];
+  /* ".card" ditambahkan: kartu Manhwa (mangaCardHTML + template Terbaru +
+     Lanjut Baca) adalah <article> TANPA tabindex — tanpa ini mereka tidak
+     pernah masuk daftar fokus TV (kartu anime punya tabindex="0" di
+     cardHTML). Di TV, kartu diklik via Enter pada elemen terfokus. */
+  roots.forEach(root => { if (root) els.push(...root.querySelectorAll("button, [tabindex], select, input, a[href], .card")); });
+  const isPlayer = layer && layer.id === "playerModal";
+  if (isPlayer) {
+    const ctlOff = $("#ctlBar") && $("#ctlBar").classList.contains("off");
+    const overlayOpen = !$("#ctlPanel").classList.contains("hidden")
+      || !$("#epPicker").classList.contains("hidden")
+      || !$("#nextEpOverlay").classList.contains("hidden");
+    // Kontrol tersembunyi: hanya Skip Intro yang tetap bisa difokuskan;
+    // panah kiri/kanan saat itu = seek (ditangani tvPlayerKey).
+    if (ctlOff && !overlayOpen) els = els.filter(el => el.id === "skipBtn");
+    else if (ctlOff) els = els.filter(el => !el.closest("#ctlBar"));
+  }
+  return els.filter(el => {
+    if (!el || el.disabled) return false;
+    if (el.closest("#navDrawer")) return false;
+    if (el.classList.contains("hist-x")) return false;
+    /* Tombol kecil "Bab 1 / Bab Terbaru" di kartu Terbaru Manhwa:
+       fungsi yang sama ada di daftar bab detail — di TV jangan jadi
+       pemberhentian fokus (memperlambat perjalanan D-pad antar kartu). */
+    if (el.closest(".manga-jump")) return false;
+    if (el.tagName === "INPUT" && (el.type === "range" || el.type === "hidden" || el.type === "search")) return false;
+    /* Pilih server/kualitas di kepala player adalah kontrol sentuh kecil
+       yang duplikat dengan tombol 🌐 Server / 🎚️ Kualitas di bar kontrol
+       (panelnya bisa difokuskan) — jangan biarkan D-pad nyangkut di sini,
+       karena panah di <select> mengubah pilihan, bukan memindah fokus. */
+    if (el.id === "serverSel" || el.id === "qualitySel") return false;
+    return tvVisible(el);
+  });
+}
+function tvSetFocus(el){
+  if (!el || !tvVisible(el)) return false;
+  $$(".tv-focus").forEach(x => x.classList.remove("tv-focus"));
+  el.classList.add("tv-focus");
+  tvCur = el;
+  try { el.focus({preventScroll: true}); } catch (e) { try { el.focus(); } catch (_) {} }
+  /* behavior:"instant": CSS html{scroll-behavior:smooth} membuat
+     scrollIntoView menganimasikan scroll — rect kandidat saat tombol
+     berikutnya ditekan masih di tengah animasi sehingga geometri
+     D-pad salah sasaran. Di TV scroll harus instan. */
+  try { el.scrollIntoView({block: "nearest", inline: "nearest", behavior: "instant"}); } catch (e) {}
+  return true;
+}
+function tvClearFocus(){
+  $$(".tv-focus").forEach(x => x.classList.remove("tv-focus"));
+  tvCur = null;
+}
+function tvInitialForScreen(){
+  const vis = id => { const e = document.getElementById(id); return e && !e.classList.contains("hidden"); };
+  if (vis("playerModal")) return $("#ctlPlayBig");
+  if (vis("detailModal")) return $("#epsGrid .ep-btn") || $("#dFavBtn");
+  const sw = document.getElementById("settingsWrap");
+  if (sw && !sw.classList.contains("hidden")) return $("#btnCloseSettings");
+  if (vis("updModal")) return $("#updOk");
+  if (vis("viewMangaReader")) { const nx = $("#btnPageNext"); return (nx && !nx.disabled) ? nx : $("#btnReaderBack"); }
+  if (vis("viewMangaDetail")) return $("#mdChapters .manga-ch") || $("#btnMangaDetailBack");
+  if (vis("viewGrid")) return $("#btnBack");
+  if (vis("viewSoon")) return $("#btnSoonBack");
+  if (vis("viewManga")) return $("#mangaHistGrid .card") || $("#mangaLatestGrid .card") || $("#mangaGrid .card") || $("#btnMangaBack");
+  if (vis("viewHome")) { const hp = $("#heroPlay"); return (hp && tvVisible(hp)) ? hp : $("#rails .card"); }
+  return null;
+}
+function tvEnsureFocus(prefer){
+  if (!IS_TV) return false;
+  const cands = tvFocusables();
+  if (!cands.length) { tvCur = null; return false; }
+  if (prefer && tvVisible(prefer) && !prefer.disabled && cands.includes(prefer)) return tvSetFocus(prefer);
+  if (tvCur && tvVisible(tvCur) && !tvCur.disabled && cands.includes(tvCur)) { tvCur.classList.add("tv-focus"); return true; }
+  const ae = document.activeElement;
+  if (ae && !ae.disabled && cands.includes(ae)) return tvSetFocus(ae);
+  const init = tvInitialForScreen();
+  if (init && cands.includes(init)) return tvSetFocus(init);
+  return tvSetFocus(cands[0]);
+}
+function tvMove(dir){
+  const cands = tvFocusables();
+  if (!cands.length) return false;
+  let cur = (tvCur && tvVisible(tvCur)) ? tvCur : null;
+  if (!cur) {
+    const ae = document.activeElement;
+    if (ae && cands.includes(ae)) cur = ae;
+  }
+  if (!cur) return tvSetFocus(cands[0]);
+  /* Nav kiri adalah daftar vertikal tetap (position:fixed) sementara
+     konten bisa ter-scroll: rect viewport keduanya tidak sebanding —
+     saat halaman ter-scroll, tombol hero bisa tampak "di atas" item nav
+     paling atas dan panah Atas dari LUMIO malah lompat ke hero.
+     Jadi di dalam nav, Atas/Bawah HANYA pindah antar item nav; Kanan
+     tetap ke konten lewat geometri; Kiri diam. */
+  if (cur.classList && cur.classList.contains("tv-nav-item")) {
+    const items = $$("#tvNav .tv-nav-item").filter(tvVisible);
+    const i = items.indexOf(cur);
+    if (dir === "up" && i > 0) return tvSetFocus(items[i - 1]);
+    if (dir === "down" && i >= 0 && i < items.length - 1) return tvSetFocus(items[i + 1]);
+    if (dir === "right") { /* lanjut ke geometri di bawah */ }
+    else return false;
+  }
+  const r = cur.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let best = null, bestScore = Infinity;
+  for (const el of cands) {
+    if (el === cur) continue;
+    const b = el.getBoundingClientRect();
+    const ex = b.left + b.width / 2, ey = b.top + b.height / 2;
+    let pd, sd;
+    if (dir === "right") { if (ex <= cx + 4) continue; pd = Math.max(0, b.left - r.right); sd = ey < r.top ? r.top - ey : (ey > r.bottom ? ey - r.bottom : 0); }
+    else if (dir === "left") { if (ex >= cx - 4) continue; pd = Math.max(0, r.left - b.right); sd = ey < r.top ? r.top - ey : (ey > r.bottom ? ey - r.bottom : 0); }
+    else if (dir === "down") { if (ey <= cy + 4) continue; pd = Math.max(0, b.top - r.bottom); sd = ex < r.left ? r.left - ex : (ex > r.right ? ex - r.right : 0); }
+    else { if (ey >= cy - 4) continue; pd = Math.max(0, r.top - b.bottom); sd = ex < r.left ? r.left - ex : (ex > r.right ? ex - r.right : 0); }
+    const score = pd + sd * 2.5;
+    if (score < bestScore) { bestScore = score; best = el; }
+  }
+  return best ? tvSetFocus(best) : false;
+}
+function tvSeek(d){
+  try { video.currentTime = Math.max(0, Math.min(video.duration || 1e18, video.currentTime + d)); } catch (e) {}
+  showSeekFx(d > 0 ? "R" : "L", 10);
+  showCtl();
+}
+function tvPlayerKey(k){
+  const ctlOff = $("#ctlBar").classList.contains("off");
+  const overlayOpen = !$("#ctlPanel").classList.contains("hidden")
+    || !$("#epPicker").classList.contains("hidden")
+    || !$("#nextEpOverlay").classList.contains("hidden");
+  const hidden = ctlOff && !overlayOpen;
+  if (k === "Enter") {
+    if (hidden) {
+      if (tvCur && tvCur.id === "skipBtn") { tvCur.click(); return; }
+      showCtl(); tvEnsureFocus($("#ctlPlayBig")); return;
+    }
+    const t = (tvCur && tvVisible(tvCur)) ? tvCur : document.activeElement;
+    if (t && (t.id === "ctlPlayBig" || t.id === "ctlPlay")) { togglePlay(); return; }
+    if (t && t.click) { t.click(); setTimeout(() => { if (IS_TV) tvEnsureFocus(); }, 150); return; }
+    togglePlay(); return;
+  }
+  if (hidden) {
+    if (k === "ArrowLeft") { tvSeek(-10); return; }
+    if (k === "ArrowRight") { tvSeek(10); return; }
+    showCtl(); tvEnsureFocus($("#ctlPlayBig")); return;
+  }
+  tvMove(k === "ArrowLeft" ? "left" : k === "ArrowRight" ? "right" : k === "ArrowUp" ? "up" : "down");
+}
+function tvBack(){
+  if (!$("#playerModal").classList.contains("hidden")) {
+    if (!$("#ctlPanel").classList.contains("hidden")) { $("#ctlPanel").classList.add("hidden"); showCtl(); tvEnsureFocus(); return; }
+    if (!$("#epPicker").classList.contains("hidden")) { $("#epPicker").classList.add("hidden"); showCtl(); tvEnsureFocus(); return; }
+    if (!$("#nextEpOverlay").classList.contains("hidden")) { cancelNextEp(); showCtl(); tvEnsureFocus(); return; }
+  }
+  const handled = window.LUMIO_back();
+  if (handled) setTimeout(() => { if (IS_TV) tvEnsureFocus(tvInitialForScreen()); }, 60);
+  /* handled === false di beranda = keluar aplikasi (native). Di browser tidak ada aksi. */
+}
+function tvSetActiveNav(key){
+  $$("#tvNav [data-tvnav]").forEach(b => b.classList.toggle("active", b.dataset.tvnav === key));
+}
+async function scheduleGridLoader(p){
+  const d = await api("/api/schedule?day=all");
+  const DAYS = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+  const byDay = (d && d.days) || {};
+  const todayKey = d && d.current_day;
+  const ti = DAYS.indexOf(todayKey);
+  const items = [];
+  for (let i = 0; i < 7; i++) {
+    const k = DAYS[(ti + i + 7) % 7];
+    const dayList = byDay[k] || [];
+    const label = k === todayKey ? "HARI INI" : String((dayList[0] && dayList[0].day_name) || k).toUpperCase();
+    dayList.forEach(it => { if (it && it.id) items.push({...it, badge: label, is_finished: false, eps_counter: it.episode ? String(it.episode) : "", duration: it.time || ""}); });
+  }
+  return {items: items.slice(0, 120), total_pages: 1};
+}
+function tvGoNav(key){
+  tvSetActiveNav(key);
+  if (key === "home" || key === "anime") goHome();
+  else if (key === "donghua") openDonghuaGrid();
+  else if (key === "manhwa") openMangaBrowser();
+  else if (key === "jadwal") openGrid("📅 Jadwal Rilis", scheduleGridLoader);
+  else if (key === "fav") openGrid("❤ Favorit Saya", favLoader);
+  else if (key === "settings") openSettings();
+  setTimeout(() => { if (IS_TV) tvEnsureFocus(tvInitialForScreen()); }, 80);
+}
+async function loadTvDonghuaRail(){
+  try { const d = await api("/api/donghua?page=1"); fillRail("railDonghua", d.items || []); }
+  catch (e) { fillRail("railDonghua", [], "Donghua gagal dimuat."); }
+}
+async function loadTvManhwaRail(){
+  try {
+    const d = await api("/api/manga/popular");
+    const sec = document.getElementById("railManhwa");
+    if (!sec) return;
+    const rail = $(".rail", sec);
+    const items = (d.items || []).slice(0, 14);
+    if (!items.length) { fillRail("railManhwa", [], "Belum ada data manhwa."); return; }
+    rail.innerHTML = items.map(mangaCardHTML).join("");
+    $$(".card", rail).forEach(c => {
+      c.tabIndex = 0;
+      const go = () => openMangaDetail(c.dataset.mid);
+      c.addEventListener("click", go);
+      c.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+    });
+  } catch (e) { fillRail("railManhwa", [], "Manhwa gagal dimuat: " + e.message); }
+}
+async function tvLoadHome(){
+  renderHistRail();
+  let firstError = null;
+  const jobs = [
+    api("/api/catalog?page=1").then(d => {
+      const items = d.items || [];
+      fillRail("railPopuler", sortItems(items));
+      if (items.length) {
+        const pool = items.slice(0, 10);
+        let pick = pool[Math.floor(Math.random() * pool.length)];
+        try {
+          const last = localStorage.getItem("lumio_last_hero");
+          if (pool.length > 1 && pick.id === last) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+          localStorage.setItem("lumio_last_hero", pick.id);
+        } catch (_) {}
+        fillHero(pick);
+      } else $("#heroSkel").classList.add("hidden");
+    }).catch(e => { firstError = firstError || e; fillRail("railPopuler", []); $("#heroSkel").classList.add("hidden"); }),
+    api("/api/seasonal?which=now").then(d => fillRail("railMusim", sortItems(d.items || []))).catch(() => fillRail("railMusim", [])),
+    loadTvDonghuaRail(),
+    loadTvManhwaRail(),
+  ];
+  await Promise.allSettled(jobs);
+  if (firstError) showState("🔌", "Backend tidak merespons", "Gagal memuat katalog (" + firstError.message + "). Pastikan server Lumio berjalan, lalu coba lagi.", loadHome);
+  tvEnsureFocus(tvInitialForScreen());
+}
+async function refreshHeroFavBtn(){
+  const btn = $("#heroFav");
+  if (!btn || !heroItem) return;
+  btn.textContent = "🤍 Favorit";
+  try {
+    const d = await api("/api/bookmarks/check?slug=" + encodeURIComponent(heroItem.id));
+    if (d && d.bookmarked) btn.textContent = "❤️ Favorit Saya";
+  } catch (_) {}
+}
+async function tvHeroFav(){
+  if (!heroItem) return;
+  const btn = $("#heroFav");
+  const slug = heroItem.id;
+  btn.disabled = true;
+  try {
+    const chk = await api("/api/bookmarks/check?slug=" + encodeURIComponent(slug));
+    if (chk && chk.bookmarked) {
+      await apiSend("DELETE", "/api/bookmarks/" + encodeURIComponent(slug));
+      btn.textContent = "🤍 Favorit"; toast("Dihapus dari Favorit.");
+    } else {
+      await apiSend("POST", "/api/bookmarks", {slug, title: heroItem.title || slug, poster: heroItem.poster || "", type: heroItem.type || "", sub: heroItem.sub == null ? "" : String(heroItem.sub), eps: heroItem.eps_counter || "", score: heroItem.score || 0});
+      btn.textContent = "❤️ Favorit Saya"; toast("Ditambahkan ke Favorit ❤");
+    }
+  } catch (e) { toast("Gagal mengubah favorit: " + e.message, true); }
+  finally { btn.disabled = false; }
+}
+if (IS_TV) {
+  $$("#tvNav [data-tvnav]").forEach(b => b.addEventListener("click", () => tvGoNav(b.dataset.tvnav)));
+  const hf = $("#heroFav");
+  if (hf) hf.addEventListener("click", tvHeroFav);
+  /* Handler D-pad: capture-phase di document supaya preventDefault +
+     stopPropagation mencegah handler kartu/modal HP ikut jalan ganda
+     (bindCards Enter, Escape modal, dsb). Input/select/textarea dibiarkan
+     menerima tombolnya sendiri (kecuali Escape = Back). */
+  document.addEventListener("keydown", e => {
+    const k = e.key;
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter","Escape"].indexOf(k) < 0) return;
+    const ae = document.activeElement;
+    const tag = ae && ae.tagName;
+    /* <select> (Pengaturan): panah atas/bawah memindah FOKUS ke kontrol
+       lain; kiri/kanan/Enter dibiarkan ke perilaku native select
+       (ganti opsi / buka dropdown sistem). Escape = Back. */
+    if (tag === "SELECT") {
+      if (k === "Escape") { e.preventDefault(); e.stopPropagation(); tvBack(); return; }
+      if (k === "ArrowUp" || k === "ArrowDown") {
+        e.preventDefault(); e.stopPropagation();
+        if (!tvCur || !tvVisible(tvCur)) tvEnsureFocus();
+        tvMove(k === "ArrowUp" ? "up" : "down");
+        return;
+      }
+      return;
+    }
+    if ((tag === "INPUT" || tag === "TEXTAREA") && k !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (k === "Escape") { tvBack(); return; }
+    if (!tvCur || !tvVisible(tvCur)) tvEnsureFocus();
+    const readerOpen = !$("#viewMangaReader").classList.contains("hidden");
+    const playerOpen = !$("#playerModal").classList.contains("hidden");
+    if (playerOpen) { tvPlayerKey(k); return; }
+    if (readerOpen && SETTINGS.mangaReaderMode === "page") {
+      if (k === "ArrowLeft") {
+        if (mangaCurPageIdx <= 0) mangaStep(-1); else mangaPageStep(-1);
+        setTimeout(() => { if (IS_TV) tvEnsureFocus(); }, 60);
+        return;
+      }
+      if (k === "ArrowRight") {
+        if (mangaCurPageIdx >= mangaCurPages.length - 1) mangaStep(1); else mangaPageStep(1);
+        setTimeout(() => { if (IS_TV) tvEnsureFocus(); }, 60);
+        return;
+      }
+      if (k === "Enter") { const t = (tvCur && tvVisible(tvCur)) ? tvCur : document.activeElement; if (t && t.click) t.click(); return; }
+      tvMove(k === "ArrowUp" ? "up" : "down");
+      return;
+    }
+    if (k === "Enter") {
+      const t = (tvCur && tvVisible(tvCur)) ? tvCur : document.activeElement;
+      if (t && t.click) { t.click(); setTimeout(() => { if (IS_TV) tvEnsureFocus(); }, 150); }
+      return;
+    }
+    tvMove(k === "ArrowLeft" ? "left" : k === "ArrowRight" ? "right" : k === "ArrowUp" ? "up" : "down");
+  }, true);
+}
 
 /* ---------------- Mulai ---------------- */
 loadHome();
