@@ -276,19 +276,24 @@ async def set_search_cache(query: str, payload):
 async def purge_expired_caches() -> dict:
     """Hapus entri cache yang sudah kedaluwarsa. Return jumlah baris per tabel."""
     now = _now()
+    # Baris Donghua (donghua_v2|...) DIKECUALIKAN dari purge browse_cache:
+    # halaman Donghua memakai TTL 12 jam sendiri dan dipertahankan sebagai
+    # kandidat stale-while-revalidate (/api/donghua menyajikannya saat
+    # kedaluwarsa sambil membangun ulang di latar). Jumlah kuncinya terbatas
+    # (satu baris per halaman x safe_mode) dan ditimpa ulang oleh build baru.
     specs = [
-        ("episode_cache", 12 * 3600),
-        ("search_cache", 24 * 3600),
-        ("browse_cache", 6 * 3600),
-        ("subtitle_cache", 7 * 24 * 3600),
-        ("slug_map", 7 * 24 * 3600),
+        ("episode_cache", 12 * 3600, ""),
+        ("search_cache", 24 * 3600, ""),
+        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v2|%'"),
+        ("subtitle_cache", 7 * 24 * 3600, ""),
+        ("slug_map", 7 * 24 * 3600, ""),
     ]
     removed = {}
     async with _write_db() as db:
-        for table, ttl in specs:
+        for table, ttl, extra in specs:
             try:
                 cutoff = now - ttl
-                cur = await db.execute(f"DELETE FROM {table} WHERE fetched_at < ?", (cutoff,))
+                cur = await db.execute(f"DELETE FROM {table} WHERE fetched_at < ?{extra}", (cutoff,))
                 removed[table] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
             except Exception:
                 removed[table] = 0
@@ -604,6 +609,23 @@ async def get_browse_cache(key: str, ttl=6*3600):
             if not row:
                 return None
             if _now() - row["fetched_at"] > ttl:
+                return None
+            try:
+                return json.loads(row["payload"])
+            except Exception:
+                return None
+
+async def get_browse_cache_stale(key: str):
+    """Ambil cache browse TANPA memeriksa TTL — untuk stale-while-revalidate.
+
+    Mengembalikan dict payload apa pun usianya, atau None bila tidak ada baris.
+    Dipakai endpoint yang menyajikan cache kedaluwarsa seketika sambil membangun
+    ulang di latar (mis. /api/donghua); kesegaran tetap dinilai pemanggil."""
+    async with _connect_db() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT payload, fetched_at FROM browse_cache WHERE key=?", (key,)) as cur:
+            row = await cur.fetchone()
+            if not row:
                 return None
             try:
                 return json.loads(row["payload"])

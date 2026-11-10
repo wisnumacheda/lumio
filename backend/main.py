@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, FileResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from config import APP_PORT, APP_HOST, HI_BASE, HI_UA
-from database import init_db, get_search_cache, set_search_cache, get_episode_cache, get_episode_cache_modes, set_episode_cache, delete_episode_cache, clear_episode_cache_for_slug, get_cached_episode, cache_episode, add_history, get_history, clear_history, save_progress, get_progress, clear_progress, add_bookmark, remove_bookmark, get_bookmarks, get_bookmark, update_bookmark_eps, is_bookmarked, clear_bookmarks, get_setting, get_settings_bulk, set_setting, get_browse_cache, set_browse_cache, get_slug_map, set_slug_map, get_subtitle_cache, set_subtitle_cache, delete_subtitle_cache, get_today_char_count, add_today_char_count
+from database import init_db, get_search_cache, set_search_cache, get_episode_cache, get_episode_cache_modes, set_episode_cache, delete_episode_cache, clear_episode_cache_for_slug, get_cached_episode, cache_episode, add_history, get_history, clear_history, save_progress, get_progress, clear_progress, add_bookmark, remove_bookmark, get_bookmarks, get_bookmark, update_bookmark_eps, is_bookmarked, clear_bookmarks, get_setting, get_settings_bulk, set_setting, get_browse_cache, set_browse_cache, get_browse_cache_stale, get_slug_map, set_slug_map, get_subtitle_cache, set_subtitle_cache, delete_subtitle_cache, get_today_char_count, add_today_char_count
 from api import hianime as hi
 from api import anilist as al
 from api import otakudesu as otaku
@@ -111,6 +111,11 @@ async def lifespan(app: FastAPI):
     # Hangatkan cache Jadwal Rilis di background (sekali per boot bila belum ada).
     try:
         _spawn_background(_schedule_warmup_bg())
+    except Exception:
+        pass
+    # Hangatkan cache Donghua halaman 1 di background (sekali per boot bila belum ada).
+    try:
+        _spawn_background(_donghua_warmup_bg())
     except Exception:
         pass
     # Bersihkan cache kedaluwarsa saat startup. Semua TTL di modul database
@@ -2157,6 +2162,102 @@ def _donghua_safe_filter(items, safe_mode_int):
     return out
 
 
+_DONGHUA_REFRESHING = set()  # kunci halaman yang sedang dibangun ulang di latar (SWR)
+
+
+async def _build_donghua_page(c_page: int, safe_mode_int: int):
+    """Bangun satu halaman daftar Donghua live dari AniList + pemetaan HiAnime.
+
+    Mengembalikan dict data (tanpa menulis cache); raise bila AniList gagal.
+    Dipakai endpoint /api/donghua, refresh latar SWR, dan warm-up startup.
+    Aturan buang-jujur dipertahankan: judul tak terpetakan dibuang, genre
+    Hentai selalu dibuang, ecchi/erotica dibuang saat safe_mode=1."""
+    loop = asyncio.get_running_loop()
+    dl = await loop.run_in_executor(
+        None, lambda: al.fetch_donghua_list(c_page, _DONGHUA_PER_PAGE))
+    raw_items = (dl or {}).get("items") or []
+    has_next = bool((dl or {}).get("has_next"))
+    sem = asyncio.Semaphore(4)
+
+    async def _one(it):
+        async with sem:
+            return await _map_donghua_item_to_hianime(it)
+
+    mapped = await asyncio.gather(
+        *(_one(it) for it in raw_items), return_exceptions=True)
+    items, dropped_unmapped, dropped_adult = [], 0, 0
+    for src, m in zip(raw_items, mapped):
+        if isinstance(m, Exception) or not m:
+            dropped_unmapped += 1
+            continue
+        genres = [g for g in ((src or {}).get("genres") or []) if g]
+        if any((g or "").strip().lower() == "hentai" for g in genres):
+            dropped_adult += 1
+            continue
+        fmt = (src.get("format") or "").upper()
+        card = {
+            "id": m["slug"],
+            "title": m["title"],
+            "poster": m["poster"] or ((src.get("coverImage") or {}).get("large") or ""),
+            "type": {"TV_SHORT": "TV"}.get(fmt, fmt) or None,
+        }
+        st = (src.get("status") or "").upper()
+        if st == "RELEASING":
+            card["badge"] = "ONGOING"
+            card["is_finished"] = False
+        elif st == "FINISHED":
+            card["badge"] = "TAMAT"
+            card["is_finished"] = True
+        if not _donghua_safe_filter([card], safe_mode_int):
+            dropped_adult += 1
+            continue
+        items.append(card)
+    return {
+        "items": items,
+        "page": c_page,
+        "total_pages": c_page + 1 if has_next else c_page,
+        "cached": False,
+        "debug": {"scanned": len(raw_items), "cn_confirmed": len(items),
+                  "unmapped": dropped_unmapped,
+                  "dropped_adult": dropped_adult, "source": "anilist-cn"},
+    }
+
+
+async def _refresh_donghua_page(c_page: int, safe_mode_int: int, key: str):
+    """Bangun ulang satu halaman Donghua di latar (stale-while-revalidate) dan
+    tulis cache baru bila lengkap. Gagal diam-diam: cache stale tetap tersaji
+    sampai refresh berikutnya. Satu kunci hanya dibangun sekali dalam satu waktu."""
+    if key in _DONGHUA_REFRESHING:
+        return
+    _DONGHUA_REFRESHING.add(key)
+    try:
+        data = await _build_donghua_page(c_page, safe_mode_int)
+        if data.get("items") and (data.get("debug") or {}).get("scanned", 0) >= _DONGHUA_PER_PAGE:
+            await set_browse_cache(key, data)
+    except Exception:
+        pass
+    finally:
+        _DONGHUA_REFRESHING.discard(key)
+
+
+async def _donghua_warmup_bg():
+    """Hangatkan cache /api/donghua halaman 1 sekali saat boot bila belum ada.
+
+    Bukaan pertama tab Donghua jadi instan tanpa menunggu AniList + pemetaan
+    slug HiAnime yang dinginnya belasan detik. Gagal diam-diam: endpoint
+    tetap menghitung saat diminta."""
+    try:
+        for safe in (1, 0):
+            key = f"donghua_v2|page=1|safe={safe}"
+            if await get_browse_cache(key, ttl=_DONGHUA_PAGE_TTL):
+                continue
+            data = await _build_donghua_page(1, safe)
+            if data.get("items") and (data.get("debug") or {}).get("scanned", 0) >= _DONGHUA_PER_PAGE:
+                await set_browse_cache(key, data)
+    except Exception:
+        pass
+
+
 @app.get("/api/donghua")
 async def donghua_ep(
     page: int = Query(1, ge=1, le=100),
@@ -2169,7 +2270,13 @@ async def donghua_ep(
     - Judul yang tak ketemu di HiAnime DIBUANG jujur (daftar hanya berisi yang
       bisa diputar); miss pemetaan di-cache 6 jam, sukses 30 hari.
     - AniList gagal = error jujur (TANPA fallback diam-diam, TANPA cache gagal).
-    - Halaman jadi di-cache 12 jam HANYA bila lengkap (semua terpetakan).
+    - Halaman jadi di-cache 12 jam bila daftar sumber lengkap (20 judul
+      dipindai) — judul tak terpetakan tetap dibuang dari daftar, tapi tidak
+      lagi menghalangi cache; refresh latar SWR memperbaiki daftar saat
+      pemetaan miss 6 jam kedaluwarsa.
+    - Stale-while-revalidate: cache kedaluwarsa disajikan LANGSUNG (ditandai
+      "stale": true) sambil dibangun ulang di latar; tanpa baris cache sama
+      sekali, bangun live seperti dulu. Warm-up startup menghangatkan halaman 1.
     - Blacklist dewasa paritas browse: genre Hentai AniList selalu dibuang
       (di samping isAdult=false di query); ecchi/erotica/magical-sex-shift
       dibuang saat safe_mode=1. Filter list Anime tetap JP-only (tak tersentuh).
@@ -2184,59 +2291,19 @@ async def donghua_ep(
         if hit and hit.get("items"):
             hit["cached"] = True
             return ok(hit)
-        loop = asyncio.get_running_loop()
+        stale = await get_browse_cache_stale(key)
+        if stale and stale.get("items"):
+            stale = dict(stale)
+            stale["cached"] = True
+            stale["stale"] = True
+            if key not in _DONGHUA_REFRESHING:
+                _spawn_background(_refresh_donghua_page(c_page, safe_mode_int, key))
+            return ok(stale)
         try:
-            dl = await loop.run_in_executor(
-                None, lambda: al.fetch_donghua_list(c_page, _DONGHUA_PER_PAGE))
+            data = await _build_donghua_page(c_page, safe_mode_int)
         except Exception as e:
             return fail(f"Daftar Donghua tak bisa dimuat: {e}")
-        raw_items = (dl or {}).get("items") or []
-        has_next = bool((dl or {}).get("has_next"))
-        sem = asyncio.Semaphore(4)
-
-        async def _one(it):
-            async with sem:
-                return await _map_donghua_item_to_hianime(it)
-
-        mapped = await asyncio.gather(
-            *(_one(it) for it in raw_items), return_exceptions=True)
-        items, dropped_unmapped, dropped_adult = [], 0, 0
-        for src, m in zip(raw_items, mapped):
-            if isinstance(m, Exception) or not m:
-                dropped_unmapped += 1
-                continue
-            genres = [g for g in ((src or {}).get("genres") or []) if g]
-            if any((g or "").strip().lower() == "hentai" for g in genres):
-                dropped_adult += 1
-                continue
-            fmt = (src.get("format") or "").upper()
-            card = {
-                "id": m["slug"],
-                "title": m["title"],
-                "poster": m["poster"] or ((src.get("coverImage") or {}).get("large") or ""),
-                "type": {"TV_SHORT": "TV"}.get(fmt, fmt) or None,
-            }
-            st = (src.get("status") or "").upper()
-            if st == "RELEASING":
-                card["badge"] = "ONGOING"
-                card["is_finished"] = False
-            elif st == "FINISHED":
-                card["badge"] = "TAMAT"
-                card["is_finished"] = True
-            if not _donghua_safe_filter([card], safe_mode_int):
-                dropped_adult += 1
-                continue
-            items.append(card)
-        data = {
-            "items": items,
-            "page": c_page,
-            "total_pages": c_page + 1 if has_next else c_page,
-            "cached": False,
-            "debug": {"scanned": len(raw_items), "cn_confirmed": len(items),
-                      "unmapped": dropped_unmapped,
-                      "dropped_adult": dropped_adult, "source": "anilist-cn"},
-        }
-        if items and dropped_unmapped == 0:
+        if data.get("items") and (data.get("debug") or {}).get("scanned", 0) >= _DONGHUA_PER_PAGE:
             await set_browse_cache(key, data)
         return ok(data)
     except Exception as e:

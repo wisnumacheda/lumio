@@ -2748,10 +2748,10 @@ async function loadMangaPopular(){
     mangaRender(d.items || [], "🔥 Manhwa Populer", "");
   } catch (e) { $("#mangaHint").textContent = "❌ Gagal memuat: " + e.message; }
 }
+let mangaSearchSeq = 0; // Token anti-balapan: pencarian baru membatalkan render pencarian lama.
 async function mangaSearch(q){
   q = (q || "").trim();
   if (q.length < 2) { toast("Kata kunci minimal 2 karakter", true); return; }
-  $("#mangaHint").textContent = "Mencari…";
   const sm = SETTINGS.safeMode ? 1 : 0;
   const eps = [
     ["/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "MangaDex"],
@@ -2760,16 +2760,54 @@ async function mangaSearch(q){
     ["/api/manga/mi/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Manhwaindo"],
     ["/api/manga/km/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Komiku"],
   ];
-  const settled = await Promise.allSettled(eps.map(([u]) => api(u)));
+  // Render progresif: tiap provider yang selesai langsung tampil, jangan tunggu
+  // yang paling lambat. Batas akhir 12 dtk: setelah itu render final apa pun
+  // yang sudah ada + catatan jujur provider yang belum selesai/gagal.
+  const token = ++mangaSearchSeq;
+  const total = eps.length;
+  const settledIdx = eps.map(() => false);
   let items = [];
+  let done = 0;
   const failed = [];
-  settled.forEach((r, i) => {
-    if (r.status === "fulfilled" && r.value && r.value.items) items = items.concat(r.value.items);
-    else failed.push(eps[i][1]);
+  let finished = false;
+  const progressHint = () => `Mencari… (${done}/${total} sumber)`;
+  const finalHint = () => failed.length ? "⚠️ " + failed.join(", ") + " belum bisa diakses saat ini." : "";
+  const renderNow = () => {
+    if (token !== mangaSearchSeq) return;
+    items.sort((a, b) => (b.score || 0) - (a.score || 0));
+    mangaRender(items, "Hasil: " + q, finished ? finalHint() : progressHint());
+  };
+  const finish = () => {
+    if (finished || token !== mangaSearchSeq) return;
+    finished = true;
+    clearTimeout(deadline);
+    // Provider yang masih menggantung saat deadline = gagal jujur (tak kunjung
+    // memberi hasil dalam batas waktu).
+    eps.forEach(([u, name], i) => { if (!settledIdx[i] && !failed.includes(name)) failed.push(name); });
+    renderNow();
+  };
+  // State awal: judul + progres hidup, grid dikosongkan tanpa "Tidak ada hasil".
+  $("#mangaGridTitle").textContent = "Hasil: " + q;
+  $("#mangaGridCount").textContent = "";
+  $("#mangaHint").textContent = progressHint();
+  $("#mangaGrid").innerHTML = "";
+  const deadline = setTimeout(finish, 12000);
+  eps.forEach(([u, name], i) => {
+    api(u).then(v => {
+      if (token !== mangaSearchSeq || finished) return;
+      if (v && v.items) items = items.concat(v.items);
+    }).catch(() => {
+      if (token !== mangaSearchSeq || finished) return;
+      failed.push(name);
+    }).finally(() => {
+      if (token !== mangaSearchSeq || finished) return;
+      settledIdx[i] = true;
+      done++;
+      if (items.length) renderNow();
+      else $("#mangaHint").textContent = progressHint();
+      if (done >= total) finish();
+    });
   });
-  items.sort((a, b) => (b.score || 0) - (a.score || 0));
-  const hint = failed.length ? "⚠️ " + failed.join(", ") + " belum bisa diakses saat ini." : "";
-  mangaRender(items, "Hasil: " + q, hint);
 }
 async function openMangaDetail(id){
   showView("mangaDetail");
