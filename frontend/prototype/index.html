@@ -44,12 +44,32 @@
   .badge-proto{font-size:10px;font-weight:700;letter-spacing:.8px;color:#1a1207;
     background:linear-gradient(90deg,var(--amber),var(--amber-d));
     padding:4px 9px;border-radius:99px;white-space:nowrap}
-  .tabs{display:flex;gap:6px;width:100%;max-width:680px;margin:0 auto}
-  .tabs button{flex:1;text-align:center;padding:10px 6px;border-radius:99px;color:var(--muted);font-weight:600;font-size:14px;
-    transition:.2s}
-  .tabs button:hover{color:var(--txt);background:rgba(255,255,255,.06)}
-  .tabs button.active{color:#fff;background:linear-gradient(135deg,var(--acc),#7c3aed);
+  .brand-row .icon-btn.left{left:0;right:auto}
+  .brand-row .burger{font-size:20px;line-height:1;font-weight:800}
+  /* ---------- NAV DRAWER (hamburger, geser dari kiri) ---------- */
+  .nav-overlay{position:fixed;inset:0;z-index:150;background:rgba(3,2,8,.6);backdrop-filter:blur(3px)}
+  .nav-drawer{position:fixed;top:0;left:0;height:100dvh;width:232px;max-width:84vw;z-index:160;
+    background:var(--bg2);border-right:1px solid var(--line);box-shadow:24px 0 60px rgba(0,0,0,.55);
+    padding:18px 14px 24px;overflow-y:auto;transform:translateX(-105%);
+    transition:transform .28s cubic-bezier(.2,.8,.3,1)}
+  .nav-drawer.open{transform:none}
+  .nav-drawer-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:2px 4px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}
+  .nav-drawer-head .brand .logo{width:36px;height:36px;font-size:19px;border-radius:10px}
+  .nav-drawer-head .brand .name{font-size:23px}
+  .nav-group{margin-bottom:14px}
+  .nav-lbl{font-size:11px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;
+    color:var(--faint);padding:6px 12px 8px}
+  .nav-drawer [data-section]{display:flex;align-items:center;gap:11px;width:100%;text-align:left;
+    padding:12px 14px;border-radius:12px;font-size:15px;font-weight:700;color:var(--muted);transition:.18s}
+  .nav-drawer [data-section]:hover{color:var(--txt);background:rgba(255,255,255,.06)}
+  .nav-drawer [data-section].active{color:#fff;background:linear-gradient(135deg,var(--acc),#7c3aed);
     box-shadow:0 4px 14px rgba(139,92,246,.4)}
+  .nav-drawer .soon-tag{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 7px;
+    border-radius:99px;background:rgba(255,255,255,.12);color:var(--faint);margin-left:auto}
+  .nav-drawer [data-section].active .soon-tag{background:rgba(0,0,0,.18);color:#fff}
+  /* Sub-tab di dalam seksi Anime (Semua / Musim Ini / Masih Tayang / Jelajahi) */
+  .subnav{display:flex;gap:9px;overflow-x:auto;padding:18px 2px 4px;scrollbar-width:thin}
   .search{position:relative;width:100%;max-width:680px;margin:0 auto}
   .search input{width:100%;padding:10px 16px 10px 40px;border-radius:99px;font-size:14px;
     background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--txt);outline:none;
@@ -306,18 +326,6 @@
   .toast.show{transform:translateX(-50%) translateY(0)}
   .toast.err{border-color:var(--bad)}
 
-  /* ---------- BAR KATEGORI ---------- */
-  .catbar{display:flex;gap:9px;overflow-x:auto;padding:18px 2px 4px;scrollbar-width:thin}
-  .cat{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:99px;
-    font-size:14.5px;font-weight:800;background:var(--panel);border:1px solid var(--line);
-    color:var(--muted);transition:.2s}
-  .cat:hover{color:var(--txt);transform:translateY(-1px);border-color:var(--acc)}
-  .cat.active{background:linear-gradient(135deg,var(--amber),var(--amber-d));color:#221503;
-    border-color:transparent;box-shadow:0 6px 20px rgba(245,158,11,.35)}
-  .cat .soon-tag{font-size:9.5px;font-weight:800;letter-spacing:.6px;padding:3px 7px;border-radius:99px;
-    background:rgba(255,255,255,.12);color:var(--faint)}
-  .cat.active .soon-tag{background:rgba(0,0,0,.18);color:#221503}
-
   .reader-top{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--bg);padding:10px 2px;border-bottom:1px solid var(--line)}
   .reader-top .rt-title{flex:1;font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .reader-pages{max-width:760px;margin:0 auto}
@@ -388,7 +396,7 @@
   html[data-theme="biru"] .nav{background:rgba(6,12,24,.8)}
   html[data-theme="biru"] .brand .logo{background:linear-gradient(135deg,#3b82f6,#1d4ed8);
     box-shadow:0 4px 18px rgba(59,130,246,.45)}
-  html[data-theme="biru"] .tabs button.active{background:linear-gradient(135deg,#3b82f6,#2563eb);
+  html[data-theme="biru"] .nav-drawer [data-section].active{background:linear-gradient(135deg,#3b82f6,#2563eb);
     box-shadow:0 4px 14px rgba(59,130,246,.4)}
 
   /* ---------- TOMBOL & PANEL PENGATURAN ---------- */
@@ -471,7 +479,6 @@
     .hero .inner{padding:30px 16px}
     .detail-top{grid-template-columns:130px 1fr;gap:18px;padding:20px}
     .eps-sec{padding:0 20px 22px}
-    .tabs button{padding:8px 12px;font-size:13px}
   }
   .upd-banner{margin:14px 0 2px;padding:12px 16px;border-radius:14px;display:flex;gap:12px;align-items:center;
     background:linear-gradient(90deg,rgba(124,92,255,.25),rgba(0,198,255,.18));border:1px solid rgba(124,92,255,.45)}
@@ -485,6 +492,7 @@
 
 <header class="nav">
   <div class="brand-row">
+  <button class="icon-btn left" id="btnMenu" title="Menu" aria-label="Buka menu navigasi"><span class="burger">☰</span></button>
   <div class="brand">
     <div class="logo">🎬</div>
     <div class="name">Lum<em>io</em></div>
@@ -493,14 +501,6 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
   </div>
-  <nav class="tabs" id="tabs">
-    <button data-tab="home" class="active">Beranda</button>
-    <button data-tab="now">Musim Ini</button>
-    <button data-tab="airing">Masih Tayang</button>
-    <button data-tab="manhwa">📖 Manhwa</button>
-    <button data-tab="fav">❤ Favorit</button>
-    <button data-tab="jelajahi">🎛️ Jelajahi</button>
-  </nav>
   <form class="search" id="searchForm">
     <span class="ico">🔍</span>
     <input id="searchInput" type="search" placeholder="Cari judul anime… (Enter untuk mencari)" autocomplete="off">
@@ -508,14 +508,38 @@
   
 </header>
 
+<!-- ============ DRAWER NAVIGASI (hamburger) ============ -->
+<div class="nav-overlay hidden" id="navOverlay"></div>
+<nav class="nav-drawer" id="navDrawer" aria-label="Navigasi konten">
+  <div class="nav-drawer-head">
+    <div class="brand">
+      <div class="logo">🎬</div>
+      <div class="name">Lum<em>io</em></div>
+    </div>
+    <button class="icon-btn" id="btnDrawerClose" title="Tutup menu" aria-label="Tutup menu">✕</button>
+  </div>
+  <div class="nav-group">
+    <div class="nav-lbl">Konten</div>
+    <button data-section="anime" class="active">🎌 Anime</button>
+    <button data-section="movie">🎬 Movie <span class="soon-tag">SEGERA</span></button>
+    <button data-section="series">📺 Series <span class="soon-tag">SEGERA</span></button>
+    <button data-section="donghua">🐉 Donghua</button>
+    <button data-section="manhwa">📖 Manhwa</button>
+  </div>
+  <div class="nav-group">
+    <div class="nav-lbl">Pribadi</div>
+    <button data-section="fav">❤ Favorit</button>
+  </div>
+</nav>
+
 <main>
   <!-- ============ HOME VIEW ============ -->
   <div id="viewHome">
-    <div class="catbar" id="catBar">
-      <button class="cat active" data-cat="anime">🎌 Anime</button>
-      <button class="cat" data-cat="movie">🎬 Movie <span class="soon-tag">SEGERA</span></button>
-      <button class="cat" data-cat="series">📺 Series <span class="soon-tag">SEGERA</span></button>
-      <button class="cat" data-cat="donghua">🐉 Donghua</button>
+    <div class="subnav" id="animeSubNav">
+      <button class="gchip active" data-sub="all">📚 Semua Anime</button>
+      <button class="gchip" data-sub="now">Musim Ini</button>
+      <button class="gchip" data-sub="airing">Masih Tayang</button>
+      <button class="gchip" data-sub="filter">🎛️ Jelajahi</button>
     </div>
     <div class="upd-banner hidden" id="updateBanner">
       <div class="grow" id="updText">🎉 Update tersedia</div>
@@ -544,6 +568,12 @@
     </section>
 
     <div id="rails"></div>
+
+    <section class="all-anime" id="allAnimeSec">
+      <div class="grid-head"><h2>📚 Semua Anime</h2><span class="count" id="allAnimeCount"></span></div>
+      <div class="grid" id="allAnimeGrid"></div>
+      <button class="load-more hidden" id="btnAllMore">Muat Lebih Banyak</button>
+    </section>
   </div>
 
   <!-- ============ GRID VIEW ============ -->
@@ -989,26 +1019,44 @@ function toast(msg, isErr){
 }
 
 let FORCE_FRESH = false;
+const API_TIMEOUT_MS = 30000;
 async function api(path){
   // Mode Aman (Pengaturan) diteruskan ke endpoint yang mendukung safe_mode.
   if (/^\/api\/(catalog|search|browse|genres)\b/.test(path) && !path.includes("safe_mode=")) {
     path += (path.includes("?") ? "&" : "?") + "safe_mode=" + (typeof SETTINGS !== "undefined" && !SETTINGS.safeMode ? 0 : 1);
   }
   if (FORCE_FRESH && !path.includes("fresh=")) path += (path.includes("?") ? "&" : "?") + "fresh=1";
-  const r = await fetch(path);
-  if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
-  const j = await r.json();
-  if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
-  return j.data;
+  // Timeout 30 dtk (v34): panggilan yang menggantung tidak boleh membekukan UI —
+  // dilempar sebagai Error seperti HTTP error, supaya Promise.allSettled di
+  // pencarian manga tetap menampilkan hasil provider lain + catatan yang gagal.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
+  try {
+    const r = await fetch(path, {signal: ctrl.signal});
+    if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+    const j = await r.json();
+    if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
+    return j.data;
+  } catch (e) {
+    if (e && e.name === "AbortError") throw new Error("Timeout " + (API_TIMEOUT_MS / 1000) + " dtk — " + path);
+    throw e;
+  } finally { clearTimeout(timer); }
 }
 
 async function apiSend(method, path, body){
-  const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
-    body: body ? JSON.stringify(body) : undefined});
-  if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
-  const j = await r.json();
-  if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
-  return j.data;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
+  try {
+    const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
+      body: body ? JSON.stringify(body) : undefined, signal: ctrl.signal});
+    if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+    const j = await r.json();
+    if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
+    return j.data;
+  } catch (e) {
+    if (e && e.name === "AbortError") throw new Error("Timeout " + (API_TIMEOUT_MS / 1000) + " dtk — " + path);
+    throw e;
+  } finally { clearTimeout(timer); }
 }
 
 /* ---------------- Kartu poster ---------------- */
@@ -1264,6 +1312,36 @@ async function loadBaruRail(){
   if (out.length < 12) { try { const d = await api("/api/seasonal?which=now&page=1"); push(d.items || d.seasonal); } catch(_){} }
   fillRail("railBaru", out.slice(0, 14));
 }
+/* ---------------- Grid "Semua Anime" di seksi Anime (v34) ---------------- */
+// Katalog lengkap di bawah rail — loader browse yang sama seperti filter tanpa
+// filter aktif (sort mengikuti Pengaturan), halaman ditambah via "Muat Lebih Banyak".
+let allAnimePage = 1, allAnimeTotal = 1, allAnimeBusy = false;
+function allAnimeLoader(p){
+  const sortMap = {populer: "popularity", terbaru: "release_date", az: "az"};
+  return api("/api/browse?sort=" + (sortMap[SETTINGS.sort] || "popularity") + "&page=" + p);
+}
+async function loadAllAnime(append){
+  if (allAnimeBusy) return;
+  const grid = $("#allAnimeGrid"); if (!grid) return;
+  allAnimeBusy = true;
+  if (!append) { allAnimePage = 1; allAnimeTotal = 1; }
+  $("#btnAllMore").classList.add("hidden");
+  try {
+    const d = await allAnimeLoader(allAnimePage);
+    const items = sortItems((d.items || []).filter(it => !isJunkItem(it)));
+    registerItems(items);
+    if (!append) grid.innerHTML = "";
+    grid.insertAdjacentHTML("beforeend", items.map(cardHTML).join(""));
+    bindCards(grid);
+    allAnimeTotal = d.total_pages || allAnimePage;
+    const total = grid.querySelectorAll(".card").length;
+    $("#allAnimeCount").textContent = total + " judul" + (allAnimeTotal > 1 ? " · halaman " + allAnimePage + " dari " + allAnimeTotal : "");
+    $("#btnAllMore").classList.toggle("hidden", !(allAnimePage < allAnimeTotal));
+  } catch (e) {
+    if (!append) grid.innerHTML = `<p style="color:var(--muted);font-size:13px">Gagal memuat katalog lengkap (${esc(e.message)}).</p>`;
+  } finally { allAnimeBusy = false; }
+}
+$("#btnAllMore").addEventListener("click", () => { allAnimePage++; loadAllAnime(true); });
 async function loadHome(){
   hideState();
   $("#rails").innerHTML =
@@ -1281,7 +1359,7 @@ async function loadHome(){
   $$(".see-all").forEach(b => b.addEventListener("click", () => {
     const cfg = SEE_ALL[b.dataset.seeall];
     if (!cfg) return;
-    setActiveTab("");
+    setActiveSection("");
     openGrid(cfg.title, cfg.loader);
   }));
   renderHistRail();
@@ -1289,6 +1367,7 @@ async function loadHome(){
   let firstError = null;
   const jobs = [
     loadBaruRail(),
+    loadAllAnime(),
     api("/api/catalog?page=1").then(d => {
       const items = d.items || [];
       fillRail("railPopuler", sortItems(items));
@@ -1415,8 +1494,12 @@ function showView(name){
   hideState();
   window.scrollTo({top: 0, behavior: "smooth"});
 }
-function setActiveTab(tab){
-  $$("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+/* ---------------- Seksi aktif di drawer (v34: drawer menggantikan tab bar) ---------------- */
+function setActiveSection(sec){
+  $$("#navDrawer [data-section]").forEach(b => b.classList.toggle("active", b.dataset.section === sec));
+}
+function setActiveSub(sub){
+  $$("#animeSubNav .gchip").forEach(b => b.classList.toggle("active", b.dataset.sub === sub));
 }
 async function openGrid(title, loader, append){
   if (!append) { gridLoader = loader; gridPage = 1; gridTotalPages = 1; $("#grid").innerHTML = ""; }
@@ -1489,21 +1572,47 @@ document.addEventListener("touchend", async () => {
 });
 $("#btnBack").addEventListener("click", goHome);
 function goHome(){
-  setActiveTab("home");
-  $$(".gchip.active").forEach(x => x.classList.remove("active"));
+  setActiveSection("anime");
+  setActiveSub("all");
+  $$("#genreRow .gchip.active").forEach(x => x.classList.remove("active"));
   showView("home");
 }
 
-/* ---------------- Tabs ---------------- */
-$$("#tabs button").forEach(b => b.addEventListener("click", () => {
-  const tab = b.dataset.tab;
-  setActiveTab(tab);
-  if (tab === "home") { goHome(); return; }
-  if (tab === "now") openGrid("Musim Ini", nowGridLoader);
-  if (tab === "airing") openGrid("Masih Tayang", airingGridLoader);
-  if (tab === "manhwa") { openMangaBrowser(); return; }
-  if (tab === "fav") openGrid("❤ Favorit Saya", favLoader);
-  if (tab === "jelajahi") { renderFilterPanel(); $("#fltPanel").classList.remove("hidden"); openGrid("🎛️ Jelajahi Anime", filterLoader); }
+/* ---------------- Drawer navigasi hamburger ---------------- */
+function openNavDrawer(){
+  $("#navDrawer").classList.add("open");
+  $("#navOverlay").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+function closeNavDrawer(){
+  $("#navDrawer").classList.remove("open");
+  $("#navOverlay").classList.add("hidden");
+  if ($("#playerModal").classList.contains("hidden") && $("#detailModal").classList.contains("hidden"))
+    document.body.style.overflow = "";
+}
+function goSection(sec){
+  closeNavDrawer();
+  setActiveSection(sec);
+  if (sec === "anime") { goHome(); return; }
+  if (sec === "movie" || sec === "series") { showCategory(sec); return; }
+  if (sec === "donghua") { openDonghuaGrid(); return; }
+  if (sec === "manhwa") { openMangaBrowser(); return; }
+  if (sec === "fav") { openGrid("❤ Favorit Saya", favLoader); return; }
+}
+$("#btnMenu").addEventListener("click", openNavDrawer);
+$("#btnDrawerClose").addEventListener("click", closeNavDrawer);
+$("#navOverlay").addEventListener("click", closeNavDrawer);
+$$("#navDrawer [data-section]").forEach(b => b.addEventListener("click", () => goSection(b.dataset.section)));
+
+/* ---------------- Sub-tab di dalam seksi Anime ---------------- */
+$$("#animeSubNav .gchip").forEach(b => b.addEventListener("click", () => {
+  const sub = b.dataset.sub;
+  setActiveSub(sub);
+  setActiveSection("anime");
+  if (sub === "all") { goHome(); return; }
+  if (sub === "now") { openGrid("Musim Ini", nowGridLoader); return; }
+  if (sub === "airing") { openGrid("Masih Tayang", airingGridLoader); return; }
+  if (sub === "filter") { renderFilterPanel(); $("#fltPanel").classList.remove("hidden"); openGrid("🎛️ Jelajahi Anime", filterLoader); }
 }));
 
 /* ---------------- Pencarian ---------------- */
@@ -1511,7 +1620,7 @@ let searchTimer = null;
 function doSearch(q){
   q = (q || "").trim();
   if (!q) { goHome(); return; }
-  setActiveTab("");
+  setActiveSection("");
   openGrid(`Hasil pencarian: "${q}"`, p => api(`/api/search?q=${encodeURIComponent(q)}&page=${p}`));
 }
 $("#searchForm").addEventListener("submit", e => { e.preventDefault(); clearTimeout(searchTimer); doSearch($("#searchInput").value); });
@@ -1535,6 +1644,7 @@ document.addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (!$("#playerModal").classList.contains("hidden")) closeModal("playerModal");
   else if (!$("#detailModal").classList.contains("hidden")) closeModal("detailModal");
+  else if ($("#navDrawer").classList.contains("open")) closeNavDrawer();
 });
 
 function setupSynClamp(){
@@ -2398,8 +2508,8 @@ const CAT_INFO = {
     plan: ["<b>Struktur:</b> Season → Episode, meneruskan pola grid episode yang sudah jalan di anime", "<b>Provider pertama:</b> satu sumber series sebagai pilot", "<b>Fitur lanjutan:</b> penanda progres per musim"]},
 };
 function showCategory(cat){
-  $$("#catBar .cat").forEach(b => b.classList.toggle("active", b.dataset.cat === cat));
-  if (cat === "anime") { showView("home"); return; }
+  setActiveSection(cat === "movie" ? "movie" : cat === "series" ? "series" : cat === "donghua" ? "donghua" : "anime");
+  if (cat === "anime") { goHome(); return; }
   if (cat === "donghua") { openDonghuaGrid(); return; }
   const info = CAT_INFO[cat];
   if (!info) return;
@@ -2409,7 +2519,6 @@ function showCategory(cat){
   $("#soonPlan").innerHTML = info.plan.map(li => `<li>${li}</li>`).join("");
   showView("soon");
 }
-$$("#catBar .cat").forEach(b => b.addEventListener("click", () => showCategory(b.dataset.cat)));
 $("#btnSoonBack").addEventListener("click", () => showCategory("anime"));
 
 /* ---------------- Donghua (animasi Cina, video) ---------------- */
@@ -2419,7 +2528,7 @@ async function donghuaLoader(page){
   const sm = SETTINGS.safeMode ? 1 : 0;
   return api("/api/donghua?page=" + page + "&safe_mode=" + sm);
 }
-function openDonghuaGrid(){ openGrid("🐉 Donghua", donghuaLoader); }
+function openDonghuaGrid(){ setActiveSection("donghua"); openGrid("🐉 Donghua", donghuaLoader); }
 
 /* ---------------- Manhwa ---------------- */
 let mangaLoaded = false, mangaDetail = null, mangaChapters = [], mangaCurChapter = null;
@@ -2612,6 +2721,7 @@ function renderMangaPages(){
   }
 }
 function openMangaBrowser(){
+  setActiveSection("manhwa");
   showView("manga");
   renderMangaHistRail();
   loadMangaLatest();
@@ -2774,7 +2884,7 @@ $$("#mangaChips button").forEach(b => b.addEventListener("click", () => {
   $("#mangaSearchInput").value = b.dataset.q;
   mangaSearch(b.dataset.q);
 }));
-$("#btnMangaBack").addEventListener("click", () => { goHome(); setActiveTab("home"); });
+$("#btnMangaBack").addEventListener("click", () => { goHome(); });
 $("#btnMangaDetailBack").addEventListener("click", () => { showView("manga"); renderMangaHistRail(); });
 $("#btnReaderBack").addEventListener("click", () => { mangaSaverStop(); showView("mangaDetail"); });
 $("#btnReaderMode").addEventListener("click", () => {
@@ -2836,6 +2946,7 @@ async function checkUpdate(){
 
 /* ---------------- Jembatan aplikasi (WebView Lumio) ---------------- */
 window.LUMIO_back = function(){
+  if ($("#navDrawer").classList.contains("open")) { closeNavDrawer(); return true; }
   if (!$("#settingsWrap").classList.contains("hidden")) { closeSettings(); return true; }
   if (!$("#playerModal").classList.contains("hidden")) { closeModal("playerModal"); return true; }
   if (!$("#detailModal").classList.contains("hidden")) { closeModal("detailModal"); return true; }
