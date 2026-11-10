@@ -1,9 +1,9 @@
 {
-  "version": 35,
-  "label": "Isi 2.28.1 - Search progresif + Donghua instan",
-  "notes": "Search Manhwa render progresif per provider dengan deadline 12 detik; Donghua stale-while-revalidate plus warm-up startup sehingga bukaan pertama instan.",
+  "version": 36,
+  "label": "Isi 2.28.1 - Search Manhwa auto-scroll ke hasil",
+  "notes": "Search Manhwa kini langsung menunjukkan hasil: rail Lanjut Baca dan Terbaru disembunyikan saat mencari, lalu layar melompat ke judul hasil. Sebelumnya hasil tampil di paling bawah setelah sekitar 26 kartu rail sehingga layar HP tampak tidak berubah dan search terasa mati, padahal hasil sebenarnya ada. Berlaku untuk kotak cari dan chip.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-35/lumio-payload.zip",
-  "sha256": "b05675abb9ea98c8d8068c49fc4bd00356d2403b79eeb1f081f39dcb9291012e",
-  "size": 1044180
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-36/lumio-payload.zip",
+  "sha256": "987343e9e494307545781d07d557f5fdef22654637071bc0b4c126401c02ea7f",
+  "size": 1044596
 }
