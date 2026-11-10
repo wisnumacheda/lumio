@@ -70,6 +70,15 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
 - **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
 
+## [2.29.0] - 2026-11-11
+
+### Added
+- **Mode TV v1 (menutup Issue #6 — permintaan user 23 Okt).** Di Android TV / Google TV, aplikasi kini membuka UI TV di WebView, bukan lagi dialihkan ke UI native lama: nav rail kiri (Anime, Donghua, Manhwa, Jadwal Rilis, Favorit, Pengaturan), hero full-width + tombol Putar/Favorit, rail horizontal (Lanjut Nonton dengan progress, Trending/Musim Ini, Donghua, Manhwa), dan navigasi remote D-pad penuh (panah + OK + Kembali) dengan fokus ber-ring ungu yang selalu terlihat. Detail anime: episode sebagai kotak bernomor yang bisa difokuskan + Enter memutar; player TV: OK putar/jeda, kiri/kanan seek, panel subtitle bisa dicapai remote. Manhwa di TV: browsing + detail seperti anime; reader hanya Mode Halaman (kiri/kanan ganti halaman), Webtoon nonaktif di TV. Search tidak ada di TV v1 (discovery lewat rail/genre). Deteksi: native `TvFocusHelper.isTv` memuat prototype dengan `?tv=1` (+ bridge `LumioNative.isTv()` sebagai sinyal kedua); manifest mendapat `LEANBACK_LAUNCHER` + banner TV agar aplikasi muncul di launcher TV. MainActivity tetap sebagai "UI Klasik" cadangan. Diuji: harness CDP 1920x1080 dengan event keyboard (72/82 — lihat catatan payload v39); yang belum terbukti headless: tombol Skip Intro (butuh stream nyata), delta seek nyata, ganti tier subtitle di dalam panel, dan semua yang butuh remote fisik di TV beneran.
+- **Isi v39 (OTA, min_app 2.29.0):** seluruh Mode TV v1 di atas hidup di payload; HP tidak berubah (semua kode TV di balik flag `?tv=1`).
+
+### Notes
+- Kenaikan MINOR (2.28.1 → 2.29.0, versionCode 22900) karena penambahan fitur (Mode TV) yang backward-compatible. Rilis ini HANYA membawa aset `Lumio-v2.29.0.apk` + `Lumio.apk` (tanpa aset `tatap-*`).
+
 ## [2.28.1] - 2026-10-27
 
 ### Fixed
