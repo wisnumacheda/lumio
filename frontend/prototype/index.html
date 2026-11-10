@@ -2791,6 +2791,18 @@ async function mangaSearch(q){
   $("#mangaGridCount").textContent = "";
   $("#mangaHint").textContent = progressHint();
   $("#mangaGrid").innerHTML = "";
+  // v36: hasil tampil di PALING BAWAH (setelah rail Lanjut Baca + Terbaru),
+  // jadi tanpa scroll layar HP tak berubah sama sekali dan search terasa
+  // mati. Sembunyikan kedua rail selama pencarian + lompat SEKALI ke judul
+  // hasil saat pencarian dimulai (jangan re-scroll di render progresif —
+  // layar akan lompat-lompat bila user sempat scroll sendiri). Rail kembali
+  // tampil saat view Manhwa dibuka ulang (openMangaBrowser merender ulang
+  // kedua rail). Berlaku juga untuk pencarian via chip (jalur mangaSearch
+  // yang sama).
+  $("#mangaHistSec").classList.add("hidden");
+  $("#mangaLatestSec").classList.add("hidden");
+  const _gt = $("#mangaGridTitle");
+  if (_gt && typeof _gt.scrollIntoView === "function") _gt.scrollIntoView({behavior: "smooth", block: "start"});
   const deadline = setTimeout(finish, 12000);
   eps.forEach(([u, name], i) => {
     api(u).then(v => {
