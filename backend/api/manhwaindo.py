@@ -292,6 +292,7 @@ def search_manga(query, limit=24, safe_mode=1):
             "source": "Manhwaindo",
             "lang": "id",
             "alt_titles": [],
+            "genres": genres,
         })
     items.sort(key=lambda it: (-it["score"], -it["followed"]))
     return {"items": items[:max(1, min(int(limit), 50))], "total": len(items)}

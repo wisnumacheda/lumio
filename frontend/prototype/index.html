@@ -343,6 +343,11 @@
   .manga-chips{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px}
   .manga-chips button{background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:99px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
   .manga-chips button:hover{color:var(--txt);border-color:var(--acc)}
+  .manga-filters{display:flex;gap:8px;margin:2px 0 14px}
+  .manga-filters select{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:99px;color:var(--txt);padding:9px 12px;font-size:13px;font-family:inherit;cursor:pointer}
+  .manga-jump{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .manga-jump button{background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:99px;padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  .manga-jump button:hover{color:var(--txt);border-color:var(--acc)}
   .manga-detail{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0}
   .manga-detail .dposter{width:150px;flex:0 0 auto}
   .manga-detail .dposter img{width:100%;border-radius:var(--r-md);aspect-ratio:2/3;object-fit:cover;background:var(--panel)}
@@ -628,6 +633,36 @@
       <input id="mangaSearchInput" type="search" placeholder="Cari judul manhwa / manga… (Enter untuk mencari)" autocomplete="off">
       <button type="submit">Cari</button>
     </form>
+    <div class="manga-filters">
+      <select id="mangaGenreFilter" aria-label="Filter genre">
+        <option value="">Semua Genre</option>
+        <option value="Action">Action</option>
+        <option value="Adventure">Adventure</option>
+        <option value="Comedy">Comedy</option>
+        <option value="Romance">Romance</option>
+        <option value="Drama">Drama</option>
+        <option value="Fantasy">Fantasy</option>
+        <option value="Slice of Life">Slice of Life</option>
+        <option value="Supernatural">Supernatural</option>
+        <option value="Martial Arts">Martial Arts</option>
+        <option value="Isekai">Isekai</option>
+        <option value="Mystery">Mystery</option>
+        <option value="Historical">Historical</option>
+        <option value="Magic">Magic</option>
+        <option value="Sci-Fi">Sci-Fi</option>
+        <option value="School Life">School Life</option>
+        <option value="Psychological">Psychological</option>
+        <option value="Horror">Horror</option>
+        <option value="Reincarnation">Reincarnation</option>
+        <option value="Tragedy">Tragedy</option>
+        <option value="Demons">Demons</option>
+      </select>
+      <select id="mangaStatusFilter" aria-label="Filter status">
+        <option value="">Semua Status</option>
+        <option value="ongoing">Ongoing</option>
+        <option value="completed">Tamat</option>
+      </select>
+    </div>
     <div class="manga-chips" id="mangaChips">
       <button type="button" data-q="Solo Leveling">Solo Leveling</button>
       <button type="button" data-q="Omniscient Reader">Omniscient Reader</button>
@@ -2569,9 +2604,54 @@ async function resumeMangaHistory(mid, chapterId){
   toast("Memuat…");
   await openMangaDetail(mid);
   if (!mangaDetail || mangaDetail.id !== mid) { toast("❌ Gagal memuat detail judul.", true); return; }
-  const ch = mangaChapters.find(c => c.id === chapterId);
+  let ch = mangaChapters.find(c => c.id === chapterId);
+  if (!ch) {
+    // ID bab tidak ada lagi di daftar gabungan (mis. merge memenangi sumber
+    // lain — Manhwaindo "the-strongest-ever" vs Komiku
+    // "the-strongest-in-history": daftar hanya berisi ID km:): cari
+    // berdasarkan NOMOR bab dari ID-nya, jangan gagal diam-diam.
+    const numM = String(chapterId || "").match(/chapter-(\d+(?:\.\d+)?)/i);
+    if (numM) {
+      const n = parseFloat(numM[1]);
+      ch = mangaChapters.find(c => parseFloat(c.chapter) === n);
+    }
+  }
   if (ch) { openMangaReader(ch.id); return; }
   toast("Bab itu tidak ada lagi di daftar — pilih dari daftar bab.", true);
+}
+/* ---- Waktu relatif Manhwaindo ke Bahasa Indonesia ----
+   Situs memberi "54 seconds lalu" / "2 hours ago" (satuan Inggris +
+   "lalu"/"ago"). Petakan satuannya ke Indonesia; format tak dikenal
+   dilewatkan apa adanya (jangan mengarang waktu). */
+function mangaRelTime(t){
+  if (!t) return "";
+  const s = String(t).trim();
+  if (/^just now$/i.test(s)) return "baru saja";
+  const m = s.match(/^(\d+)\s+(\S+)\s+(lalu|ago)$/i);
+  if (!m) return s;
+  const unit = {
+    second: "detik", seconds: "detik",
+    minute: "menit", minutes: "menit",
+    hour: "jam", hours: "jam",
+    day: "hari", days: "hari",
+    week: "minggu", weeks: "minggu",
+    month: "bulan", months: "bulan",
+    year: "tahun", years: "tahun",
+  }[(m[2] || "").toLowerCase()];
+  if (!unit) return s;
+  return m[1] + " " + unit + " lalu";
+}
+async function openMangaFirstChapter(mid){
+  toast("Memuat…");
+  await openMangaDetail(mid);
+  if (!mangaDetail || mangaDetail.id !== mid) { toast("❌ Gagal memuat detail judul.", true); return; }
+  // Bab pertama = nomor bab terkecil; bila ada dua sumber di nomor yang
+  // sama, dahulukan yang bisa dibaca (bukan tautan resmi).
+  const nums = mangaChapters.map(c => ({c, n: parseFloat(c.chapter)})).filter(x => isFinite(x.n));
+  if (!nums.length) { toast("Belum ada bab yang bisa dibaca untuk judul ini.", true); return; }
+  const minN = Math.min(...nums.map(x => x.n));
+  const first = nums.find(x => x.n === minN && !x.c.external) || nums.find(x => x.n === minN);
+  openMangaReader(first.c.id);
 }
 /* ---------------- Terbaru Manhwa (Manhwaindo saja, label jujur) ---------------- */
 async function loadMangaLatest(){
@@ -2584,14 +2664,21 @@ async function loadMangaLatest(){
     $("#mangaLatestCount").textContent = items.length + " judul";
     $("#mangaLatestGrid").innerHTML = items.map(it => {
       const cover = it.cover ? posterSrc(it.cover) : "";
+      const t = mangaRelTime(it.time_text);
+      const sub = (t ? t + " · " : "") + "Manhwaindo";
       return `<article class="card" data-mid="mi:${esc(it.series_slug)}" data-ch="mi:${esc(it.chapter_slug)}" tabindex="0" role="button" aria-label="${esc(it.title)}">`
         + `<div class="poster">${cover ? `<img loading="lazy" src="${esc(cover)}" data-proxy="${esc(cover)}" data-direct="${esc(it.cover || "")}" data-fb="0" alt="" onerror="imgFallback(this)">` : ""}<span class="eps-badge">Bab ${esc(it.chapter || "?")}</span><div class="play-ico">📖</div></div>`
-        + `<div class="meta"><div class="ttl">${esc(it.title)}</div><div class="sub-meta"><span>${esc(it.time_text || "")} · Manhwaindo</span></div></div></article>`;
+        + `<div class="meta"><div class="ttl">${esc(it.title)}</div><div class="sub-meta"><span>${esc(sub)}</span></div>`
+        + `<div class="manga-jump"><button type="button" data-jump="first">Bab 1</button><button type="button" data-jump="latest">Bab Terbaru</button></div></div></article>`;
     }).join("");
     $$(".card", $("#mangaLatestGrid")).forEach(c => {
       const go = () => resumeMangaHistory(c.dataset.mid, c.dataset.ch);
       c.addEventListener("click", go);
-      c.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+      c.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === c) go(); });
+      const bFirst = c.querySelector('[data-jump="first"]');
+      if (bFirst) bFirst.addEventListener("click", e => { e.stopPropagation(); openMangaFirstChapter(c.dataset.mid); });
+      const bLatest = c.querySelector('[data-jump="latest"]');
+      if (bLatest) bLatest.addEventListener("click", e => { e.stopPropagation(); go(); });
     });
   } catch (e) { sec.classList.add("hidden"); }
 }
@@ -2749,12 +2836,44 @@ async function loadMangaPopular(){
   } catch (e) { $("#mangaHint").textContent = "❌ Gagal memuat: " + e.message; }
 }
 let mangaSearchSeq = 0; // Token anti-balapan: pencarian baru membatalkan render pencarian lama.
+/* ---- Filter genre/status pencarian Manhwa ----
+   Genre: nama Inggris (dropdown) dicocokkan ke metadata `genres` tiap item
+   (MangaDex: tag Inggris; Asura: nama genre API; Komiku: satu genre, mis.
+   "Fantasi"; Manhwaindo/Komikcast: TIDAK ada data genre di kartu pencarian
+   -> item dipertahankan (fail-open) dan dicatat untuk hint jujur.
+   Sinonim Indonesia dipetakan supaya "Fantasi" cocok dengan "Fantasy".
+   Status: "ongoing"/"completed" (MangaDex + Asura); item tanpa status
+   dipertahankan (fail-open). */
+const MANGA_GENRE_SYN = {
+  "action": ["aksi"], "adventure": ["petualangan"], "comedy": ["komedi"],
+  "drama": ["drama"], "fantasy": ["fantasi"], "historical": ["sejarah", "historis"],
+  "horror": ["horor"], "isekai": ["isekai"], "magic": ["sihir"],
+  "martial arts": ["bela diri"], "mystery": ["misteri"],
+  "psychological": ["psikologis"], "reincarnation": ["reinkarnasi"],
+  "romance": ["romansa", "romantis"], "school life": ["sekolah"],
+  "sci-fi": ["fiksi ilmiah"], "slice of life": ["slice of life"],
+  "supernatural": ["supernatural"], "tragedy": ["tragedi"],
+  "demons": ["iblis", "demon"],
+};
+function mangaGenreMatch(g, selected){
+  const n = s => (s || "").toLowerCase().trim();
+  const gn = n(g), sn = n(selected);
+  if (!gn || !sn) return false;
+  if (gn === sn) return true;
+  return (MANGA_GENRE_SYN[sn] || []).includes(gn);
+}
 async function mangaSearch(q){
   q = (q || "").trim();
   if (q.length < 2) { toast("Kata kunci minimal 2 karakter", true); return; }
   const sm = SETTINGS.safeMode ? 1 : 0;
+  // Filter dibaca SEKALI di awal pencarian (closure) supaya render progresif
+  // v35 tidak meresetnya, dan auto-scroll v36 tidak terganggu.
+  const fGenre = ($("#mangaGenreFilter") ? $("#mangaGenreFilter").value : "") || "";
+  const fStatus = ($("#mangaStatusFilter") ? $("#mangaStatusFilter").value : "") || "";
+  const mdExtra = (fGenre ? "&genre=" + encodeURIComponent(fGenre) : "")
+    + (fStatus ? "&status=" + encodeURIComponent(fStatus) : "");
   const eps = [
-    ["/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "MangaDex"],
+    ["/api/manga/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm + mdExtra, "MangaDex"],
     ["/api/manga/kc/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Komikcast"],
     ["/api/manga/as/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Asura"],
     ["/api/manga/mi/search?q=" + encodeURIComponent(q) + "&safe_mode=" + sm, "Manhwaindo"],
@@ -2770,8 +2889,34 @@ async function mangaSearch(q){
   let done = 0;
   const failed = [];
   let finished = false;
+  let sawNoGenreMeta = false, sawNoStatusMeta = false;
+  // Saring sisi klien untuk provider tanpa parameter query (Asura/Komiku/
+  // Manhwaindo/Komikcast). MangaDex sudah tersaring di server, tapi itemnya
+  // membawa metadata genres+status sehingga lolos cek yang sama di sini.
+  // Item TANPA metadata dipertahankan (fail-open), bukan dibuang diam-diam.
+  const passFilter = it => {
+    if (fGenre) {
+      const gs = (it.genres || []);
+      if (gs.length) { if (!gs.some(g => mangaGenreMatch(g, fGenre))) return false; }
+      else sawNoGenreMeta = true;
+    }
+    if (fStatus) {
+      const st = (it.status || "").toLowerCase();
+      if (st) {
+        if (fStatus === "ongoing" && st !== "ongoing") return false;
+        if (fStatus === "completed" && st !== "completed") return false;
+      } else sawNoStatusMeta = true;
+    }
+    return true;
+  };
   const progressHint = () => `Mencari… (${done}/${total} sumber)`;
-  const finalHint = () => failed.length ? "⚠️ " + failed.join(", ") + " belum bisa diakses saat ini." : "";
+  const finalHint = () => {
+    const parts = [];
+    if (failed.length) parts.push("⚠️ " + failed.join(", ") + " belum bisa diakses saat ini.");
+    if (fGenre && sawNoGenreMeta) parts.push("Sebagian hasil belum terfilter genre (ada sumber tanpa data genre).");
+    if (fStatus && sawNoStatusMeta) parts.push("Sebagian hasil belum terfilter status (ada sumber tanpa data status).");
+    return parts.join(" ");
+  };
   const renderNow = () => {
     if (token !== mangaSearchSeq) return;
     items.sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -2807,7 +2952,7 @@ async function mangaSearch(q){
   eps.forEach(([u, name], i) => {
     api(u).then(v => {
       if (token !== mangaSearchSeq || finished) return;
-      if (v && v.items) items = items.concat(v.items);
+      if (v && v.items) items = items.concat(v.items.filter(passFilter));
     }).catch(() => {
       if (token !== mangaSearchSeq || finished) return;
       failed.push(name);
@@ -2934,6 +3079,14 @@ $$("#mangaChips button").forEach(b => b.addEventListener("click", () => {
   $("#mangaSearchInput").value = b.dataset.q;
   mangaSearch(b.dataset.q);
 }));
+// Ganti filter = jalankan ulang pencarian aktif (bila ada kata kunci).
+["mangaGenreFilter", "mangaStatusFilter"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("change", () => {
+    const q = ($("#mangaSearchInput").value || "").trim();
+    if (q.length >= 2) mangaSearch(q);
+  });
+});
 $("#btnMangaBack").addEventListener("click", () => { goHome(); });
 $("#btnMangaDetailBack").addEventListener("click", () => { showView("manga"); renderMangaHistRail(); });
 $("#btnReaderBack").addEventListener("click", () => { mangaSaverStop(); showView("mangaDetail"); });

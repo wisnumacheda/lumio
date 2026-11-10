@@ -170,6 +170,7 @@ def search_manga(query, limit=24, safe_mode=1):
             "source": "Asura",
             "lang": "en",
             "alt_titles": alt,
+            "genres": _genre_names(m),
         })
     items.sort(key=lambda it: (-it["score"], -it["followed"]))
     return {"items": items[:max(1, min(int(limit), 50))],

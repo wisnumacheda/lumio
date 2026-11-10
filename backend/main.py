@@ -2312,18 +2312,23 @@ async def donghua_ep(
 
 @app.get("/api/manga/search")
 async def manga_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
-                       offset: int = Query(0, ge=0), safe_mode: int = Query(1)):
+                       offset: int = Query(0, ge=0), safe_mode: int = Query(1),
+                       genre: str = Query(""), status: str = Query("")):
     """Cari judul manga/manhwa/manhua lewat MangaDex (API publik, tanpa kunci).
 
     Hasil diurutkan backend MangaDex-modul: skor kecocokan judul dulu, lalu
     jumlah pengikut — jadi sekuel populer tidak mengalahkan judul yang dicari.
     Mode Aman default hanya rating 'safe'; bila dimatikan, 'suggestive' ikut.
     Rating erotica/pornographic tidak pernah diminta (blacklist dewasa tetap).
+    Filter server-side: genre = nama genre Inggris (dipetakan ke UUID tag
+    MangaDex di modul, nilai tak dikenal diabaikan); status = ongoing /
+    completed / hiatus / cancelled (nilai lain diabaikan).
     """
     try:
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(
-            None, lambda: md.search_manga(q, limit=limit, offset=offset, safe_mode=safe_mode))
+            None, lambda: md.search_manga(q, limit=limit, offset=offset, safe_mode=safe_mode,
+                                          genre=genre, status=status))
         return ok(data)
     except Exception as e:
         return fail(str(e))

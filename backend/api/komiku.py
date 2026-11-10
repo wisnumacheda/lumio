@@ -158,10 +158,12 @@ def search_manga(query, limit=24, safe_mode=1):
         if not title or _adult_in_text(title):
             continue
         # Tipe + genre: <div class="tpe1_inf"><b>Manhua</b> Aksi</div>
+        # Genre = teks setelah kata tipe (satu genre per kartu di Komiku).
         genre_text = ""
         gm = re.search(r'<div class="tpe1_inf">(.*?)</div>', inner, re.S | re.I)
         if gm:
             genre_text = _clean_text(gm.group(1))
+        genre_one = re.sub(r'^(manga|manhwa|manhua)\s*', '', genre_text, flags=re.I).strip()
         if _adult_in_text(genre_text):
             continue
         if safe_mode and any(k in _norm(genre_text).split()
@@ -194,6 +196,7 @@ def search_manga(query, limit=24, safe_mode=1):
             "source": "Komiku",
             "lang": "id",
             "alt_titles": [],
+            "genres": [genre_one] if genre_one else [],
         })
     items.sort(key=lambda it: (-it["score"], -it["followed"]))
     return {"items": items[:max(1, min(int(limit), 50))],
