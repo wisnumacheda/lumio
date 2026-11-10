@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, FileResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from config import APP_PORT, APP_HOST, HI_BASE, HI_UA
-from database import init_db, get_search_cache, set_search_cache, get_episode_cache, set_episode_cache, delete_episode_cache, clear_episode_cache_for_slug, get_cached_episode, cache_episode, add_history, get_history, clear_history, save_progress, get_progress, clear_progress, add_bookmark, remove_bookmark, get_bookmarks, is_bookmarked, clear_bookmarks, get_setting, set_setting, get_browse_cache, set_browse_cache, get_slug_map, set_slug_map, get_subtitle_cache, set_subtitle_cache, delete_subtitle_cache, get_today_char_count, add_today_char_count
+from database import init_db, get_search_cache, set_search_cache, get_episode_cache, get_episode_cache_modes, set_episode_cache, delete_episode_cache, clear_episode_cache_for_slug, get_cached_episode, cache_episode, add_history, get_history, clear_history, save_progress, get_progress, clear_progress, add_bookmark, remove_bookmark, get_bookmarks, get_bookmark, update_bookmark_eps, is_bookmarked, clear_bookmarks, get_setting, get_settings_bulk, set_setting, get_browse_cache, set_browse_cache, get_browse_cache_stale, get_slug_map, set_slug_map, get_subtitle_cache, set_subtitle_cache, delete_subtitle_cache, get_today_char_count, add_today_char_count
 from api import hianime as hi
 from api import anilist as al
 from api import otakudesu as otaku
@@ -15,9 +15,80 @@ from api import anichan
 from api import mangadex as md
 from api import komikcast as kcmod
 from api import asura as asmod
+from api import manhwaindo as mimod
+from api import komiku as kmmod
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
+
+# ---------------------------------------------------------------------------
+# Cache master m3u8 (body, bukan cuma URL).
+#
+# SEBELUMNYA master playlist diunduh DUA KALI per siklus putar:
+#   1. Resolver (hianime.py) mengunduh master untuk mem-parse variants,
+#      lalu body-nya dibuang.
+#   2. Player (/api/player/video?url=<master>) mengunduh master LAGI dari CDN
+#      hanya untuk menulis ulang URL segmen.
+# Cache body master dengan TTL pendek menghilangkan round-trip kedua.
+# ---------------------------------------------------------------------------
+_MASTER_CACHE: dict = {}          # master_url -> (expires_at, text)
+_MASTER_CACHE_TTL = 120           # 2 menit — playlist master relatif statis
+_MASTER_CACHE_MAX = 64
+
+
+def _master_cache_get(url: str):
+    """Ambil body master m3u8 dari cache (None bila miss/expired)."""
+    if not url:
+        return None
+    item = _MASTER_CACHE.get(url)
+    if not item:
+        return None
+    exp, txt = item
+    if exp < time.time():
+        _MASTER_CACHE.pop(url, None)
+        return None
+    return txt
+
+
+def _master_cache_set(url: str, text: str):
+    """Simpan body master m3u8 ke cache dengan batas jumlah entri."""
+    if not url or not text:
+        return
+    _MASTER_CACHE[url] = (time.time() + _MASTER_CACHE_TTL, text)
+    if len(_MASTER_CACHE) > _MASTER_CACHE_MAX:
+        for k in list(_MASTER_CACHE.keys())[:len(_MASTER_CACHE) - _MASTER_CACHE_MAX]:
+            _MASTER_CACHE.pop(k, None)
+
+
+# Failover per-judul: mapping slug -> sumber alternatif. Nilai SELALU "anichan".
+# Dibatasi jumlah entri agar tidak tumbuh tanpa batas pada sesi panjang.
+_ANIME_FAILOVER_MAX = 512
+
+
+def _set_failover(slug: str, source: str = "anichan"):
+    """Simpan sumber fallback per-judul dengan batas jumlah entri."""
+    _ANIME_FAILOVER_CACHE[slug] = source
+    if len(_ANIME_FAILOVER_CACHE) > _ANIME_FAILOVER_MAX:
+        # Buang entri terlama (insertion order) sampai di bawah batas.
+        for k in list(_ANIME_FAILOVER_CACHE.keys())[:len(_ANIME_FAILOVER_CACHE) - _ANIME_FAILOVER_MAX]:
+            _ANIME_FAILOVER_CACHE.pop(k, None)
+
+
+# Registry task background agar tidak di-GC sebelum selesai.
+# asyncio hanya menyimpan reference lemah ke task yang dibuat via
+# create_task(); tanpa registry ini task bisa hilang sebelum selesai.
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn_background(coro):
+    """Jalankan coroutine di background dengan reference yang aman dari GC."""
+    try:
+        task = asyncio.create_task(coro)
+    except Exception:
+        return None
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
 
 frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 
@@ -35,6 +106,27 @@ async def lifespan(app: FastAPI):
     # Kirim antrean masukan pengguna yang belum terkirim (bila token ada).
     try:
         asyncio.create_task(_feedback_flush_bg())
+    except Exception:
+        pass
+    # Hangatkan cache Jadwal Rilis di background (sekali per boot bila belum ada).
+    try:
+        _spawn_background(_schedule_warmup_bg())
+    except Exception:
+        pass
+    # Hangatkan cache Donghua halaman 1 di background (sekali per boot bila belum ada).
+    try:
+        _spawn_background(_donghua_warmup_bg())
+    except Exception:
+        pass
+    # Bersihkan cache kedaluwarsa saat startup. Semua TTL di modul database
+    # bersifat "ignore on read" — tanpa sweeper ini tabel cache (terutama
+    # subtitle_cache yang menyimpan payload VTT utuh) tumbuh tanpa batas.
+    try:
+        from database import purge_expired_caches
+        removed = await purge_expired_caches()
+        total = sum(v for v in removed.values() if v)
+        if total:
+            print(f"[tatap] purge cache kedaluwarsa: {removed}", flush=True)
     except Exception:
         pass
     yield
@@ -57,6 +149,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
+        from database import close_db_pool
+        await close_db_pool()
+    except Exception:
+        pass
+    try:
         from api.otakudesu import close_otaku_client
         close_otaku_client()
     except Exception:
@@ -64,6 +161,11 @@ async def lifespan(app: FastAPI):
     try:
         from api.anichan import close_anichan_client
         close_anichan_client()
+    except Exception:
+        pass
+    try:
+        from api.translate import close_gtx_client
+        close_gtx_client()
     except Exception:
         pass
 
@@ -1117,6 +1219,36 @@ async def seasonal(which: str = Query("", pattern="^(now|prev|airing)$|^$"),
                     seen_slugs.add(slug)
                     seasonal_items.append(item_copy)
 
+            # 2b. Cross-check status tayang ke AniList (sumber kebenaran).
+            # HiAnime sering tak tahu total episode ("?") sehingga anime yang
+            # sudah tamat tak terdeteksi is_fin dan tampil ONGOING basi
+            # (mis. Yani Neko, Liar Game). Untuk tiap item yang akan ONGOING
+            # (lewati long_running & yang sudah TAMAT), tanya AniList paralel;
+            # bila FINISHED -> badge TAMAT. Fail-open: AniList mati/ragu ->
+            # badge lama dipertahankan. Frontend ongoingLatestLoader sudah
+            # memfilter TAMAT dari grid, jadi judul basi hilang dari daftar.
+            _ongoing_cands = [it for it in seasonal_items
+                              if isinstance(it, dict)
+                              and it.get("lane") == "seasonal"
+                              and it.get("badge") == "ONGOING"
+                              and not it.get("is_header")]
+            if _ongoing_cands:
+                _st_sem = asyncio.Semaphore(5)
+
+                async def _fix_one(_it):
+                    async with _st_sem:
+                        try:
+                            st = await _anilist_status_for_title(_it.get("title") or "")
+                        except Exception:
+                            st = ""
+                    if st == "FINISHED":
+                        _it["badge"] = "TAMAT"
+                        _it["is_finished"] = True
+                        _it["status"] = "finished"
+
+                await asyncio.gather(*(_fix_one(it) for it in _ongoing_cands),
+                                     return_exceptions=True)
+
             # 3. Rakit items dengan section headers pembatas dua jalur
             items_dual_lane = []
             if seasonal_items:
@@ -1325,13 +1457,22 @@ def _known_non_jp_country(country) -> bool:
 
 def _pick_country_from_metadata(title, meta_list):
     """Pilih countryOfOrigin dari kandidat AniList yang judulnya benar-benar
-    cocok (memakai _is_title_match yang sama dengan pencocokan slug)."""
+    cocok (memakai _is_title_match yang sama dengan pencocokan slug).
+    Kandidat: english/romaji/native + synonyms (judul alternatif AniList —
+    penting untuk judul CN yang romanisasi/pinyin-nya berbeda dari judul
+    HiAnime, sehingga english/romaji/native saja gagal cocok)."""
     for m in meta_list or []:
         country = (m.get("countryOfOrigin") or "").strip().upper()
         if not country:
             continue
         t_obj = m.get("title") or {}
-        for cand in (t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")):
+        cands = [t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")]
+        syn = m.get("synonyms") or []
+        if isinstance(syn, str):
+            syn = [syn]
+        if isinstance(syn, list):
+            cands.extend(syn)
+        for cand in cands:
             if cand and _is_title_match(title, cand):
                 return country
     return ""
@@ -1363,6 +1504,76 @@ async def _origin_country_for_title(title):
         except Exception:
             pass
     return country
+
+
+def _pick_status_from_metadata(title, meta_list):
+    """Pilih status tayang dari kandidat AniList yang judulnya benar-benar
+    cocok (pola persis _pick_country_from_metadata: _is_title_match ketat per
+    kandidat english/romaji/native + synonyms). Return status UPPERCASE
+    (FINISHED/RELEASING/dll) atau '' bila tak yakin."""
+    for m in meta_list or []:
+        status = (m.get("status") or "").strip().upper()
+        if not status:
+            continue
+        t_obj = m.get("title") or {}
+        cands = [t_obj.get("english"), t_obj.get("romaji"), t_obj.get("native")]
+        syn = m.get("synonyms") or []
+        if isinstance(syn, str):
+            syn = [syn]
+        if isinstance(syn, list):
+            cands.extend(syn)
+        for cand in cands:
+            if cand and _is_title_match(title, cand):
+                return status
+    return ""
+
+
+async def _anilist_status_for_title(title):
+    """Status tayang satu judul dari AniList (sumber kebenaran untuk badge
+    Masih Tayang — HiAnime sering basi/tak tahu total episode).
+    TTL cerdas: FINISHED -> 30 hari (tak akan berubah), RELEASING -> 1 hari
+    (bisa tamat kapan saja), '' -> JANGAN cache (coba lagi lain waktu).
+    Fail-open: exception / AniList mati -> '' (badge lama dipertahankan)."""
+    title = (title or "").strip()
+    if not title:
+        return ""
+    cache_key = "airing_status_v1|" + _slug_norm_match(title)
+    try:
+        hit = await get_browse_cache(cache_key, ttl=30 * 24 * 3600)
+        if hit and hit.get("status"):
+            st = (hit.get("status") or "").strip().upper()
+            if st == "FINISHED":
+                return st
+            if st == "RELEASING":
+                # TTL cerdas 1 hari via fetched_at (set_browse_cache tak punya TTL per-key).
+                try:
+                    fa = float(hit.get("fetched_at") or 0)
+                except Exception:
+                    fa = 0
+                if fa and (time.time() - fa) < 24 * 3600:
+                    return st
+                # kedaluwarsa -> fetch ulang di bawah
+    except Exception:
+        pass
+    try:
+        loop = asyncio.get_running_loop()
+        meta = await loop.run_in_executor(None, lambda: al.search_anime_metadata(title, per_page=6))
+        status = _pick_status_from_metadata(title, meta)
+    except Exception:
+        status = ""
+    if status == "FINISHED":
+        try:
+            await set_browse_cache(cache_key, {"status": status})
+        except Exception:
+            pass
+    elif status == "RELEASING":
+        # TTL 1 hari: set_browse_cache tidak mendukung TTL per-key berbeda,
+        # jadi simpan juga fetched_at dan validasi manual saat baca.
+        try:
+            await set_browse_cache(cache_key, {"status": status, "fetched_at": time.time()})
+        except Exception:
+            pass
+    return status
 
 
 async def _filter_anime_list_items(items):
@@ -1552,123 +1763,160 @@ ID_TO_EN = {
     "kamis": "thursday", "jumat": "friday", "sabtu": "saturday", "minggu": "sunday"
 }
 
+
+def _schedule_week_bounds():
+    """Batas pekan berjalan (Senin 00:00 — Minggu 23:59:59 WIB).
+    Return (mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday)."""
+    import datetime as _dt
+    tz_offset = 7 * 3600  # WIB (UTC+7)
+    now_utc = int(time.time())
+    now_wib = now_utc + tz_offset
+    now_dt_wib = _dt.datetime.fromtimestamp(now_utc, _dt.timezone(_dt.timedelta(hours=7)))
+    cur_weekday = now_dt_wib.weekday()  # 0=Monday, ..., 6=Sunday
+    today_mid_wib = (now_wib // 86400) * 86400
+    mon_mid_wib = today_mid_wib - (cur_weekday * 86400)
+    mon_mid_utc = mon_mid_wib - tz_offset
+    sun_end_wib = mon_mid_wib + (7 * 86400) - 1
+    sun_end_utc = sun_end_wib - tz_offset
+    return mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday
+
+
+async def _compute_schedule_week():
+    """Hitung jadwal rilis 7 hari (Senin-Minggu WIB) dari AniList + pencocokan
+    slug in-app. Dipakai endpoint /api/schedule dan warm-up startup.
+    Return dict cached_data (BELUM disimpan ke cache — pemanggil yang menyimpan)."""
+    import datetime as _dt
+    loop = asyncio.get_running_loop()
+    mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday = _schedule_week_bounds()
+    today_key = DAYS_KEYS[cur_weekday]
+    yesterday_key = DAYS_KEYS[(cur_weekday - 1) % 7]
+    tomorrow_key = DAYS_KEYS[(cur_weekday + 1) % 7]
+
+    schedules = await loop.run_in_executor(
+        None, lambda: al.anilist_schedules_range(mon_mid_utc, sun_end_utc, max_pages=6)
+    )
+
+    pending = []
+    seen_ids = set()
+    for s in schedules:
+        m = s.get("media") or {}
+        mid = m.get("id")
+        if not mid or mid in seen_ids:
+            continue
+        seen_ids.add(mid)
+        t_en = (m.get("title") or {}).get("english") or ""
+        t_ro = (m.get("title") or {}).get("romaji") or ""
+        primary_title = t_en or t_ro or ""
+        if not primary_title:
+            continue
+        if _known_non_jp_country(m.get("countryOfOrigin")):
+            continue
+        alt_title = t_ro if primary_title != t_ro else ""
+        pending.append((s, primary_title, alt_title))
+
+    slug_pairs = await _match_slug_batch([(t, alt) for _, t, alt in pending]) if pending else []
+    slug_by_title = {t: sl for t, sl in slug_pairs}
+
+    buckets = {k: [] for k in DAYS_KEYS}
+
+    for s, title, _ in pending:
+        slug = slug_by_title.get(title)
+        # FILTER KETAT: Yang tidak ada di dalam app Tatap di-REMOVE dari jadwal
+        if not slug:
+            continue
+
+        airing_at = int(s["airingAt"])
+        dt_wib = _dt.datetime.fromtimestamp(airing_at, _dt.timezone(_dt.timedelta(hours=7)))
+        time_str = dt_wib.strftime("%H:%M WIB")
+        date_str = dt_wib.strftime("%d %b")
+        item_weekday = dt_wib.weekday()
+        day_cat = DAYS_KEYS[item_weekday]
+        day_name = EN_TO_ID.get(day_cat, "Senin")
+
+        cover = (s.get("media") or {}).get("coverImage", {})
+        fmt = (s.get("media") or {}).get("format") or "TV"
+        score = (s.get("media") or {}).get("averageScore") or 0
+
+        item = {
+            "id": slug,
+            "title": title,
+            "episode": s.get("episode") or 0,
+            "airing_at": airing_at,
+            "time": time_str,
+            "date": date_str,
+            "day": day_cat,
+            "day_name": day_name,
+            "poster": cover.get("large") or cover.get("medium") or "",
+            "type": _format_to_type(fmt),
+            "score": round(score / 10.0, 1) if score else 0.0,
+            "country": ((s.get("media") or {}).get("countryOfOrigin") or "").upper(),
+            "matched": True,
+        }
+        buckets[day_cat].append(item)
+
+    for k in buckets:
+        buckets[k].sort(key=lambda x: x["airing_at"])
+
+    return {
+        "week_start": mon_mid_utc,
+        "week_end": sun_end_utc,
+        "current_day": today_key,
+        "current_day_name": EN_TO_ID[today_key],
+        "days": {k: buckets[k] for k in DAYS_KEYS},
+        "monday": buckets["monday"],
+        "tuesday": buckets["tuesday"],
+        "wednesday": buckets["wednesday"],
+        "thursday": buckets["thursday"],
+        "friday": buckets["friday"],
+        "saturday": buckets["saturday"],
+        "sunday": buckets["sunday"],
+        "today": buckets[today_key],
+        "yesterday": buckets[yesterday_key],
+        "tomorrow": buckets[tomorrow_key],
+        "counts": {
+            **{k: len(buckets[k]) for k in DAYS_KEYS},
+            "today": len(buckets[today_key]),
+            "yesterday": len(buckets[yesterday_key]),
+            "tomorrow": len(buckets[tomorrow_key]),
+        },
+        "total": sum(len(v) for v in buckets.values()),
+        "cached": False,
+    }
+
+
+async def _schedule_warmup_bg():
+    """Hangatkan cache /api/schedule pekan berjalan sekali saat boot bila belum ada.
+    Ketukan pertama tab Jadwal jadi instan (<1 dtk) tanpa menunggu pencocokan
+    slug HiAnime yang dinginnya bisa belasan detik hingga menit — di atas
+    batas baca 15 dtk klien native. Gagal diam-diam: endpoint tetap
+    menghitung saat diminta."""
+    try:
+        mon_mid_wib, _mon_mid_utc, _sun_end_utc, _wd = _schedule_week_bounds()
+        cache_key = f"schedule_7days_v2_{mon_mid_wib}"
+        if await get_browse_cache(cache_key, ttl=3600 * 2):
+            return
+        data = await _compute_schedule_week()
+        if data:
+            await set_browse_cache(cache_key, data)
+    except Exception:
+        pass
+
 @app.get("/api/schedule")
 async def anime_schedule(day: str = Query("today")):
     """Jadwal rilis anime 7 hari mingguan (Senin - Minggu) waktu WIB.
     HANYA menampilkan anime yang tersedia di aplikasi Tatap (memiliki slug valid).
     Anime yang tidak ada di aplikasi Tatap otomatis di-remove."""
     try:
-        import datetime as _dt
-        loop = asyncio.get_running_loop()
-        tz_offset = 7 * 3600  # WIB (UTC+7)
-        now_utc = int(time.time())
-        now_wib = now_utc + tz_offset
-        now_dt_wib = _dt.datetime.fromtimestamp(now_utc, _dt.timezone(_dt.timedelta(hours=7)))
-        cur_weekday = now_dt_wib.weekday()  # 0=Monday, ..., 6=Sunday
+        mon_mid_wib, mon_mid_utc, sun_end_utc, cur_weekday = _schedule_week_bounds()
         today_key = DAYS_KEYS[cur_weekday]
         yesterday_key = DAYS_KEYS[(cur_weekday - 1) % 7]
         tomorrow_key = DAYS_KEYS[(cur_weekday + 1) % 7]
-
-        today_mid_wib = (now_wib // 86400) * 86400
-        mon_mid_wib = today_mid_wib - (cur_weekday * 86400)
-        mon_mid_utc = mon_mid_wib - tz_offset
-        sun_end_wib = mon_mid_wib + (7 * 86400) - 1
-        sun_end_utc = sun_end_wib - tz_offset
 
         cache_key = f"schedule_7days_v2_{mon_mid_wib}"
         cached_data = await get_browse_cache(cache_key, ttl=3600 * 2)
 
         if not cached_data:
-            schedules = await loop.run_in_executor(
-                None, lambda: al.anilist_schedules_range(mon_mid_utc, sun_end_utc, max_pages=6)
-            )
-
-            pending = []
-            seen_ids = set()
-            for s in schedules:
-                m = s.get("media") or {}
-                mid = m.get("id")
-                if not mid or mid in seen_ids:
-                    continue
-                seen_ids.add(mid)
-                t_en = (m.get("title") or {}).get("english") or ""
-                t_ro = (m.get("title") or {}).get("romaji") or ""
-                primary_title = t_en or t_ro or ""
-                if not primary_title:
-                    continue
-                if _known_non_jp_country(m.get("countryOfOrigin")):
-                    continue
-                alt_title = t_ro if primary_title != t_ro else ""
-                pending.append((s, primary_title, alt_title))
-
-            slug_pairs = await _match_slug_batch([(t, alt) for _, t, alt in pending]) if pending else []
-            slug_by_title = {t: sl for t, sl in slug_pairs}
-
-            buckets = {k: [] for k in DAYS_KEYS}
-
-            for s, title, _ in pending:
-                slug = slug_by_title.get(title)
-                # FILTER KETAT: Yang tidak ada di dalam app Tatap di-REMOVE dari jadwal
-                if not slug:
-                    continue
-
-                airing_at = int(s["airingAt"])
-                dt_wib = _dt.datetime.fromtimestamp(airing_at, _dt.timezone(_dt.timedelta(hours=7)))
-                time_str = dt_wib.strftime("%H:%M WIB")
-                date_str = dt_wib.strftime("%d %b")
-                item_weekday = dt_wib.weekday()
-                day_cat = DAYS_KEYS[item_weekday]
-                day_name = EN_TO_ID.get(day_cat, "Senin")
-
-                cover = (s.get("media") or {}).get("coverImage", {})
-                fmt = (s.get("media") or {}).get("format") or "TV"
-                score = (s.get("media") or {}).get("averageScore") or 0
-
-                item = {
-                    "id": slug,
-                    "title": title,
-                    "episode": s.get("episode") or 0,
-                    "airing_at": airing_at,
-                    "time": time_str,
-                    "date": date_str,
-                    "day": day_cat,
-                    "day_name": day_name,
-                    "poster": cover.get("large") or cover.get("medium") or "",
-                    "type": _format_to_type(fmt),
-                    "score": round(score / 10.0, 1) if score else 0.0,
-                    "country": ((s.get("media") or {}).get("countryOfOrigin") or "").upper(),
-                    "matched": True,
-                }
-                buckets[day_cat].append(item)
-
-            for k in buckets:
-                buckets[k].sort(key=lambda x: x["airing_at"])
-
-            cached_data = {
-                "week_start": mon_mid_utc,
-                "week_end": sun_end_utc,
-                "current_day": today_key,
-                "current_day_name": EN_TO_ID[today_key],
-                "days": {k: buckets[k] for k in DAYS_KEYS},
-                "monday": buckets["monday"],
-                "tuesday": buckets["tuesday"],
-                "wednesday": buckets["wednesday"],
-                "thursday": buckets["thursday"],
-                "friday": buckets["friday"],
-                "saturday": buckets["saturday"],
-                "sunday": buckets["sunday"],
-                "today": buckets[today_key],
-                "yesterday": buckets[yesterday_key],
-                "tomorrow": buckets[tomorrow_key],
-                "counts": {
-                    **{k: len(buckets[k]) for k in DAYS_KEYS},
-                    "today": len(buckets[today_key]),
-                    "yesterday": len(buckets[yesterday_key]),
-                    "tomorrow": len(buckets[tomorrow_key]),
-                },
-                "total": sum(len(v) for v in buckets.values()),
-                "cached": False,
-            }
+            cached_data = await _compute_schedule_week()
             await set_browse_cache(cache_key, cached_data)
 
         req_day = (day or "today").strip().lower()
@@ -1775,6 +2023,15 @@ async def browse_ep(
             c_sm = clean_month
             c_em = clean_month
 
+        # "Rilisan Terbaru" (sort=release_date) TANPA tahun eksplisit: batasi ke
+        # anime yang mulai tayang maksimal tahun lalu. Tanpa ini, judul-judul lama
+        # yang baru diunggah ulang sumber (mis. Perman 1983) tampil sebagai "rilisan baru".
+        # Tahun yang dipilih eksplisit (year/sy/ey) selalu dihormati — tidak ditimpa.
+        if _to_str(sort) == "release_date" and not c_sy and not c_ey and not clean_year:
+            import datetime as _dt
+            _yy = _dt.datetime.now().year
+            c_sy, c_ey = str(_yy - 1), str(_yy + 1)
+
         c_page = page if isinstance(page, int) and page >= 1 else 1
 
         import json as _json
@@ -1811,20 +2068,267 @@ async def browse_ep(
     except Exception as e:
         return fail(str(e))
 
+# --- Daftar Donghua v25: sumber AniList (countryOfOrigin=CN, TRENDING_DESC) ---
+_DONGHUA_PER_PAGE = 20             # judul AniList per halaman Donghua
+_DONGHUA_PAGE_TTL = 12 * 3600      # cache halaman jadi (detik)
+_DONGHUA_MISS_TTL = 6 * 3600       # negative cache pemetaan judul->slug (detik)
+_DONGHUA_MAP_TTL = 30 * 24 * 3600  # cache pemetaan sukses judul->slug (detik)
+
+
+def _donghua_title_candidates(item):
+    """Kandidat judul (english, romaji, native, synonyms) satu item AniList."""
+    t = (item or {}).get("title") or {}
+    syns = (item or {}).get("synonyms") or []
+    if isinstance(syns, str):
+        syns = [syns]
+    out = []
+    for cand in [t.get("english"), t.get("romaji"), t.get("native")] + list(syns)[:4]:
+        c = (cand or "").strip()
+        if c and c not in out:
+            out.append(c)
+    return out
+
+
+async def _map_donghua_item_to_hianime(item):
+    """Petakan satu judul AniList ke slug HiAnime memakai mesin pencarian
+    HiAnime (variant merging + _is_title_match yang sama dengan pencocokan
+    slug). Return {"slug","title","poster"} atau None bila tak ketemu.
+    Sukses di-cache 30 hari; miss di-cache 6 jam (negative cache jujur —
+    HiAnime bisa menambah judul baru sehingga miss tidak permanen)."""
+    cands = _donghua_title_candidates(item)
+    if not cands:
+        return None
+    cache_key = "donghua_slug_v1|" + _slug_norm_match(cands[0])
+    try:
+        hit = await get_browse_cache(cache_key, ttl=_DONGHUA_MAP_TTL)
+        if hit:
+            if hit.get("slug"):
+                return {"slug": hit["slug"],
+                        "title": hit.get("title") or cands[0],
+                        "poster": hit.get("poster") or ""}
+            if hit.get("miss"):
+                miss_at = float(hit.get("miss_at") or 0)
+                if (time.time() - miss_at) < _DONGHUA_MISS_TTL:
+                    return None
+                # miss kedaluwarsa -> cari ulang di bawah
+    except Exception:
+        pass
+    loop = asyncio.get_running_loop()
+    for q in cands:
+        for sq in [q] + _search_query_variants(q):
+            try:
+                results = await loop.run_in_executor(
+                    None,
+                    lambda sq=sq: hi.hianime_search_page(sq, limit=8, page=1).get("results") or [],
+                )
+            except Exception:
+                continue
+            for r in results or []:
+                r_title = (r.get("title") or "").strip()
+                if not r.get("id") or not r_title:
+                    continue
+                if any(_is_title_match(r_title, c) for c in cands):
+                    mapped = {"slug": r["id"], "title": r_title,
+                              "poster": r.get("poster") or ""}
+                    try:
+                        await set_browse_cache(cache_key, mapped)
+                    except Exception:
+                        pass
+                    return mapped
+    try:
+        await set_browse_cache(cache_key, {"miss": True, "miss_at": time.time()})
+    except Exception:
+        pass
+    return None
+
+
+_DONGHUA_ADULT_TAGS = ("ecchi", "erotica", "magical-sex-shift")
+
+
+def _donghua_safe_filter(items, safe_mode_int):
+    """Blacklist dewasa untuk daftar Donghua (paritas dengan /api/browse):
+    hentai selalu dibuang (lapis kedua setelah parser kartu yang sudah
+    membuang hentai dari slug/judul); ecchi/erotica/magical-sex-shift
+    dibuang saat safe_mode=1. Pemeriksaan id/title karena kartu browse
+    tidak membawa genre terstruktur yang bisa diandalkan."""
+    out = []
+    for it in items or []:
+        hay = ((it.get("id") or "") + " " + (it.get("title") or "")).lower()
+        if "hentai" in hay:
+            continue
+        if safe_mode_int == 1 and any(tag in hay for tag in _DONGHUA_ADULT_TAGS):
+            continue
+        out.append(it)
+    return out
+
+
+_DONGHUA_REFRESHING = set()  # kunci halaman yang sedang dibangun ulang di latar (SWR)
+
+
+async def _build_donghua_page(c_page: int, safe_mode_int: int):
+    """Bangun satu halaman daftar Donghua live dari AniList + pemetaan HiAnime.
+
+    Mengembalikan dict data (tanpa menulis cache); raise bila AniList gagal.
+    Dipakai endpoint /api/donghua, refresh latar SWR, dan warm-up startup.
+    Aturan buang-jujur dipertahankan: judul tak terpetakan dibuang, genre
+    Hentai selalu dibuang, ecchi/erotica dibuang saat safe_mode=1."""
+    loop = asyncio.get_running_loop()
+    dl = await loop.run_in_executor(
+        None, lambda: al.fetch_donghua_list(c_page, _DONGHUA_PER_PAGE))
+    raw_items = (dl or {}).get("items") or []
+    has_next = bool((dl or {}).get("has_next"))
+    sem = asyncio.Semaphore(4)
+
+    async def _one(it):
+        async with sem:
+            return await _map_donghua_item_to_hianime(it)
+
+    mapped = await asyncio.gather(
+        *(_one(it) for it in raw_items), return_exceptions=True)
+    items, dropped_unmapped, dropped_adult = [], 0, 0
+    for src, m in zip(raw_items, mapped):
+        if isinstance(m, Exception) or not m:
+            dropped_unmapped += 1
+            continue
+        genres = [g for g in ((src or {}).get("genres") or []) if g]
+        if any((g or "").strip().lower() == "hentai" for g in genres):
+            dropped_adult += 1
+            continue
+        fmt = (src.get("format") or "").upper()
+        card = {
+            "id": m["slug"],
+            "title": m["title"],
+            "poster": m["poster"] or ((src.get("coverImage") or {}).get("large") or ""),
+            "type": {"TV_SHORT": "TV"}.get(fmt, fmt) or None,
+        }
+        st = (src.get("status") or "").upper()
+        if st == "RELEASING":
+            card["badge"] = "ONGOING"
+            card["is_finished"] = False
+        elif st == "FINISHED":
+            card["badge"] = "TAMAT"
+            card["is_finished"] = True
+        if not _donghua_safe_filter([card], safe_mode_int):
+            dropped_adult += 1
+            continue
+        items.append(card)
+    return {
+        "items": items,
+        "page": c_page,
+        "total_pages": c_page + 1 if has_next else c_page,
+        "cached": False,
+        "debug": {"scanned": len(raw_items), "cn_confirmed": len(items),
+                  "unmapped": dropped_unmapped,
+                  "dropped_adult": dropped_adult, "source": "anilist-cn"},
+    }
+
+
+async def _refresh_donghua_page(c_page: int, safe_mode_int: int, key: str):
+    """Bangun ulang satu halaman Donghua di latar (stale-while-revalidate) dan
+    tulis cache baru bila lengkap. Gagal diam-diam: cache stale tetap tersaji
+    sampai refresh berikutnya. Satu kunci hanya dibangun sekali dalam satu waktu."""
+    if key in _DONGHUA_REFRESHING:
+        return
+    _DONGHUA_REFRESHING.add(key)
+    try:
+        data = await _build_donghua_page(c_page, safe_mode_int)
+        if data.get("items") and (data.get("debug") or {}).get("scanned", 0) >= _DONGHUA_PER_PAGE:
+            await set_browse_cache(key, data)
+    except Exception:
+        pass
+    finally:
+        _DONGHUA_REFRESHING.discard(key)
+
+
+async def _donghua_warmup_bg():
+    """Hangatkan cache /api/donghua halaman 1 sekali saat boot bila belum ada.
+
+    Bukaan pertama tab Donghua jadi instan tanpa menunggu AniList + pemetaan
+    slug HiAnime yang dinginnya belasan detik. Gagal diam-diam: endpoint
+    tetap menghitung saat diminta."""
+    try:
+        for safe in (1, 0):
+            key = f"donghua_v2|page=1|safe={safe}"
+            if await get_browse_cache(key, ttl=_DONGHUA_PAGE_TTL):
+                continue
+            data = await _build_donghua_page(1, safe)
+            if data.get("items") and (data.get("debug") or {}).get("scanned", 0) >= _DONGHUA_PER_PAGE:
+                await set_browse_cache(key, data)
+    except Exception:
+        pass
+
+
+@app.get("/api/donghua")
+async def donghua_ep(
+    page: int = Query(1, ge=1, le=100),
+    safe_mode: int = Query(1),
+):
+    """Daftar donghua (animasi Cina): sumber daftar = AniList
+    Page.media(countryOfOrigin=CN, type=ANIME, sort=TRENDING_DESC) — 20 judul
+    per halaman — lalu tiap judul dipetakan ke slug HiAnime agar bisa diputar
+    (detail/episode/player dipakai ulang apa adanya).
+    - Judul yang tak ketemu di HiAnime DIBUANG jujur (daftar hanya berisi yang
+      bisa diputar); miss pemetaan di-cache 6 jam, sukses 30 hari.
+    - AniList gagal = error jujur (TANPA fallback diam-diam, TANPA cache gagal).
+    - Halaman jadi di-cache 12 jam bila daftar sumber lengkap (20 judul
+      dipindai) — judul tak terpetakan tetap dibuang dari daftar, tapi tidak
+      lagi menghalangi cache; refresh latar SWR memperbaiki daftar saat
+      pemetaan miss 6 jam kedaluwarsa.
+    - Stale-while-revalidate: cache kedaluwarsa disajikan LANGSUNG (ditandai
+      "stale": true) sambil dibangun ulang di latar; tanpa baris cache sama
+      sekali, bangun live seperti dulu. Warm-up startup menghangatkan halaman 1.
+    - Blacklist dewasa paritas browse: genre Hentai AniList selalu dibuang
+      (di samping isAdult=false di query); ecchi/erotica/magical-sex-shift
+      dibuang saat safe_mode=1. Filter list Anime tetap JP-only (tak tersentuh).
+    - Metode lama (pindai 5 halaman browse + anotasi per judul) DIPENSIUNKAN.
+    Respons kompatibel cardHTML; debug {scanned, cn_confirmed, unmapped,
+    dropped_adult, source} untuk baris diagnostik empty state."""
+    try:
+        safe_mode_int = _parse_safe_mode(safe_mode)
+        c_page = page if isinstance(page, int) and page >= 1 else 1
+        key = f"donghua_v2|page={c_page}|safe={safe_mode_int}"
+        hit = await get_browse_cache(key, ttl=_DONGHUA_PAGE_TTL)
+        if hit and hit.get("items"):
+            hit["cached"] = True
+            return ok(hit)
+        stale = await get_browse_cache_stale(key)
+        if stale and stale.get("items"):
+            stale = dict(stale)
+            stale["cached"] = True
+            stale["stale"] = True
+            if key not in _DONGHUA_REFRESHING:
+                _spawn_background(_refresh_donghua_page(c_page, safe_mode_int, key))
+            return ok(stale)
+        try:
+            data = await _build_donghua_page(c_page, safe_mode_int)
+        except Exception as e:
+            return fail(f"Daftar Donghua tak bisa dimuat: {e}")
+        if data.get("items") and (data.get("debug") or {}).get("scanned", 0) >= _DONGHUA_PER_PAGE:
+            await set_browse_cache(key, data)
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
 @app.get("/api/manga/search")
 async def manga_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
-                       offset: int = Query(0, ge=0), safe_mode: int = Query(1)):
+                       offset: int = Query(0, ge=0), safe_mode: int = Query(1),
+                       genre: str = Query(""), status: str = Query("")):
     """Cari judul manga/manhwa/manhua lewat MangaDex (API publik, tanpa kunci).
 
     Hasil diurutkan backend MangaDex-modul: skor kecocokan judul dulu, lalu
     jumlah pengikut — jadi sekuel populer tidak mengalahkan judul yang dicari.
     Mode Aman default hanya rating 'safe'; bila dimatikan, 'suggestive' ikut.
     Rating erotica/pornographic tidak pernah diminta (blacklist dewasa tetap).
+    Filter server-side: genre = nama genre Inggris (dipetakan ke UUID tag
+    MangaDex di modul, nilai tak dikenal diabaikan); status = ongoing /
+    completed / hiatus / cancelled (nilai lain diabaikan).
     """
     try:
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(
-            None, lambda: md.search_manga(q, limit=limit, offset=offset, safe_mode=safe_mode))
+            None, lambda: md.search_manga(q, limit=limit, offset=offset, safe_mode=safe_mode,
+                                          genre=genre, status=status))
         return ok(data)
     except Exception as e:
         return fail(str(e))
@@ -1992,6 +2496,132 @@ async def manga_as_chapter_pages(series_slug: str, chapter_slug: str):
         return fail(str(e))
 
 
+@app.get("/api/manga/mi/search")
+async def manga_mi_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Cari judul di Manhwaindo (Bahasa Indonesia)."""
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.search_manga(q, limit=limit, safe_mode=safe_mode))
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/mi/series/{slug}/chapters")
+async def manga_mi_chapters(slug: str, safe_mode: int = Query(1)):
+    """Daftar bab satu judul Manhwaindo."""
+    try:
+        cache_key = f"manga_mi_chapters_v1|{slug}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.get_series_chapters(slug, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/mi/chapter/{chapter_slug}/pages")
+async def manga_mi_chapter_pages(chapter_slug: str):
+    """Daftar URL halaman satu bab Manhwaindo."""
+    try:
+        cache_key = f"manga_mi_pages_v1|{chapter_slug}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.get_chapter_pages(chapter_slug))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/km/search")
+async def manga_km_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Cari judul di Komiku (Bahasa Indonesia)."""
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: kmmod.search_manga(q, limit=limit, safe_mode=safe_mode))
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/km/series/{slug}/chapters")
+async def manga_km_chapters(slug: str, safe_mode: int = Query(1)):
+    """Daftar bab satu judul Komiku."""
+    try:
+        cache_key = f"manga_km_chapters_v1|{slug}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: kmmod.get_series_chapters(slug, safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/km/series/{series_slug}/chapter/{chapter_slug}/pages")
+async def manga_km_chapter_pages(series_slug: str, chapter_slug: str):
+    """Daftar URL halaman satu bab Komiku (chapter_slug sudah memuat slug
+    judul, mis. age-of-terror-chapter-325; series_slug hanya penanda)."""
+    try:
+        cache_key = f"manga_km_pages_v1|{chapter_slug}"
+        cached = await get_browse_cache(cache_key, ttl=3600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: kmmod.get_chapter_pages(series_slug, chapter_slug))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/manga/mi/latest")
+async def manga_mi_latest(limit: int = Query(24, ge=1, le=50),
+                          safe_mode: int = Query(1)):
+    """Feed bab terbaru Manhwaindo (bagian Latest Update beranda).
+    Manhwaindo SAJA — provider lain belum punya endpoint latest yang
+    setara, jadi feed ini tidak dipalsukan sebagai gabungan."""
+    try:
+        cache_key = f"manga_mi_latest_v1|{limit}|{safe_mode}"
+        cached = await get_browse_cache(cache_key, ttl=600)
+        if cached:
+            cached["cached"] = True
+            return ok(cached)
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(
+            None, lambda: mimod.latest_updates(limit=limit,
+                                               safe_mode=safe_mode))
+        await set_browse_cache(cache_key, data)
+        data["cached"] = False
+        return ok(data)
+    except Exception as e:
+        return fail(str(e))
+
+
 def _manga_norm_title(s):
     import re as _re
     s = (s or "").lower()
@@ -2037,8 +2667,11 @@ def _manga_merge_key(num):
 def _manga_merge_chapters(primary_chapters, extra_lists):
     """Gabung daftar bab per nomor bab. Satu entri per nomor: bab yang
     bisa dibaca mengalahkan tautan resmi; bahasa ID mengalahkan EN;
-    sumber diurut MangaDex > Komikcast > Asura sebagai penyeimbang."""
-    src_rank = {"MangaDex": 0, "Komikcast": 1, "Asura": 2}
+    sumber diurut MangaDex > Komikcast > Komiku > Manhwaindo > Asura
+    sebagai penyeimbang (Komiku di atas Manhwaindo karena gambarnya
+    memakai host img.komiku.org yang terjangkau dari HP)."""
+    src_rank = {"MangaDex": 0, "Komikcast": 1, "Komiku": 2, "Manhwaindo": 3,
+                "Asura": 4}
     lang_rank = {"id": 0, "en": 1}
 
     def rank(ch):
@@ -2074,11 +2707,28 @@ def _manga_merge_chapters(primary_chapters, extra_lists):
     return out
 
 
-def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode):
+class _ProviderFailed(Exception):
+    """Provider gagal total (bukan judul tidak ditemukan): semua
+    pencarian error, atau judul cocok tapi semua pengambilan detail
+    error. Dilempar ke penggabung supaya kegagalan tampil sebagai
+    catatan UI, bukan hasil kosong diam-diam."""
+
+
+def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode,
+                        blocked_raise="Komikcast diblokir"):
     """Coba tiap varian judul (utama + alt, maks 6) sebagai kata kunci
-    cari; kembalikan bab dari kecocokan ketat pertama. Gagal = []."""
+    cari; kembalikan (bab, gagal) dari kecocokan ketat pertama.
+    gagal=True hanya bila provider tidak pernah memberi satu pun respons
+    sukses (semua pencarian error) atau judul cocok tapi semua
+    pengambilan detail error. Judul yang memang tidak ada di provider
+    (pencarian sukses tanpa kecocokan) BUKAN gagal dan tidak ber catatan.
+    blocked_raise = pesan yang dilempar bila provider terblokir (KC dan
+    MI masing-masing punya catatan UI-nya sendiri)."""
     seen_q = set()
     blocked = False
+    any_success = False
+    matched = False
+    matched_detail_failed = False
     for q in titles:
         q = (q or "").strip()
         if not q or q.lower() in seen_q:
@@ -2094,29 +2744,42 @@ def _match_chapters_for(search_fn, detail_fn, id_prefix, titles, safe_mode):
             if "diblokir" in str(e):
                 blocked = True
             continue
+        any_success = True
         for it in res.get("items") or []:
             if _manga_titles_match(titles, _cand_titles(it)):
+                matched = True
                 try:
                     det = detail_fn((it.get("id") or "")[len(id_prefix):],
                                     safe_mode=safe_mode)
                 except Exception:
+                    matched_detail_failed = True
                     continue
-                return det.get("chapters") or []
+                return (det.get("chapters") or []), False
     if blocked:
-        raise ValueError("Komikcast diblokir")
-    return []
+        raise ValueError(blocked_raise)
+    if matched and matched_detail_failed:
+        return [], True
+    if seen_q and not any_success:
+        return [], True
+    return [], False
 
 
 def _kc_match_chapters(titles, safe_mode):
     """Cari judul di Komikcast (cocok ketat) lalu ambil daftar babnya.
-    Mengembalikan (chapters, note). Gagal = ([], note) — tidak pernah
-    melempar, supaya satu provider gagal tidak menggagalkan gabungan."""
+    Mengembalikan (chapters, note). Judul tidak ditemukan = ([], "").
+    Provider gagal total = melempar _ProviderFailed (ditangkap penggabung
+    menjadi catatan UI, bukan hasil kosong diam-diam). Terblokir =
+    ([], note) seperti sebelumnya."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: kcmod.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda slug, safe_mode: kcmod.get_series_chapters(slug, safe_mode=safe_mode),
             "kc:", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("Komikcast")
         return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception as e:
         msg = str(e)
         if "diblokir" in msg:
@@ -2128,11 +2791,51 @@ def _kc_match_chapters(titles, safe_mode):
 def _as_match_chapters(titles, safe_mode):
     """Sama seperti _kc_match_chapters, untuk Asura Scans."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: asmod.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda slug, safe_mode: asmod.get_series_chapters(slug, safe_mode=safe_mode),
             "as:", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("Asura")
         return chapters, ""
+    except _ProviderFailed:
+        raise
+    except Exception:
+        return [], ""
+
+
+def _mi_match_chapters(titles, safe_mode):
+    """Sama seperti _kc_match_chapters, untuk Manhwaindo."""
+    try:
+        chapters, failed = _match_chapters_for(
+            lambda q, limit, safe_mode: mimod.search_manga(q, limit=limit, safe_mode=safe_mode),
+            lambda slug, safe_mode: mimod.get_series_chapters(slug, safe_mode=safe_mode),
+            "mi:", titles, safe_mode, blocked_raise="Manhwaindo diblokir")
+        if failed:
+            raise _ProviderFailed("Manhwaindo")
+        return chapters, ""
+    except _ProviderFailed:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "diblokir" in msg:
+            return [], ("Manhwaindo belum bisa diakses saat ini — "
+                        "bab Indonesianya belum tergabung.")
+        return [], ""
+
+
+def _km_match_chapters(titles, safe_mode):
+    """Sama seperti _kc_match_chapters, untuk Komiku."""
+    try:
+        chapters, failed = _match_chapters_for(
+            lambda q, limit, safe_mode: kmmod.search_manga(q, limit=limit, safe_mode=safe_mode),
+            lambda slug, safe_mode: kmmod.get_series_chapters(slug, safe_mode=safe_mode),
+            "km:", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("Komiku")
+        return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception:
         return [], ""
 
@@ -2140,25 +2843,34 @@ def _as_match_chapters(titles, safe_mode):
 def _md_match_chapters(titles, safe_mode):
     """Cari judul di MangaDex (cocok ketat) lalu ambil daftar babnya."""
     try:
-        chapters = _match_chapters_for(
+        chapters, failed = _match_chapters_for(
             lambda q, limit, safe_mode: md.search_manga(q, limit=limit, safe_mode=safe_mode),
             lambda mid, safe_mode: md.get_manga_chapters(mid, safe_mode=safe_mode),
             "", titles, safe_mode)
+        if failed:
+            raise _ProviderFailed("MangaDex")
         return chapters, ""
+    except _ProviderFailed:
+        raise
     except Exception:
         return [], ""
 
 
 @app.get("/api/manga/merged/{mid}/chapters")
 async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
-    """Daftar bab GABUNGAN per judul dari MangaDex + Komikcast + Asura,
-    dicocokkan per nomor bab. Bab yang bisa dibaca selalu mengalahkan
-    tautan resmi; bahasa ID didahulukan atas EN. Bab resmi MangaDex
-    tetap tampil sebagai tautan 'Buka di Situs Resmi' bila tidak ada
-    versi bacanya di provider lain. mid = UUID MangaDex, 'kc:<slug>',
-    atau 'as:<slug>'."""
+    """Daftar bab GABUNGAN per judul dari MangaDex + Komikcast + Asura +
+    Manhwaindo + Komiku, dicocokkan per nomor bab. Bab yang bisa dibaca
+    selalu mengalahkan tautan resmi; bahasa ID didahulukan atas EN. Bab
+    resmi MangaDex tetap tampil sebagai tautan 'Buka di Situs Resmi'
+    bila tidak ada versi bacanya di provider lain. mid = UUID MangaDex,
+    'kc:<slug>', 'as:<slug>', 'mi:<slug>', atau 'km:<slug>'. Provider
+    yang gagal total tampil sebagai catatan ⚠️ dan hasilnya tidak
+    di-cache."""
     try:
-        cache_key = f"manga_merged_v1|{mid}|{safe_mode}"
+        # Kunci v4 (payload v33): Komiku masuk sebagai provider ke-5 —
+        # cache v3 tidak mengenal bab Komiku, jadi kunci baru membatalkan
+        # cache lama itu. Hasil parsial tetap TIDAK di-cache.
+        cache_key = f"manga_merged_v4|{mid}|{safe_mode}"
         cached = await get_browse_cache(cache_key, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
@@ -2174,6 +2886,16 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
             primary = await loop.run_in_executor(
                 None, lambda: asmod.get_series_chapters(slug, safe_mode=safe_mode))
             primary_source = "Asura"
+        elif mid.startswith("mi:"):
+            slug = mid[3:]
+            primary = await loop.run_in_executor(
+                None, lambda: mimod.get_series_chapters(slug, safe_mode=safe_mode))
+            primary_source = "Manhwaindo"
+        elif mid.startswith("km:"):
+            slug = mid[3:]
+            primary = await loop.run_in_executor(
+                None, lambda: kmmod.get_series_chapters(slug, safe_mode=safe_mode))
+            primary_source = "Komiku"
         else:
             primary = await loop.run_in_executor(
                 None, lambda: md.get_manga_chapters(mid, safe_mode=safe_mode))
@@ -2184,18 +2906,31 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
         # halaman challenge terdeteksi langsung, bukan timeout panjang).
         jobs = []
         if primary_source != "Komikcast":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _kc_match_chapters(titles, safe_mode)))
+            jobs.append(("Komikcast", loop.run_in_executor(
+                None, lambda: _kc_match_chapters(titles, safe_mode))))
         if primary_source != "Asura":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _as_match_chapters(titles, safe_mode)))
+            jobs.append(("Asura", loop.run_in_executor(
+                None, lambda: _as_match_chapters(titles, safe_mode))))
+        if primary_source != "Manhwaindo":
+            jobs.append(("Manhwaindo", loop.run_in_executor(
+                None, lambda: _mi_match_chapters(titles, safe_mode))))
+        if primary_source != "Komiku":
+            jobs.append(("Komiku", loop.run_in_executor(
+                None, lambda: _km_match_chapters(titles, safe_mode))))
         if primary_source != "MangaDex":
-            jobs.append(loop.run_in_executor(
-                None, lambda: _md_match_chapters(titles, safe_mode)))
-        results = await asyncio.gather(*jobs, return_exceptions=True) if jobs else []
+            jobs.append(("MangaDex", loop.run_in_executor(
+                None, lambda: _md_match_chapters(titles, safe_mode))))
+        results = await asyncio.gather(
+            *[c for _, c in jobs], return_exceptions=True) if jobs else []
         extra_lists, notes = [], []
-        for r in results:
+        complete = True
+        for name, r in zip([n for n, _ in jobs], results):
             if isinstance(r, Exception):
+                # Provider gagal total: tampilkan sebagai catatan (bukan
+                # hasil kosong diam-diam) dan tandai gabungan tidak
+                # lengkap supaya TIDAK di-cache 6 jam.
+                notes.append(f"⚠️ {name} gagal dimuat — coba buka lagi detailnya.")
+                complete = False
                 continue
             chapters, note = r
             if chapters:
@@ -2219,7 +2954,13 @@ async def manga_merged_chapters(mid: str, safe_mode: int = Query(1)):
             "sources": sources,
             "notes": notes,
         }
-        await set_browse_cache(cache_key, data)
+        # Hanya gabungan LENGKAP yang di-cache 6 jam. Hasil parsial
+        # (ada provider gagal) tidak disimpan sama sekali — buka ulang
+        # detail akan mengambil ulang, bukan menyajikan hasil parsial
+        # lama. Catatan terblokir (KC/MI) bukan exception sehingga tetap
+        # dihitung lengkap: statusnya stabil, bukan kegagalan sesaat.
+        if complete:
+            await set_browse_cache(cache_key, data)
         data["cached"] = False
         return ok(data)
     except Exception as e:
@@ -2280,6 +3021,13 @@ async def episodes(slug: str):
         cached = await get_browse_cache(cache_key, ttl=6 * 3600)
         if cached:
             cached["cached"] = True
+            # Write-through bookmark: data <=6 jam, cukup segar untuk favorit.
+            try:
+                _ct = cached.get("total")
+                if isinstance(_ct, int):
+                    await _write_through_bookmark_eps(slug, _ct)
+            except Exception:
+                pass
             return ok(cached)
         loop = asyncio.get_running_loop()
         eps = []
@@ -2324,6 +3072,11 @@ async def episodes(slug: str):
         }
         await set_browse_cache(cache_key, data)
         data["cached"] = False
+        # Write-through bookmark: episode list baru saja di-fetch segar.
+        try:
+            await _write_through_bookmark_eps(slug, len(eps))
+        except Exception:
+            pass
         return ok(data)
     except Exception as e:
         return fail(str(e))
@@ -2530,7 +3283,14 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
             await delete_episode_cache(cache_slug, ep)
             hit = None
         else:
-            hit = await get_episode_cache(cache_slug, ep, mode)
+            # Ambil cache mode utama + mode fallback dalam SATU query SQLite
+            # (sebelumnya 2 round-trip: 'sub' lalu 'dub' atau sebaliknya).
+            try:
+                _modes_needed = [mode] if mode == "sub" else [mode, "sub"]
+                _cache_hits = await get_episode_cache_modes(cache_slug, ep, _modes_needed)
+            except Exception:
+                _cache_hits = {}
+            hit = _cache_hits.get(mode)
             if mode == "sub":
                 # Cegah negative caching dan kontaminasi dub cache pada mode sub.
                 # Jika cache hit tidak memiliki subtitle valid, bersihkan dan anggap cache miss.
@@ -2539,7 +3299,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                     hit = None
             elif mode == "dub":
                 if not hit:
-                    hit = await get_episode_cache(cache_slug, ep, "sub")
+                    hit = _cache_hits.get("sub")
         async def _check_and_prewarm(ep_data):
             try:
                 sub_lang = (await get_setting("sub_lang", "Indonesian")).strip().lower()
@@ -2572,7 +3332,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         if not any(k in sub_l for k in hi._NON_ENGLISH_KEYWORDS):
                             en_url = ep_data.get("sub") or ""
                     if en_url:
-                        asyncio.create_task(_prewarm_sub_translation(en_url, ep_data.get("referer") or "", "en", "id"))
+                        _spawn_background(_prewarm_sub_translation(en_url, ep_data.get("referer") or "", "en", "id"))
             except Exception:
                 pass
 
@@ -2671,25 +3431,31 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         last_error = None
         is_failover = False
         failover_from = None
+        fail_reasons = []  # [(provider, ringkas_alasan)] utk pesan akhir bila semua gagal
+        def _note(provider, exc):
+            msg = " ".join(str(exc or "").split())[:140]
+            fail_reasons.append((provider, msg or "gagal tanpa pesan"))
 
         if active_source == "anichan":
             try:
                 got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
             except Exception as e:
                 last_error = e
+                _note("AniChan", e)
                 if source == "auto" or not source:
                     try:
                         maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
                         got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
                         active_source = "hianime"
                         cache_slug = slug
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        _note("HiAnime", e2)
         elif active_source == "otakudesu":
             try:
                 got = await loop.run_in_executor(None, lambda: otaku.resolve_stream(slug, ep))
             except Exception as e:
                 last_error = e
+                _note("Otakudesu", e)
                 # Fallback ke hianime kalau user pakai auto
                 if source == "auto" or not source:
                     try:
@@ -2697,8 +3463,8 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
                         active_source = "hianime"
                         cache_slug = slug
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        _note("HiAnime", e2)
                     if not got:
                         try:
                             got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
@@ -2706,23 +3472,24 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             cache_slug = f"anichan:{slug}"
                             is_failover = True
                             failover_from = "otakudesu"
-                            _ANIME_FAILOVER_CACHE[slug] = "anichan"
-                        except Exception:
-                            pass
+                            _set_failover(slug, "anichan")
+                        except Exception as e3:
+                            _note("AniChan", e3)
         else:
             try:
                 maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
                 got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
             except Exception as e:
                 last_error = e
+                _note("HiAnime", e)
                 # Fallback ke otakudesu jika hianime gagal
                 if source == "auto" or not source:
                     try:
                         got = await loop.run_in_executor(None, lambda: otaku.resolve_stream(slug, ep))
                         active_source = "otakudesu"
                         cache_slug = f"otakudesu:{slug}"
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        _note("Otakudesu", e2)
                     # JIKA HIANIME & OTAKUDESU GAGAL (KASUS EYESHIELD 21):
                     # Failover otomatis per-judul ke AniChan langsung ke HLS M3U8
                     if not got:
@@ -2732,11 +3499,15 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             cache_slug = f"anichan:{slug}"
                             is_failover = True
                             failover_from = "hianime"
-                            _ANIME_FAILOVER_CACHE[slug] = "anichan"
+                            _set_failover(slug, "anichan")
                         except Exception as anichan_err:
                             last_error = anichan_err
+                            _note("AniChan", anichan_err)
 
         if not got:
+            if fail_reasons:
+                parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
+                raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
             raise last_error or RuntimeError("Stream gagal di-resolve dari semua sumber")
 
         got["source"] = active_source
@@ -2906,13 +3677,22 @@ def _is_m3u8_url(url: str, ctype: str = "") -> bool:
 
 
 @app.get("/api/player/video")
-async def proxy_video(url: str = Query(""), referer: str = Query("")):
+async def proxy_video(url: str = Query(""), referer: str = Query(""), range: str = Query("")):
     # Proxy cepat: koneksi dipakai ulang, segmen di-stream (tanpa buffer penuh),
-    # Range diteruskan supaya seek tidak unduh ulang dari awal.
+    # Range diteruskan ke upstream supaya seek tidak mengunduh ulang segmen dari awal.
     from fastapi import Request
     from fastapi.responses import StreamingResponse as _SR
     if not url.startswith("http"):
         return Response(status_code=400)
+    # Sanitasi header Range: hanya izinkan bentuk "bytes=<start>-<end>" agar tidak
+    # menjadi vektor request smuggling / header injection ke upstream CDN.
+    range_header = ""
+    if range:
+        _rg = range.strip()
+        if _rg.lower().startswith("bytes="):
+            _rg = _rg[6:].strip()
+            if _rg and all(c.isdigit() or c == "-" for c in _rg) and _rg.count("-") <= 1:
+                range_header = f"bytes={_rg}"
     from api.hianime import SEG_RE, SEG_KEY, SEG_IV, STRIP_BYTES, STRIP_RE
     import re as _re
     m = SEG_RE.search(url)
@@ -2952,11 +3732,64 @@ async def proxy_video(url: str = Query(""), referer: str = Query("")):
     from api.hianime import _host_from, _BLOCKED_DPI_HOSTS
     host = _host_from(url)
     if host in _BLOCKED_DPI_HOSTS:
-        return _SR(_pipe_desync_video(url, referer), media_type=media_type,
+        return _SR(_pipe_desync_video(url, referer, range_header=range_header), media_type=media_type,
                    headers={"Access-Control-Allow-Origin": "*"})
 
-    return _SR(_pipe_video(url, referer), media_type=media_type,
+    return _SR(_pipe_video(url, referer, range_header=range_header), media_type=media_type,
                headers={"Access-Control-Allow-Origin": "*"})
+
+
+def _sniff_image_type(data: bytes):
+    """Tebak tipe gambar dari magic bytes — untuk hasil desync yang tidak
+    membawa header HTTP (tls_desync_request hanya mengembalikan body)."""
+    if not data or len(data) < 12:
+        return None
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[4:8] == b"ftyp" and data[8:12] in (b"avif", b"avis"):
+        return "image/avif"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    head = data[:256].lstrip()
+    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        return "image/svg+xml"
+    return None
+
+
+def _dechunk_http_body(data: bytes):
+    """Lepas chunked transfer-encoding (RFC 9112) dari body mentah desync.
+    Kembalikan None bila data bukan chunked yang valid (body utuh bukan
+    chunked — mis. gambar biner — tidak pernah diubah)."""
+    if not data:
+        return None
+    out = bytearray()
+    pos = 0
+    n = len(data)
+    while pos < n:
+        end = data.find(b"\r\n", pos)
+        if end < 0 or end - pos > 16:
+            return None
+        size_s = data[pos:end].split(b";", 1)[0].strip()
+        try:
+            size = int(size_s, 16)
+        except ValueError:
+            return None
+        pos = end + 2
+        if size == 0:
+            return bytes(out)
+        if pos + size > n:
+            return None
+        out += data[pos:pos + size]
+        pos += size
+        if data[pos:pos + 2] == b"\r\n":
+            pos += 2
+    return None
 
 
 @app.get("/api/img")
@@ -2970,15 +3803,37 @@ async def proxy_image(url: str = Query("")):
     except Exception:
         return Response(status_code=400)
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             r = await client.get(url, headers={"User-Agent": "Lumio-App (image proxy)", "Accept": "image/*,*/*;q=0.5"})
         ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
-        if r.status_code != 200 or not ctype.startswith("image/"):
-            return Response(status_code=502)
-        return Response(content=r.content, media_type=ctype,
-                        headers={"Cache-Control": "public, max-age=86400"})
+        if r.status_code == 200 and ctype.startswith("image/"):
+            return Response(content=r.content, media_type=ctype,
+                            headers={"Cache-Control": "public, max-age=86400"})
     except Exception:
-        return Response(status_code=502)
+        pass
+    # Fetch normal gagal (timeout / status != 200 / bukan gambar): coba sekali
+    # via TLS desync — jalur yang sama dipakai video untuk host DPI-blocked.
+    try:
+        from api.desync import tls_desync_request
+        import asyncio
+        loop = asyncio.get_running_loop()
+        body = await loop.run_in_executor(
+            None, lambda: tls_desync_request(
+                url, headers={"User-Agent": "Lumio-App (image proxy)", "Accept": "image/*,*/*;q=0.5"}, timeout=10.0))
+        ctype = _sniff_image_type(body or b"")
+        if not ctype and body:
+            # Respons desync bisa ber-chunked: lepas dulu, lalu validasi ulang.
+            dec = _dechunk_http_body(body)
+            if dec is not None:
+                ctype = _sniff_image_type(dec)
+                if ctype:
+                    body = dec
+        if ctype:
+            return Response(content=body, media_type=ctype,
+                            headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        pass
+    return Response(status_code=502)
 
 
 def _rewrite_m3u8_content(txt: str, base_url: str, referer: str) -> str:
@@ -3016,16 +3871,22 @@ def _rewrite_m3u8_content(txt: str, base_url: str, referer: str) -> str:
     return "\n".join(out)
 
 
-async def _pipe_desync_video(url: str, referer: str):
+async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
     """Streaming video via TLS Client Hello Desynchronization (Direct TCP 443 tanpa VPN)."""
     from api.desync import tls_desync_request, tls_desync_stream
     import asyncio
-    
+
     headers = {"Referer": referer} if referer else {}
+    if range_header:
+        headers["Range"] = range_header
     loop = asyncio.get_running_loop()
-    
+
     # Playlist m3u8: baca penuh dan rewrite URL agar segmen tetap lewat proxy Tatap
     if _is_m3u8_url(url):
+        cached_txt = _master_cache_get(url)
+        if cached_txt is not None:
+            yield _rewrite_m3u8_content(cached_txt, url, referer).encode("utf-8")
+            return
         body = await loop.run_in_executor(None, lambda: tls_desync_request(url, headers=headers))
         try:
             txt = body.decode("utf-8", errors="strict")
@@ -3033,6 +3894,7 @@ async def _pipe_desync_video(url: str, referer: str):
             raise HTTPException(status_code=502, detail="upstream desync m3u8 binary decode error")
         if "#EXTM3U" not in txt:
             raise HTTPException(status_code=502, detail="upstream desync response missing #EXTM3U")
+        _master_cache_set(url, txt)
         yield _rewrite_m3u8_content(txt, url, referer).encode("utf-8")
         return
 
@@ -3062,13 +3924,16 @@ def _get_video_client(url: str):
     return _direct_client
 
 
-async def _pipe_video(url: str, referer: str):
+async def _pipe_video(url: str, referer: str, range_header: str = ""):
     import urllib.parse as _up
     import asyncio as _asyncio
     from api.hianime import STRIP_BYTES as _SB, STRIP_RE as _SR2
     c = _get_video_client(url)
 
     headers = {"User-Agent": HI_UA}
+    if range_header:
+        # Teruskan Range ke upstream agar seek hanya mengunduh byte yang dibutuhkan.
+        headers["Range"] = range_header
     if referer:
         headers["Referer"] = referer
 
@@ -3080,6 +3945,12 @@ async def _pipe_video(url: str, referer: str):
                 ctype = r.headers.get("content-type", "")
                 is_playlist = _is_m3u8_url(url, ctype)
                 if is_playlist:
+                    # Cek cache master dulu: hindari unduhan ulang dari CDN
+                    # (resolver sudah pernah mengunduh master ini).
+                    cached_txt = _master_cache_get(url)
+                    if cached_txt is not None:
+                        yield _rewrite_m3u8_content(cached_txt, url, referer).encode("utf-8")
+                        return
                     body = await r.aread()
                     try:
                         txt = body.decode("utf-8", errors="strict")
@@ -3087,6 +3958,7 @@ async def _pipe_video(url: str, referer: str):
                         raise HTTPException(status_code=502, detail="upstream m3u8 binary decode error")
                     if "#EXTM3U" not in txt:
                         raise HTTPException(status_code=502, detail="upstream response missing #EXTM3U")
+                    _master_cache_set(url, txt)
                     yield _rewrite_m3u8_content(txt, url, referer).encode("utf-8")
                     return
 
@@ -3116,7 +3988,7 @@ async def _pipe_video(url: str, referer: str):
                 is_rst = any(w in err_text for w in ("connection reset", "connectionreseterror", "rst", "closed connection"))
                 if is_known_dpi or is_rst:
                     _BLOCKED_DPI_HOSTS.add(host)
-                async for chunk in _pipe_desync_video(url, referer):
+                async for chunk in _pipe_desync_video(url, referer, range_header=range_header):
                     yield chunk
                 return
             except Exception:
@@ -3211,7 +4083,7 @@ async def _get_validated_subtitle_cache(key: str, lang: str = "id", ttl: int = 7
     return None
 
 
-async def _prewarm_sub_translation(url: str, referer: str, src: str = "en", lang: str = "id"):
+async def _prewarm_sub_translation(url: str, referer: str, src: str = "en", lang: str = "id", req_mode: str = "gtx+", dual: int = 0):
     """Prefetch subtitle translate di latar belakang jika belum ada di cache."""
     if not url or not url.startswith("http") or not lang or lang == src:
         return
@@ -3222,24 +4094,34 @@ async def _prewarm_sub_translation(url: str, referer: str, src: str = "en", lang
     import hashlib
     base_hash = hashlib.sha1((url + "|" + (referer or "") + "|" + lang).encode("utf-8")).hexdigest()
     key_gtx = "sub2|gtx|" + base_hash
+    key_gtxplus = "sub2|gtx+|" + base_hash
+    key_llm = "sub2|llm|" + base_hash
     hit = await _get_validated_subtitle_cache(key_gtx, lang=lang)
     if hit is not None:
         return
+    hit = await _get_validated_subtitle_cache(key_gtxplus, lang=lang)
+    if hit is not None:
+        return
 
-    job_key = f"{base_hash}|{lang}"
+    job_key = f"{base_hash}|{lang}|{req_mode}|dual={dual}"
     fut = _SUB_INFLIGHT.get(job_key)
     if fut is None:
-        key_gtxplus = "sub2|gtx+|" + base_hash
-        key_aigtx = "sub2|aigtx|" + base_hash
-        key_llm = "sub2|llm|" + base_hash
         try:
             from api.translate import log_translate
             log_translate(f"Prefetch subtitle [{lang}] dimulai di background...")
         except Exception:
             pass
-        fut = asyncio.ensure_future(_translate_sub_job(url, referer, src, lang, key_llm, key_gtxplus, _fetch_sub_text, key_gtx=key_gtx, requested_mode="gtx"))
+        fut = asyncio.ensure_future(_translate_sub_job(url, referer, src, lang, key_llm, key_gtxplus, _fetch_sub_text, key_gtx=key_gtx, requested_mode=req_mode))
         _SUB_INFLIGHT[job_key] = fut
-        fut.add_done_callback(lambda _f, k=job_key: _SUB_INFLIGHT.pop(k, None))
+
+        def _pop_and_retrieve(f, k=job_key):
+            _SUB_INFLIGHT.pop(k, None)
+            try:
+                f.exception()
+            except Exception:
+                pass
+
+        fut.add_done_callback(_pop_and_retrieve)
 
 
 @app.get("/favicon.ico")
@@ -3323,14 +4205,22 @@ async def proxy_sub(url: str = Query(""),
                     return resp
 
     # Satukan eksekusi translasi agar tidak menduplikasi request bersamaan untuk mode yang sama
-    job_key = f"{base_hash}|{lang}|{req_mode}"
+    job_key = f"{base_hash}|{lang}|{req_mode}|dual=0"
     fut = _SUB_INFLIGHT.get(job_key)
     if fut is None:
         fut = asyncio.ensure_future(
             _translate_sub_job(url, referer, src, lang, key_llm, key_gtxplus, _fetch_sub_text, key_gtx=key_gtx, requested_mode=req_mode)
         )
         _SUB_INFLIGHT[job_key] = fut
-        fut.add_done_callback(lambda _f, k=job_key: _SUB_INFLIGHT.pop(k, None))
+
+        def _pop_and_retrieve(f, k=job_key):
+            _SUB_INFLIGHT.pop(k, None)
+            try:
+                f.exception()
+            except Exception:
+                pass
+
+        fut.add_done_callback(_pop_and_retrieve)
 
     try:
         new_text, tier = await asyncio.shield(fut)
@@ -3393,14 +4283,17 @@ async def _translate_sub_job(url, referer, src, lang, key_llm, key_gtxplus, fetc
         if (lang or "").lower() != "id" or _is_valid_id_subtitle(new_text):
             if lvl in ("tier1", "gtx"):
                 await set_subtitle_cache(key_gtx, new_text)
+                await set_subtitle_cache(key_gtxplus, new_text)
             elif lvl in ("tier2", "gtx+", "aigtx"):
                 await set_subtitle_cache(key_gtxplus, new_text)
+                await set_subtitle_cache(key_gtx, new_text)
             elif lvl in ("tier3", "ai"):
                 total = max(1, tier.get("total") or len(cues))
                 if tier.get("llm_lines", 0) / total >= 0.8:
                     await set_subtitle_cache(key_llm, new_text)
                 else:
                     await set_subtitle_cache(key_gtxplus, new_text)
+                    await set_subtitle_cache(key_gtx, new_text)
     return new_text, tier
 
 
@@ -3804,7 +4697,7 @@ def find_mpv_binary():
 async def play_mpv(body: dict = None):
     body = body or {}
     slug, ep, mode = body.get("slug", ""), int(body.get("ep", 1)), body.get("mode", "sub")
-    quality = body.get("quality", await get_setting("quality", "best"))
+    quality = body.get("quality") or await get_setting("quality", "best")
     # Opsional: user pilih subtitle spesifik via UI ("sub_url" berisi URL track
     # yang aktif). Backend tetap attach seluruh subtitles[] ke MPV (--sub-file
     # bisa lebih dari satu) supaya user bisa cycle lewat tombol 'j'.
@@ -3999,9 +4892,103 @@ async def delete_watch_progress(slug: str = Query(""), ep: int = Query(None), ep
     await clear_progress(s, int(e) if e is not None else None)
     return ok(True)
 
+def _rebuild_eps_counter(stored_eps, new_total):
+    """Rekonstruksi eps_counter bookmark: pertahankan total tersimpan.
+    '17/26' + 18 -> '18/26'; '3/?' + 4 -> '4/?'."""
+    s = (stored_eps or "").strip()
+    total_part = "?"
+    if "/" in s:
+        total_part = s.split("/", 1)[1].strip() or "?"
+    if total_part != "?" and not total_part.isdigit():
+        total_part = "?"
+    return f"{new_total}/{total_part}"
+
+
+async def _fresh_episode_total(slug):
+    """Total episode rilis satu slug. Urutan: cache episodes_v1 (6 jam) dulu
+    (tanpa fetch mentah bila hit); bila miss, fetch HiAnime sekali lalu cache.
+    Return int atau None bila gagal."""
+    slug = (slug or "").strip()
+    if not slug:
+        return None
+    cache_key = f"episodes_v1|{slug}"
+    try:
+        cached = await get_browse_cache(cache_key, ttl=6 * 3600)
+        if cached and isinstance(cached.get("total"), int):
+            return cached["total"]
+    except Exception:
+        pass
+    try:
+        loop = asyncio.get_running_loop()
+        eps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
+        if eps:
+            total = len(eps)
+            try:
+                await set_browse_cache(cache_key, {"slug": slug, "episodes": eps, "total": total})
+            except Exception:
+                pass
+            return total
+    except Exception:
+        pass
+    return None
+
+
+async def _write_through_bookmark_eps(slug, total):
+    """Write-through eps/sub ke bookmark bila slug di-bookmark.
+    Dipakai saat detail dibuka dan saat GET /api/bookmarks refresh."""
+    if not slug or total is None:
+        return
+    try:
+        row = await get_bookmark(slug)
+    except Exception:
+        return
+    if not row:
+        return
+    try:
+        new_sub = str(total)
+        new_eps = _rebuild_eps_counter(row.get("eps") or "", total)
+        if row.get("sub") == new_sub and row.get("eps") == new_eps:
+            return
+        await update_bookmark_eps(slug, new_sub, new_eps)
+    except Exception:
+        pass
+
+
 @app.get("/api/bookmarks")
 async def list_bookmarks():
-    return ok(await get_bookmarks())
+    rows = await get_bookmarks()
+    # Refresh eps/sub bookmark yang datanya basi (>6 jam), paralel.
+    # Memakai cache episodes_v1 bila hit (tanpa fetch mentah); write-through
+    # hasilnya ke penyimpanan agar GET berikutnya langsung segar.
+    now = time.time()
+    try:
+        stale = [r for r in (rows or [])
+                 if (now - float(r.get("eps_updated_at") or 0)) > 6 * 3600]
+    except Exception:
+        stale = []
+    if stale:
+        _bm_sem = asyncio.Semaphore(5)
+
+        async def _refresh_one(_r):
+            async with _bm_sem:
+                try:
+                    total = await _fresh_episode_total(_r.get("slug") or "")
+                except Exception:
+                    total = None
+            if total is not None:
+                new_sub = str(total)
+                new_eps = _rebuild_eps_counter(_r.get("eps") or "", total)
+                _ts = time.time()
+                _r["sub"] = new_sub
+                _r["eps"] = new_eps
+                _r["eps_updated_at"] = _ts
+                try:
+                    await update_bookmark_eps(_r.get("slug") or "", new_sub, new_eps)
+                except Exception:
+                    pass
+
+        await asyncio.gather(*(_refresh_one(r) for r in stale), return_exceptions=True)
+    return ok(rows)
 
 @app.post("/api/bookmarks")
 async def save_bookmark(body: dict = None):
@@ -4041,22 +5028,28 @@ async def check_bookmark(slug: str = ""):
 
 @app.get("/api/settings")
 async def get_set():
+    # Ambil seluruh setting dalam SATU query (get_settings_bulk) — sebelumnya
+    # 10 query berurutan ke tabel yang hanya berisi ~6 baris.
+    s = await get_settings_bulk()
+    def _v(key, default=""):
+        val = s.get(key)
+        return default if val is None else val
     return ok({
-        "quality": await get_setting("quality", "best"),
-        "mode": await get_setting("mode", "sub"),
-        "player": await get_setting("player", "browser"),
-        "preferred_source": await get_setting("preferred_source", "hianime"),
+        "quality": _v("quality", "best"),
+        "mode": _v("mode", "sub"),
+        "player": _v("player", "browser"),
+        "preferred_source": _v("preferred_source", "hianime"),
         # Preferensi bahasa subtitle user. Default "English" karena sebagian besar
         # sumber (Megaplay, ZokoAnime) punya English sebagai track default. Kalau
         # user pernah pilih bahasa lain, disimpan di sini dan dipakai frontend
         # untuk auto-select track di episode berikutnya.
-        "sub_lang": await get_setting("sub_lang", "English"),
+        "sub_lang": _v("sub_lang", "English"),
         # Translate API (opsional). User isi via settings panel. Fallback ke
         # MyMemory kalau kosong. translate_apikey tidak pernah di-log.
-        "translate_apikey": await get_setting("translate_apikey", ""),
-        "translate_model": await get_setting("translate_model", "gemini-2.0-flash"),
-        "translate_apiurl": await get_setting("translate_apiurl", "https://generativelanguage.googleapis.com/v1beta/openai"),
-        "safe_mode": await get_setting("safe_mode", "1"),
+        "translate_apikey": _v("translate_apikey", ""),
+        "translate_model": _v("translate_model", "gemini-2.0-flash"),
+        "translate_apiurl": _v("translate_apiurl", "https://generativelanguage.googleapis.com/v1beta/openai"),
+        "safe_mode": _v("safe_mode", "1"),
     })
 
 @app.post("/api/settings")

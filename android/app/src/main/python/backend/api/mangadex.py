@@ -132,6 +132,16 @@ def _cover_url(manga_id, relationships):
 def _map_manga(m, query=""):
     attrs = m.get("attributes") or {}
     desc_map = attrs.get("description") or {}
+    # Genre untuk filter klien: nama Inggris tag grup genre+theme.
+    # Tag konten/format + tag dewasa-dekat tidak ikut (bukan data filter).
+    genres = []
+    for t in attrs.get("tags") or []:
+        ta = (t.get("attributes") or {})
+        if ta.get("group") not in ("genre", "theme"):
+            continue
+        nm = ((ta.get("name") or {}).get("en") or "").strip()
+        if nm and nm not in _MD_GENRE_EXCLUDE:
+            genres.append(nm)
     return {
         "id": m.get("id"),
         "title": _pick_title(attrs),
@@ -143,11 +153,49 @@ def _map_manga(m, query=""):
         "description": desc_map.get("en") or next(iter(desc_map.values()), ""),
         "score": _title_score(query, attrs) if query else 0,
         "alt_titles": _all_titles(attrs),
+        "genres": genres,
     }
 
 
-def search_manga(query, limit=24, offset=0, safe_mode=1):
-    """Cari judul. Hasil diurutkan: skor judul dulu, lalu jumlah pengikut."""
+# Peta nama genre Inggris -> UUID tag MangaDex, diverifikasi LIVE dari
+# GET https://api.mangadex.org/manga/tag pada 10 Nov 2026. Daftar ini adalah
+# irisan genre teratas Komiku (pustaka, by jumlah judul) dengan tag MangaDex
+# (grup genre+theme); genre dewasa-dekat (Ecchi/Harem/Mature) sengaja tidak
+# ada di sini. Nama tak dikenal diabaikan (fail-open, pencarian tetap jalan).
+_MD_TAG_IDS = {
+    "Action": "391b0423-d847-456f-aff0-8b0cfc03066b",
+    "Adventure": "87cc87cd-a395-47af-b27a-93258283bbc6",
+    "Comedy": "4d32cc48-9f00-4cca-9b5a-a839f0764984",
+    "Romance": "423e2eae-a7a2-4a8b-ac03-a8351462d71d",
+    "Drama": "b9af3a63-f058-46de-a9a0-e0c13906197a",
+    "Fantasy": "cdc58593-87dd-415e-bbc0-2ec27bf404cc",
+    "Slice of Life": "e5301a23-ebd9-49dd-a0cb-2add944c7fe9",
+    "Supernatural": "eabc5b4c-6aff-42f3-b657-3e90cbd00b75",
+    "Martial Arts": "799c202e-7daa-44eb-9cf7-8a3c0441531e",
+    "Isekai": "ace04997-f6bd-436e-b261-779182193d3d",
+    "Mystery": "ee968100-4191-4968-93d3-f82d72be7e46",
+    "Historical": "33771934-028e-4cb3-8744-691e866a923e",
+    "Magic": "a1f53773-c69a-4ce5-8cab-fffcd90b1565",
+    "Sci-Fi": "256c8bd9-4904-4360-bf4f-508a76d67183",
+    "School Life": "caaa44eb-cd40-4177-b930-79d3ef2afe87",
+    "Psychological": "3b60b75c-a2d7-4860-ab56-05f391bb889c",
+    "Horror": "cdad7e68-1419-41dd-bdce-27753074a640",
+    "Reincarnation": "0bc90acb-ccc1-44ca-a34a-b9f3a73259d0",
+    "Tragedy": "f8f62932-27da-4fe4-8ee1-6779a8c5edba",
+    "Demons": "39730448-9a5f-48a2-85b0-a70db87b1233",
+}
+_MD_GENRE_EXCLUDE = {"Harem", "Reverse Harem", "Incest", "Loli", "Shota"}
+_MD_STATUS_OK = {"ongoing", "completed", "hiatus", "cancelled"}
+
+
+def search_manga(query, limit=24, offset=0, safe_mode=1, genre=None, status=None):
+    """Cari judul. Hasil diurutkan: skor judul dulu, lalu jumlah pengikut.
+
+    Filter server-side (bila diberi): genre = nama genre Inggris dari
+    _MD_TAG_IDS (dipetakan ke UUID tag MangaDex, includedTags AND);
+    status = salah satu dari _MD_STATUS_OK. Nilai tak dikenal diabaikan
+    (fail-open) supaya pencarian tidak pernah rusak karena filter.
+    """
     query = (query or "").strip()
     if len(query) < 2:
         raise ValueError("Kata kunci minimal 2 karakter")
@@ -158,6 +206,13 @@ def search_manga(query, limit=24, offset=0, safe_mode=1):
         ("includes[]", "cover_art"),
         ("order[relevance]", "desc"),
     ]
+    tag_id = _MD_TAG_IDS.get((genre or "").strip())
+    if tag_id:
+        params.append(("includedTags[]", tag_id))
+        params.append(("includedTagsMode", "AND"))
+    st = (status or "").strip().lower()
+    if st in _MD_STATUS_OK:
+        params.append(("status[]", st))
     for r in _ratings(safe_mode):
         params.append(("contentRating[]", r))
     data = _get("/manga", params=params)
