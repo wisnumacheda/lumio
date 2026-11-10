@@ -56,18 +56,18 @@ public class WebUiActivity extends Activity {
     private WebChromeClient.CustomViewCallback customCallback;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean pageLoaded = false;
+    private String homeUrl = HOME_URL;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Android TV tetap memakai UI bawaan (navigasi fokus remote) — alihkan ke MainActivity.
+        // Mode TV v1 (payload v39+): TV TIDAK lagi dialihkan ke MainActivity
+        // (UI native lama). WebView memuat prototype dengan ?tv=1 agar layer
+        // web mengaktifkan layout + navigasi D-pad TV. MainActivity tetap ada
+        // sebagai "UI Klasik" cadangan.
         try {
-            if (TvFocusHelper.isTv(this)) {
-                startActivity(new Intent(this, MainActivity.class));
-                finish();
-                return;
-            }
+            if (TvFocusHelper.isTv(this)) homeUrl = HOME_URL + "?tv=1";
         } catch (Exception ignored) {}
 
 
@@ -182,6 +182,17 @@ public class WebUiActivity extends Activity {
 
     /** Jembatan JS -> native: unduh & pasang APK update (dari banner UI web). */
     public class UpdateBridge {
+        /** Mode TV: dipakai layer web (?tv=1 sudah disetel saat load) sebagai
+         * sinyal kedua bila query hilang (mis. navigasi internal). */
+        @JavascriptInterface
+        public boolean isTv() {
+            try {
+                return TvFocusHelper.isTv(WebUiActivity.this);
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
         @JavascriptInterface
         public void setKeepAwake(final boolean on) {
             handler.post(() -> {
@@ -367,7 +378,7 @@ public class WebUiActivity extends Activity {
                                 sp.edit().putInt("last_version_code", vc).apply();
                             }
                         } catch (Exception ignored) {}
-                        web.loadUrl(HOME_URL);
+                        web.loadUrl(homeUrl);
                     }
                 } else if (attempt < 120) {
                     handler.postDelayed(() -> waitForBackend(attempt + 1), 700);
