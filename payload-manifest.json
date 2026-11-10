@@ -1,9 +1,9 @@
 {
-  "version": 38,
-  "label": "Isi 2.28.1 - Tombol Kembali di Manhwa",
-  "notes": "Perbaikan tombol Kembali Android di Manhwa: dari daftar Manhwa kembali ke Anime, dari detail kembali ke daftar, dari reader kembali ke detail dan mode hemat berhenti; sebelumnya ketiganya langsung keluar aplikasi. Di Anime tidak berubah: dari beranda tetap keluar seperti biasa.",
-  "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-38/lumio-payload.zip",
-  "sha256": "e52f15dafcdf3860a25e5bbd6f1e8ebf1d0b4bcf95e44bca782d3b783c5392b7",
-  "size": 1048634
+  "version": 39,
+  "label": "Isi 2.29.0 - Mode TV v1",
+  "notes": "Mode TV v1: deteksi ?tv=1, nav rail kiri, hero full-width, rail Lanjut Nonton/Trending/Musim/Donghua/Manhwa, navigasi D-pad spasial + ring ungu, detail episode fokusable, player seek +-10 dtk + panel subtitle via remote, reader Manhwa dipaksa Mode Halaman, tanpa search di TV v1. HP tidak disentuh. Verifikasi CDP headless 1920x1080 event keyboard asli 72/82; 10 gagal rantai detail-reader Manhwa + search manga HP karena provider manga timeout dari sandbox, bukan regresi; jalur reader terbukti di run 4 lewat resume Bab 1. Regresi HP 390x844 lolos. Jujur belum terbukti di sandbox: seek delta waktu nyata, tombol Skip Intro, ganti tier subtitle di panel, fokus-into epPicker/overlay next-ep, gambar reader Manhwa di sandbox (/api/img 400 karena DNS sandbox), remote fisik + performa WebView TV hanya via TV beneran. APK 2.29.0 TIDAK termasuk di payload ini.",
+  "min_app": "2.29.0",
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-39/lumio-payload.zip",
+  "sha256": "ccf483062a62cdb445797faadb1b0388f56cdfeb95e296e9ac6c6fb83ccea971",
+  "size": 1056235
 }
