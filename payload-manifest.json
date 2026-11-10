@@ -1,9 +1,9 @@
 {
-  "version": 33,
-  "label": "Isi 2.28.1 - Cover manga + provider Komiku",
-  "notes": "Fallback cover manga di 4 tempat (grid, Lanjut Baca, rail Terbaru, poster detail) + provider baru Komiku (komiku.org): cari, detail, bab, halaman. Merge v18-V21 dipertahankan; Komiku di atas Manhwaindo.",
+  "version": 34,
+  "label": "Isi 2.28.1 - Navigasi drawer hamburger + seksi Anime",
+  "notes": "Drawer hamburger kiri (Anime, Movie, Series, Donghua, Manhwa + Favorit) menggantikan tab bar; seksi Anime berisi semua anime (hero + rail + grid katalog lengkap); Movie/Series tetap Segera Hadir; timeout api 30 detik.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-33/lumio-payload.zip",
-  "sha256": "8b4f9d1ba61d1ecfdbde7c82647325412ed8a8162b383e0bf138dd28468b1daa",
-  "size": 1041287
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-34/lumio-payload.zip",
+  "sha256": "8a55fa5361bbe35bcad9843271d1bb50d69b67988705d7142933e9eee0f74ad5",
+  "size": 1042716
 }
