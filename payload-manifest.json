@@ -1,9 +1,9 @@
 {
-  "version": 36,
-  "label": "Isi 2.28.1 - Search Manhwa auto-scroll ke hasil",
-  "notes": "Search Manhwa kini langsung menunjukkan hasil: rail Lanjut Baca dan Terbaru disembunyikan saat mencari, lalu layar melompat ke judul hasil. Sebelumnya hasil tampil di paling bawah setelah sekitar 26 kartu rail sehingga layar HP tampak tidak berubah dan search terasa mati, padahal hasil sebenarnya ada. Berlaku untuk kotak cari dan chip.",
+  "version": 37,
+  "label": "Isi 2.28.1 - Kartu update Manhwa + filter genre/status",
+  "notes": "Kartu Terbaru kini berwaktu Indonesia (54 detik lalu) + tombol Bab 1 dan Bab Terbaru; cari Manhwa punya filter Genre (20 genre nyata) + Status (Ongoing/Tamat). MangaDex difilter di server, Asura dan Komiku di sisi klien; Manhwaindo dan Komikcast tanpa data genre/status sehingga hasilnya dipertahankan dan dicatat jujur di hint.",
   "min_app": "2.25.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-36/lumio-payload.zip",
-  "sha256": "987343e9e494307545781d07d557f5fdef22654637071bc0b4c126401c02ea7f",
-  "size": 1044596
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-37/lumio-payload.zip",
+  "sha256": "2a31f313f9febb0ad43e026d2c18f3543191e6a183cae4110701d9b298f1b3e4",
+  "size": 1048670
 }
