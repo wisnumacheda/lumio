@@ -1,9 +1,9 @@
 {
-  "version": 41,
-  "label": "Isi 2.29.1 - Nav TV hide + v40 nempel",
-  "notes": "Nav TV jadi drawer tersembunyi (buka dengan panah kiri atau tab Menu, tombol lebih kecil, konten lebar penuh); perbaikan loop unduh v40: backend payload kini 2.29.1 sehingga tidak ditolak aturan stale di APK 2.29.1; isi v40 tetap terbawa.",
+  "version": 42,
+  "label": "Isi 2.29.1 - Tombol player kecil + Donghua bersih",
+  "notes": "Tombol player TV diperkecil (pause tengah 96 ke 72px, tombol dan panel lebih rapat) supaya video lebih lega. Buffer HLS 30 ke 60 detik plus cap 120 detik; indikator resolusi yang sedang diputar tampil di status player; pilihan kualitas kini tersimpan dan Auto memuat ulang master ABR. Penjaga Donghua: tiap judul terpetakan dicek negara asalnya via AniList, yang bukan Cina dibuang dan dicatat di debug dropped_non_cn; kunci cache mapping dan halaman dinaikkan.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-41/lumio-payload.zip",
-  "sha256": "88330f07a8e4c45eda6c85713f10c46393e9055c0c9049583e5669239142d297",
-  "size": 1058043
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-42/lumio-payload.zip",
+  "sha256": "c81256e18faefd1ec2ddec4f819bf9405cb5632fe8d80d44e408df094a749896",
+  "size": 1059483
 }
