@@ -578,14 +578,14 @@
   body.tv-mode .kv span{font-size:16px}
   body.tv-mode .player-box{max-width:1600px}
   body.tv-mode .player-head h3{font-size:20px}
-  body.tv-mode .ctl-btn{font-size:17px;padding:12px 18px}
-  body.tv-mode .ctl-center{width:96px;height:96px;font-size:34px}
-  body.tv-mode .ctl-mid-btn{font-size:17px;padding:13px 20px}
-  body.tv-mode .ctl-time{font-size:16px}
-  body.tv-mode .skip-btn{font-size:18px;padding:14px 26px;bottom:110px}
-  body.tv-mode .ctl-panel{min-width:320px}
-  body.tv-mode .ctl-panel button{font-size:17px;padding:13px 14px}
-  body.tv-mode .ctl-panel .ph{font-size:13px}
+  body.tv-mode .ctl-btn{font-size:15px;padding:10px 14px}
+  body.tv-mode .ctl-center{width:72px;height:72px;font-size:26px}
+  body.tv-mode .ctl-mid-btn{font-size:15px;padding:10px 15px}
+  body.tv-mode .ctl-time{font-size:15px}
+  body.tv-mode .skip-btn{font-size:16px;padding:11px 20px;bottom:100px}
+  body.tv-mode .ctl-panel{min-width:280px}
+  body.tv-mode .ctl-panel button{font-size:15px;padding:10px 12px}
+  body.tv-mode .ctl-panel .ph{font-size:12px}
   body.tv-mode .ep-picker-grid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px}
   body.tv-mode .ep-picker-grid button{font-size:20px;padding:16px 4px}
   body.tv-mode .next-ep-title{font-size:19px}
@@ -2207,8 +2207,14 @@ $("#serverSel").addEventListener("change", e => {
 });
 $("#qualitySel").addEventListener("change", e => {
   const url = e.target.value;
-  if (!url || !hls) return;
-  // Opsi kualitas berasal dari variants resolver (URL varian m3u8) -> muat sebagai sumber baru.
+  if (!hls) return;
+  // "Auto" (v42): kembali ke master ABR — sebelumnya pilihan Auto di panel
+  // tidak berbuat apa-apa karena handler berhenti di url kosong.
+  if (!url) {
+    const m = e.target.dataset.master || "";
+    if (m) { hls.loadSource(m); video.play().catch(() => {}); }
+    return;
+  }
   const ref = e.target.dataset.referer || "";
   hls.loadSource("/api/player/video?url=" + encodeURIComponent(url) + "&referer=" + encodeURIComponent(ref));
   video.play().catch(() => {});
@@ -2263,7 +2269,17 @@ function ctlPanelShow(kind){
   $$("button[data-v]", panel).forEach(b => b.addEventListener("click", () => {
     const v = b.dataset.v;
     if (kind === "server") { const s = $("#serverSel"); s.value = v; s.dispatchEvent(new Event("change")); }
-    else if (kind === "quality") { const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change")); }
+    else if (kind === "quality") {
+      const q = $("#qualitySel"); q.value = v; q.dispatchEvent(new Event("change"));
+      // Simpan pilihan ke Pengaturan (v42): sebelumnya pilihan di panel ini
+      // hanya berlaku untuk episode berjalan, tidak tersimpan — episode
+      // berikutnya kembali ke SETTINGS.quality lama.
+      const lbl = (b.querySelector("span") || {}).textContent || "";
+      const num = lbl.replace(/\D/g, "");
+      SETTINGS.quality = num || "auto";
+      saveSettings();
+      toast("🎚️ Kualitas: " + (num ? num + "p" : "Otomatis") + " (tersimpan)");
+    }
     else if (kind === "speed") { SETTINGS.speed = Number(v); saveSettings(); try { video.playbackRate = SETTINGS.speed; } catch (e) {} syncCtlPlay(); toast("⏩ Kecepatan: " + v + "×"); }
     else if (kind === "sub") {
       if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
@@ -2435,6 +2451,7 @@ async function playEpisode(slug, ep, fromAuto){
   // Pilihan kualitas dari variants resolver.
   const qSel = $("#qualitySel");
   qSel.dataset.referer = referer;
+  qSel.dataset.master = proxied;
   (data.variants || []).forEach(v => {
     const o = document.createElement("option");
     o.value = v.url; o.textContent = "Kualitas: " + (v.q || v.url);
@@ -2451,7 +2468,7 @@ async function playEpisode(slug, ep, fromAuto){
   const info = [];
   if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
   if (data.source) info.push("Sumber: " + esc(data.source));
-  setPlayerStatus(`<span>▶ Memutar Episode ${ep}</span><span>${info.join(" · ")}</span><span id="subInfo">Menyiapkan subtitle…</span>`);
+  setPlayerStatus(`<span>▶ Memutar Episode ${ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
   skipRange = null;
   window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
   window._outro = data.outro && data.outro.end > data.outro.start ? {...data.outro, label: "outro"} : null;
@@ -2460,7 +2477,12 @@ async function playEpisode(slug, ep, fromAuto){
   warmNextEpisode();
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({
-      maxBufferLength: 30,
+      // Buffer lebih besar (v42, TV kentang): 30 -> 60 dtk supaya rendisi
+      // tinggi (1080p) tidak sering stall saat koneksi tersendat; batas atas
+      // pertumbuhan buffer ABR dijaga 120 dtk agar memori WebView TV rendah
+      // tidak membengkak.
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
       // Estimasi bandwidth awal dinaikkan dari default HLS.js (500 kbps) ke
       // 3 Mbit/s. Dengan startLevel:-1 HLS.js memulai dari estimasi ini; pada
       // 500 kbps player butuh 10-30 detik meramping ke resolusi layak sehingga
@@ -2479,7 +2501,9 @@ async function playEpisode(slug, ep, fromAuto){
         hls.loadSource("/api/player/video?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(referer));
       }
       video.play().catch(() => {});
+      updateRendInfo();
     });
+    hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); hls.startLoad(); }
@@ -2513,6 +2537,24 @@ function warmNextEpisode(){
   } catch (e) {}
 }
 function updateSubInfo(txt){ const el = $("#subInfo"); if (el) el.textContent = txt; }
+/* Indikator rendisi yang SEDANG diputar (v42): "📺 1080p" / "📺 720p" /
+   "📺 Auto" — supaya user tahu kualitas asli di layar, bukan sekadar
+   pilihan "Auto" di panel. Dipanggil saat manifest siap + tiap ABR switch.
+   Diperbarui ulang tiap setPlayerStatus (span dibuat ulang kosong). */
+function updateRendInfo(){
+  const el = $("#rendInfo"); if (!el) return;
+  try {
+    if (hls && hls.levels && hls.levels.length) {
+      if (hls.currentLevel >= 0 && hls.levels[hls.currentLevel] && hls.levels[hls.currentLevel].height) {
+        el.textContent = "📺 " + hls.levels[hls.currentLevel].height + "p";
+        return;
+      }
+      el.textContent = "📺 Auto";
+      return;
+    }
+  } catch (e) {}
+  el.textContent = "";
+}
 /* Renderer subtitle overlay: teks digambar aplikasi sendiri di atas video.
    Jalur <track> bawaan WebView terbukti tidak andal untuk trek blob di atas
    stream HLS/MSE (di beberapa HP teks tidak pernah digambar walau trek

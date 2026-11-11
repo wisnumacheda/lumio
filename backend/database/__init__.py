@@ -276,15 +276,18 @@ async def set_search_cache(query: str, payload):
 async def purge_expired_caches() -> dict:
     """Hapus entri cache yang sudah kedaluwarsa. Return jumlah baris per tabel."""
     now = _now()
-    # Baris Donghua (donghua_v2|...) DIKECUALIKAN dari purge browse_cache:
+    # Baris Donghua (donghua_v3|...) DIKECUALIKAN dari purge browse_cache:
     # halaman Donghua memakai TTL 12 jam sendiri dan dipertahankan sebagai
     # kandidat stale-while-revalidate (/api/donghua menyajikannya saat
     # kedaluwarsa sambil membangun ulang di latar). Jumlah kuncinya terbatas
     # (satu baris per halaman x safe_mode) dan ditimpa ulang oleh build baru.
+    # v3 (v42): kunci halaman naik dari v2 agar halaman basi yang mungkin
+    # mengandung judul non-CN tidak pernah disajikan lagi; baris v2 lama
+    # dibiarkan terhapus oleh purge biasa.
     specs = [
         ("episode_cache", 12 * 3600, ""),
         ("search_cache", 24 * 3600, ""),
-        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v2|%'"),
+        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v3|%'"),
         ("subtitle_cache", 7 * 24 * 3600, ""),
         ("slug_map", 7 * 24 * 3600, ""),
     ]

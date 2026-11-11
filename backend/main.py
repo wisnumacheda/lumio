@@ -2098,7 +2098,12 @@ async def _map_donghua_item_to_hianime(item):
     cands = _donghua_title_candidates(item)
     if not cands:
         return None
-    cache_key = "donghua_slug_v1|" + _slug_norm_match(cands[0])
+    # Kunci pemetaan v2 (v42): v1 dibuang — entri v1 yang salah (judul CN
+    # terpetakan ke slug non-CN) akan bertahan 30 hari dan membuat judul
+    # Cinanya hilang dari daftar (penjaga negara membuangnya tiap build).
+    # Bump ini memaksa pemetaan ulang yang bersih; entri v1 lama dibiarkan
+    # kedaluwarsa (tidak dihapus paksa).
+    cache_key = "donghua_slug_v2|" + _slug_norm_match(cands[0])
     try:
         hit = await get_browse_cache(cache_key, ttl=_DONGHUA_MAP_TTL)
         if hit:
@@ -2171,7 +2176,10 @@ async def _build_donghua_page(c_page: int, safe_mode_int: int):
     Mengembalikan dict data (tanpa menulis cache); raise bila AniList gagal.
     Dipakai endpoint /api/donghua, refresh latar SWR, dan warm-up startup.
     Aturan buang-jujur dipertahankan: judul tak terpetakan dibuang, genre
-    Hentai selalu dibuang, ecchi/erotica dibuang saat safe_mode=1."""
+    Hentai selalu dibuang, ecchi/erotica dibuang saat safe_mode=1.
+    Penjaga negara asal (v42): tiap judul terpetakan DIVERIFIKASI ke AniList —
+    bila negaranya DIKENAL dan bukan CN, judul dibuang + dicatat di debug
+    (dropped_non_cn). Negara tak diketahui ('') TIDAK dibuang (fail-open)."""
     loop = asyncio.get_running_loop()
     dl = await loop.run_in_executor(
         None, lambda: al.fetch_donghua_list(c_page, _DONGHUA_PER_PAGE))
@@ -2185,10 +2193,27 @@ async def _build_donghua_page(c_page: int, safe_mode_int: int):
 
     mapped = await asyncio.gather(
         *(_one(it) for it in raw_items), return_exceptions=True)
-    items, dropped_unmapped, dropped_adult = [], 0, 0
-    for src, m in zip(raw_items, mapped):
-        if isinstance(m, Exception) or not m:
-            dropped_unmapped += 1
+    # Penjaga negara asal (v42): judul Jepang pernah lolos ke rail Donghua
+    # (video TV user 12 Nov: Apothecary/Black Clover mendahului daftar Cina
+    # yang benar). Verifikasi tiap judul terpetakan ke AniList; buang yang
+    # negaranya dikenal dan bukan CN. Pemeriksaan di-cache 30 hari
+    # (origin_v1|) sehingga build berikutnya nyaris tanpa biaya.
+    pairs = [(src, m) for src, m in zip(raw_items, mapped)
+             if not isinstance(m, Exception) and m]
+    dropped_unmapped = len(raw_items) - len(pairs)
+    sem_c = asyncio.Semaphore(4)
+
+    async def _country_of(m):
+        async with sem_c:
+            return await _origin_country_for_title(m["title"])
+
+    countries = await asyncio.gather(
+        *(_country_of(m) for _, m in pairs), return_exceptions=True)
+    items, dropped_adult, dropped_non_cn = [], 0, []
+    for (src, m), _c in zip(pairs, countries):
+        country = _c if isinstance(_c, str) else ""
+        if country and country != "CN":
+            dropped_non_cn.append(m["title"])
             continue
         genres = [g for g in ((src or {}).get("genres") or []) if g]
         if any((g or "").strip().lower() == "hentai" for g in genres):
@@ -2219,7 +2244,8 @@ async def _build_donghua_page(c_page: int, safe_mode_int: int):
         "cached": False,
         "debug": {"scanned": len(raw_items), "cn_confirmed": len(items),
                   "unmapped": dropped_unmapped,
-                  "dropped_adult": dropped_adult, "source": "anilist-cn"},
+                  "dropped_adult": dropped_adult,
+                  "dropped_non_cn": dropped_non_cn, "source": "anilist-cn"},
     }
 
 
@@ -2248,7 +2274,7 @@ async def _donghua_warmup_bg():
     tetap menghitung saat diminta."""
     try:
         for safe in (1, 0):
-            key = f"donghua_v2|page=1|safe={safe}"
+            key = f"donghua_v3|page=1|safe={safe}"
             if await get_browse_cache(key, ttl=_DONGHUA_PAGE_TTL):
                 continue
             data = await _build_donghua_page(1, safe)
@@ -2281,12 +2307,17 @@ async def donghua_ep(
       (di samping isAdult=false di query); ecchi/erotica/magical-sex-shift
       dibuang saat safe_mode=1. Filter list Anime tetap JP-only (tak tersentuh).
     - Metode lama (pindai 5 halaman browse + anotasi per judul) DIPENSIUNKAN.
+    - Penjaga negara asal (v42): tiap judul terpetakan diverifikasi ke AniList
+      (countryOfOrigin via anotasi v13); yang negaranya dikenal dan bukan CN
+      dibuang + dicatat di debug (dropped_non_cn). Kunci halaman naik ke v3
+      dan kunci pemetaan ke v2 agar halaman/pemetaan basi yang mungkin
+      mengandung judul non-CN tidak pernah dipakai lagi.
     Respons kompatibel cardHTML; debug {scanned, cn_confirmed, unmapped,
-    dropped_adult, source} untuk baris diagnostik empty state."""
+    dropped_adult, dropped_non_cn, source} untuk baris diagnostik empty state."""
     try:
         safe_mode_int = _parse_safe_mode(safe_mode)
         c_page = page if isinstance(page, int) and page >= 1 else 1
-        key = f"donghua_v2|page={c_page}|safe={safe_mode_int}"
+        key = f"donghua_v3|page={c_page}|safe={safe_mode_int}"
         hit = await get_browse_cache(key, ttl=_DONGHUA_PAGE_TTL)
         if hit and hit.get("items"):
             hit["cached"] = True
