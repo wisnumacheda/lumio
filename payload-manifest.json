@@ -1,9 +1,9 @@
 {
-  "version": 39,
-  "label": "Isi 2.29.0 - Mode TV v1",
-  "notes": "Mode TV v1: deteksi ?tv=1, nav rail kiri, hero full-width, rail Lanjut Nonton/Trending/Musim/Donghua/Manhwa, navigasi D-pad spasial + ring ungu, detail episode fokusable, player seek +-10 dtk + panel subtitle via remote, reader Manhwa dipaksa Mode Halaman, tanpa search di TV v1. HP tidak disentuh. Verifikasi CDP headless 1920x1080 event keyboard asli 72/82; 10 gagal rantai detail-reader Manhwa + search manga HP karena provider manga timeout dari sandbox, bukan regresi; jalur reader terbukti di run 4 lewat resume Bab 1. Regresi HP 390x844 lolos. Jujur belum terbukti di sandbox: seek delta waktu nyata, tombol Skip Intro, ganti tier subtitle di panel, fokus-into epPicker/overlay next-ep, gambar reader Manhwa di sandbox (/api/img 400 karena DNS sandbox), remote fisik + performa WebView TV hanya via TV beneran. APK 2.29.0 TIDAK termasuk di payload ini.",
+  "version": 40,
+  "label": "Isi 2.29.0 - Rapiin layout TV",
+  "notes": "Rapiin layout TV: hero berbasis vh dan rail pertama muat penuh di 720p dan 1080p; judul hero tanpa sufiks tipe; sinopsis kosong disembunyikan; backdrop blur dan scrim lebih kuat; banner update APK dan popup Yang Baru tidak tampil di TV; baris LUMIO jadi header non-fokus; perbaikan versi berjalan 2.28.1 menjadi 2.29.0.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-39/lumio-payload.zip",
-  "sha256": "ccf483062a62cdb445797faadb1b0388f56cdfeb95e296e9ac6c6fb83ccea971",
-  "size": 1056235
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-40/lumio-payload.zip",
+  "sha256": "f7397a92f765a09ab6e0599705ea831f2e8c7aea0889372304a6f163c6cbc03e",
+  "size": 1056693
 }
