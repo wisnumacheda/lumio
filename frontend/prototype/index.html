@@ -507,6 +507,8 @@
   body.tv-mode .tv-brand .name em{font-style:normal;color:var(--acc2)}
   body.tv-mode .tv-badge{font-size:11px;font-weight:800;letter-spacing:1px;color:#1a1207;
     background:linear-gradient(90deg,var(--amber),var(--amber-d));padding:4px 9px;border-radius:99px}
+  body.tv-mode .tv-nav-home{display:flex;align-items:center;gap:14px;width:100%;
+    padding:16px 18px;border-radius:14px;font-size:21px;font-weight:700;color:var(--muted)}
   body.tv-mode .tv-nav-item{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
     padding:16px 18px;border-radius:14px;font-size:21px;font-weight:700;color:var(--muted);transition:.18s}
   body.tv-mode .tv-nav-item:hover{color:var(--txt);background:rgba(255,255,255,.06)}
@@ -516,14 +518,17 @@
   body.tv-mode #animeSubNav,body.tv-mode #genreRow,body.tv-mode #allAnimeSec,
   body.tv-mode .rail-nav,body.tv-mode #mangaSearchForm,body.tv-mode #mangaChips,
   body.tv-mode .manga-filters,body.tv-mode #btnReaderMode,body.tv-mode footer,
-  body.tv-mode #ptrPill{display:none !important}
-  body.tv-mode .hero{min-height:560px;margin:28px 0 8px;border-radius:24px}
-  body.tv-mode .hero .inner{padding:52px 36px 48px;max-width:860px}
-  body.tv-mode .hero h1{font-size:64px}
+  body.tv-mode #ptrPill,body.tv-mode .genres{display:none !important}
+  body.tv-mode .hero{min-height:40vh;max-height:520px;margin:24px 0 8px;border-radius:24px}
+  body.tv-mode .hero .inner{padding:36px 36px 32px;max-width:860px}
+  body.tv-mode .hero h1{font-size:clamp(38px,5.2vh,60px)}
+  body.tv-mode .hero .backdrop img{object-position:center 55%;filter:blur(5px) brightness(.5) saturate(1.05);transform:scale(1.08)}
+  body.tv-mode .hero .shade{background:linear-gradient(90deg,rgba(11,10,18,.96) 0%,rgba(11,10,18,.82) 45%,rgba(11,10,18,.35) 78%),linear-gradient(180deg,rgba(11,10,18,.88) 0%,transparent 32%),linear-gradient(0deg,var(--bg) 2%,transparent 45%)}
+  body.tv-mode #updateBanner,body.tv-mode #updModal{display:none !important}
   body.tv-mode .hero p{font-size:20px;max-width:780px}
   body.tv-mode .hero .btn{font-size:20px;padding:16px 32px}
   body.tv-mode #heroFav{display:inline-flex}
-  body.tv-mode .rail-sec{margin-top:44px}
+  body.tv-mode .rail-sec{margin-top:34px}
   body.tv-mode .rail-head h2{font-size:30px}
   body.tv-mode .rail-head .sub{font-size:16px}
   body.tv-mode .see-all{font-size:17px}
@@ -594,6 +599,22 @@
   body.tv-mode .card.tv-focus .poster{border-color:var(--acc2)}
   body.tv-mode .card.tv-focus .play-ico{opacity:1;transform:translate(-50%,-50%) scale(1)}
   body.tv-mode .tv-nav-item.tv-focus{transform:scale(1.04)}
+  /* Viewport pendek (TV 720p): hero + rail pertama harus muat penuh dalam 100vh. */
+  @media (max-height:800px){
+    body.tv-mode .hero{min-height:32vh;margin:16px 0 8px}
+    body.tv-mode .hero .inner{padding:20px 32px 16px}
+    body.tv-mode .hero h1{font-size:clamp(32px,4.8vh,42px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    body.tv-mode .hero .kicker{display:none}
+    body.tv-mode .hero p{font-size:17px;-webkit-line-clamp:2}
+    body.tv-mode .hero .btn{font-size:18px;padding:12px 24px}
+    body.tv-mode .hero .chips{margin-bottom:12px;flex-wrap:nowrap;overflow:hidden}
+    body.tv-mode .rail-sec{margin-top:12px}
+    body.tv-mode .rail-head{margin-bottom:10px}
+    body.tv-mode .rail-head h2{font-size:26px}
+    body.tv-mode .rail{gap:16px;padding:8px 4px 12px}
+    body.tv-mode .rail .card{flex:0 0 150px}
+    body.tv-mode .card .ttl{font-size:15px;min-height:40px}
+  }
 </style>
 </head>
 <body>
@@ -623,8 +644,8 @@
     <div class="name">Lum<em>io</em></div>
     <span class="tv-badge">TV</span>
   </div>
-  <button class="tv-nav-item active" data-tvnav="home">🏠 LUMIO</button>
-  <button class="tv-nav-item" data-tvnav="anime">🎌 Anime</button>
+  <div class="tv-nav-home" aria-hidden="true">🏠 LUMIO</div>
+  <button class="tv-nav-item active" data-tvnav="anime">🎌 Anime</button>
   <button class="tv-nav-item" data-tvnav="donghua">🐉 Donghua</button>
   <button class="tv-nav-item" data-tvnav="manhwa">📖 Manhwa</button>
   <button class="tv-nav-item" data-tvnav="jadwal">📅 Jadwal Rilis</button>
@@ -1247,6 +1268,7 @@ function imgFallback(el){
   el.style.visibility = "hidden";
 }
 function cardHTML(it){
+  const ttl = IS_TV ? stripTypeSuffix(it.title) : it.title;
   const badge = it.badge
     ? `<span class="st-badge${it.is_finished ? "" : " ongoing"}">${esc(it.badge)}</span>` : "";
   const eps = it.eps_counter ? `<span class="eps-badge">EP ${esc(it.eps_counter)}</span>` : "";
@@ -1255,14 +1277,14 @@ function cardHTML(it){
   const typ = it.type ? `<span class="mini type">${esc(it.type)}</span>` : "";
   const dur = it.duration ? `<span class="dur">⏱ ${esc(it.duration)}</span>` : "";
   return `<article class="card" data-slug="${esc(it.id)}" tabindex="0" role="button"
-      aria-label="${esc(it.title)}">
+      aria-label="${esc(ttl)}">
     <div class="poster">
-      <img loading="lazy" src="${esc(posterSrc(it.poster))}" data-proxy="${esc(posterSrc(it.poster))}" data-direct="${esc(it.poster || "")}" data-fb="0" alt="${esc(it.title)}"
+      <img loading="lazy" src="${esc(posterSrc(it.poster))}" data-proxy="${esc(posterSrc(it.poster))}" data-direct="${esc(it.poster || "")}" data-fb="0" alt="${esc(ttl)}"
            onerror="imgFallback(this)">
       ${badge}${eps}<div class="play-ico">▶</div>
     </div>
     <div class="meta">
-      <div class="ttl">${esc(it.title)}</div>
+      <div class="ttl">${esc(ttl)}</div>
       <div class="sub-meta">${typ}${sub}${dub}${dur}</div>
     </div>
   </article>`;
@@ -1292,11 +1314,16 @@ $("#stateRetry").addEventListener("click", () => { hideState(); if (retryFn) ret
 
 /* ---------------- Hero ---------------- */
 let heroItem = null;
+/* Buang sufiks tipe katalog (" (TV)", " (Movie)", ...) dari judul yang tampil. */
+function stripTypeSuffix(t){ return String(t || "").replace(/\s*\((TV|Movie|ONA|OVA|Special|Music)\)\s*$/i, "").trim(); }
 function fillHero(it){
   heroItem = it;
   const hi = $("#heroImg"); hi.dataset.direct = it.poster || ""; hi.dataset.proxy = posterSrc(it.poster); hi.dataset.fb = 0; hi.style.visibility = ""; hi.src = posterSrc(it.poster);
-  $("#heroTitle").textContent = it.title || "—";
-  $("#heroSyn").textContent = it.synopsis || "Sinopsis belum tersedia.";
+  $("#heroTitle").textContent = stripTypeSuffix(it.title) || "—";
+  const syn = (it.synopsis || "").trim();
+  const synEl = $("#heroSyn");
+  if (syn) { synEl.textContent = syn; synEl.classList.remove("hidden"); }
+  else { synEl.textContent = ""; synEl.classList.add("hidden"); }
   const chips = [];
   if (it.type) chips.push(`<span class="chip acc">${esc(it.type)}</span>`);
   if (it.eps_counter) chips.push(`<span class="chip">📺 ${esc(it.eps_counter)} Episode</span>`);
@@ -1553,10 +1580,12 @@ async function loadHome(){
       fillRail("railPopuler", sortItems(items));
       if (items.length) {
         const pool = items.slice(0, 10);
-        let pick = pool[Math.floor(Math.random() * pool.length)];
+        const withSyn = pool.filter(x => (x.synopsis || "").trim());
+        const src = withSyn.length ? withSyn : pool;
+        let pick = src[Math.floor(Math.random() * src.length)];
         try {
           const last = localStorage.getItem("lumio_last_hero");
-          if (pool.length > 1 && pick.id === last) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+          if (src.length > 1 && pick.id === last) pick = src[(src.indexOf(pick) + 1) % src.length];
           localStorage.setItem("lumio_last_hero", pick.id);
         } catch(_){}
         fillHero(pick);
@@ -3298,6 +3327,7 @@ function doInstallUpdate(){
   }
 }
 async function checkUpdate(){
+  if (IS_TV) return; /* TV: update APK itu sideload manual — banner tidak terjangkau remote */
   try {
     const info = await fetchUpdateInfo(false);
     if (!info.hasUpdate) return;
@@ -3527,7 +3557,8 @@ function tvBack(){
   /* handled === false di beranda = keluar aplikasi (native). Di browser tidak ada aksi. */
 }
 function tvSetActiveNav(key){
-  $$("#tvNav [data-tvnav]").forEach(b => b.classList.toggle("active", b.dataset.tvnav === key));
+  const k = key === "home" ? "anime" : key; /* LUMIO bukan item nav — Anime pintu masuk beranda */
+  $$("#tvNav [data-tvnav]").forEach(b => b.classList.toggle("active", b.dataset.tvnav === k));
 }
 async function scheduleGridLoader(p){
   const d = await api("/api/schedule?day=all");
@@ -3584,10 +3615,12 @@ async function tvLoadHome(){
       fillRail("railPopuler", sortItems(items));
       if (items.length) {
         const pool = items.slice(0, 10);
-        let pick = pool[Math.floor(Math.random() * pool.length)];
+        const withSyn = pool.filter(x => (x.synopsis || "").trim());
+        const src = withSyn.length ? withSyn : pool;
+        let pick = src[Math.floor(Math.random() * src.length)];
         try {
           const last = localStorage.getItem("lumio_last_hero");
-          if (pool.length > 1 && pick.id === last) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+          if (src.length > 1 && pick.id === last) pick = src[(src.indexOf(pick) + 1) % src.length];
           localStorage.setItem("lumio_last_hero", pick.id);
         } catch (_) {}
         fillHero(pick);
@@ -3692,6 +3725,7 @@ loadFilterGenres();
 checkUpdate();
 refreshPayloadInfo();
 async function maybeShowUpdatePopup(){
+  if (IS_TV) return; /* TV: jangan tandai seen — popup tampil di HP nanti */
   try {
     const d = await api("/api/payload/info");
     if (!d || !d.enabled || !(d.active > 0) || !d.notes) return;
