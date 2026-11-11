@@ -496,25 +496,44 @@
   #tvNav{display:none}
   #heroFav{display:none}
   body.tv-mode header.nav{display:none}
-  body.tv-mode #tvNav{display:flex;position:fixed;left:0;top:0;bottom:0;width:272px;z-index:70;
-    flex-direction:column;gap:6px;padding:28px 18px;
-    background:linear-gradient(180deg,#141128,#0b0a12);border-right:1px solid var(--line)}
-  body.tv-mode .tv-brand{display:flex;align-items:center;gap:12px;padding:6px 10px 22px;white-space:nowrap}
-  body.tv-mode .tv-brand .logo{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;
-    background:linear-gradient(135deg,var(--acc),#6d28d9);font-size:25px;
+  body.tv-mode #tvNav{display:flex;position:fixed;left:0;top:0;bottom:0;width:224px;z-index:70;
+    flex-direction:column;gap:6px;padding:22px 14px;
+    background:linear-gradient(180deg,#141128,#0b0a12);border-right:1px solid var(--line);
+    /* Drawer v41: tersembunyi secara default (geser ke luar layar + tak terlihat
+       agar tvVisible() mengeluarkannya dari daftar fokus D-pad); terbuka saat
+       body.tv-nav-open. Overlay — konten TIDAK digeser (main selalu 44px). */
+    transform:translateX(-105%);visibility:hidden;pointer-events:none;
+    transition:transform .22s ease,visibility 0s linear .22s}
+  body.tv-mode.tv-nav-open #tvNav{transform:none;visibility:visible;pointer-events:auto;
+    transition:transform .22s ease,visibility 0s}
+  /* Tab ☰ kecil di tepi kiri (hanya saat nav tertutup): penanda visual bahwa
+     menu ada di balik ← ; bukan pemberhentian fokus D-pad (div, di luar root
+     tvFocusables) — dibuka dengan klik, atau dengan ← dari konten paling kiri. */
+  #tvNavTab{display:none}
+  body.tv-mode:not(.tv-nav-open) #tvNavTab{display:flex;position:fixed;left:0;top:50%;transform:translateY(-50%);
+    z-index:65;align-items:center;justify-content:center;width:30px;height:96px;
+    background:linear-gradient(180deg,#1b1740,#141128);border:1px solid var(--line);border-left:none;
+    border-radius:0 14px 14px 0;color:var(--muted);font-size:20px;cursor:pointer}
+  body.tv-mode .tv-brand{display:flex;align-items:center;gap:10px;padding:6px 10px 16px;white-space:nowrap}
+  body.tv-mode .tv-brand .logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--acc),#6d28d9);font-size:21px;
     box-shadow:0 4px 18px rgba(139,92,246,.45)}
-  body.tv-mode .tv-brand .name{font-size:30px;font-weight:800;letter-spacing:.5px}
+  body.tv-mode .tv-brand .name{font-size:25px;font-weight:800;letter-spacing:.5px}
   body.tv-mode .tv-brand .name em{font-style:normal;color:var(--acc2)}
   body.tv-mode .tv-badge{font-size:11px;font-weight:800;letter-spacing:1px;color:#1a1207;
     background:linear-gradient(90deg,var(--amber),var(--amber-d));padding:4px 9px;border-radius:99px}
-  body.tv-mode .tv-nav-home{display:flex;align-items:center;gap:14px;width:100%;
-    padding:16px 18px;border-radius:14px;font-size:21px;font-weight:700;color:var(--muted)}
-  body.tv-mode .tv-nav-item{display:flex;align-items:center;gap:14px;width:100%;text-align:left;
-    padding:16px 18px;border-radius:14px;font-size:21px;font-weight:700;color:var(--muted);transition:.18s}
+  body.tv-mode .tv-nav-home{display:flex;align-items:center;gap:12px;width:100%;
+    padding:13px 15px;border-radius:14px;font-size:19px;font-weight:700;color:var(--muted)}
+  body.tv-mode .tv-nav-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+    padding:13px 15px;border-radius:14px;font-size:19px;font-weight:700;color:var(--muted);
+    /* JANGAN transition:.18s (all): visibility ikut ter-animasi 180ms sehingga
+       tombol nav masih terbaca hidden sesaat setelah drawer dibuka dan
+       tvSetFocus gagal — hanya properti visual yang dianimasikan. */
+    transition:transform .18s,color .18s,background-color .18s,box-shadow .18s}
   body.tv-mode .tv-nav-item:hover{color:var(--txt);background:rgba(255,255,255,.06)}
   body.tv-mode .tv-nav-item.active{color:#fff;background:linear-gradient(135deg,var(--acc),#7c3aed);
     box-shadow:0 4px 14px rgba(139,92,246,.4)}
-  body.tv-mode main{max-width:none;margin:0;padding:0 44px 60px 316px}
+  body.tv-mode main{max-width:none;margin:0;padding:0 44px 60px}
   body.tv-mode #animeSubNav,body.tv-mode #genreRow,body.tv-mode #allAnimeSec,
   body.tv-mode .rail-nav,body.tv-mode #mangaSearchForm,body.tv-mode #mangaChips,
   body.tv-mode .manga-filters,body.tv-mode #btnReaderMode,body.tv-mode footer,
@@ -652,6 +671,7 @@
   <button class="tv-nav-item" data-tvnav="fav">❤ Favorit</button>
   <button class="tv-nav-item" data-tvnav="settings">⚙️ Pengaturan</button>
 </nav>
+<div id="tvNavTab" aria-hidden="true" title="Menu">☰</div>
 
 <!-- ============ DRAWER NAVIGASI (hamburger) ============ -->
 <div class="nav-overlay hidden" id="navOverlay"></div>
@@ -3340,6 +3360,7 @@ async function checkUpdate(){
 
 /* ---------------- Jembatan aplikasi (WebView Lumio) ---------------- */
 window.LUMIO_back = function(){
+  if (IS_TV && tvNavIsOpen()) { tvCloseNav(); return true; }
   if ($("#navDrawer").classList.contains("open")) { closeNavDrawer(); return true; }
   if (!$("#settingsWrap").classList.contains("hidden")) { closeSettings(); return true; }
   if (!$("#playerModal").classList.contains("hidden")) {
@@ -3420,6 +3441,10 @@ function tvFocusables(){
   return els.filter(el => {
     if (!el || el.disabled) return false;
     if (el.closest("#navDrawer")) return false;
+    /* Drawer TV tertutup: item nav dikeluarkan dari daftar fokus SEGERA
+       (jangan tunggu transisi visibility 0,22 dtk selesai — selama jendela
+       itu geometri D-pad bisa lompat ke nav yang sedang menutup). */
+    if (el.closest("#tvNav") && !tvNavIsOpen()) return false;
     if (el.classList.contains("hist-x")) return false;
     /* Tombol kecil "Bab 1 / Bab Terbaru" di kartu Terbaru Manhwa:
        fungsi yang sama ada di daftar bab detail — di TV jangan jadi
@@ -3492,18 +3517,18 @@ function tvMove(dir){
      saat halaman ter-scroll, tombol hero bisa tampak "di atas" item nav
      paling atas dan panah Atas dari LUMIO malah lompat ke hero.
      Jadi di dalam nav, Atas/Bawah HANYA pindah antar item nav; Kanan
-     tetap ke konten lewat geometri; Kiri diam. */
+     menutup drawer dan kembali ke konten; Kiri diam. */
   if (cur.classList && cur.classList.contains("tv-nav-item")) {
     const items = $$("#tvNav .tv-nav-item").filter(tvVisible);
     const i = items.indexOf(cur);
     if (dir === "up" && i > 0) return tvSetFocus(items[i - 1]);
     if (dir === "down" && i >= 0 && i < items.length - 1) return tvSetFocus(items[i + 1]);
-    if (dir === "right") { /* lanjut ke geometri di bawah */ }
-    else return false;
+    if (dir === "right") return tvCloseNav();
+    return false;
   }
   const r = cur.getBoundingClientRect();
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  let best = null, bestScore = Infinity;
+  let best = null, bestScore = Infinity, bestOverlaps = false;
   for (const el of cands) {
     if (el === cur) continue;
     const b = el.getBoundingClientRect();
@@ -3514,9 +3539,24 @@ function tvMove(dir){
     else if (dir === "down") { if (ey <= cy + 4) continue; pd = Math.max(0, b.top - r.bottom); sd = ex < r.left ? r.left - ex : (ex > r.right ? ex - r.right : 0); }
     else { if (ey >= cy - 4) continue; pd = Math.max(0, r.top - b.bottom); sd = ex < r.left ? r.left - ex : (ex > r.right ? ex - r.right : 0); }
     const score = pd + sd * 2.5;
-    if (score < bestScore) { bestScore = score; best = el; }
+    if (score < bestScore) { bestScore = score; best = el; bestOverlaps = b.top < r.bottom - 4 && b.bottom > r.top + 4; }
   }
-  return best ? tvSetFocus(best) : false;
+  /* ← dari hero: kandidat "kiri" yang ditemukan geometri bisa jadi kartu rail
+     di bawah-kiri (pusat-x lebih kiri tapi tanpa tumpang-tindih vertikal) —
+     itu bukan yang dimaksud pengguna; ← di situ = buka drawer nav. */
+  if (best && dir === "left" && !bestOverlaps && !tvNavIsOpen() && !tvLayerScope()) {
+    const c = (tvCur && tvVisible(tvCur)) ? tvCur : document.activeElement;
+    if (c && !c.closest("#tvNav")) return tvOpenNav();
+  }
+  if (best) return tvSetFocus(best);
+  /* Ujung kiri konten + drawer tertutup + tidak ada layer terbuka:
+     ← membuka drawer nav (bukan diam). Layer (player/detail/pengaturan)
+     memblokir — panah di sana milik layer itu sendiri. */
+  if (dir === "left" && !tvNavIsOpen() && !tvLayerScope()) {
+    const c = (tvCur && tvVisible(tvCur)) ? tvCur : document.activeElement;
+    if (c && !c.closest("#tvNav")) return tvOpenNav();
+  }
+  return false;
 }
 function tvSeek(d){
   try { video.currentTime = Math.max(0, Math.min(video.duration || 1e18, video.currentTime + d)); } catch (e) {}
@@ -3560,6 +3600,32 @@ function tvSetActiveNav(key){
   const k = key === "home" ? "anime" : key; /* LUMIO bukan item nav — Anime pintu masuk beranda */
   $$("#tvNav [data-tvnav]").forEach(b => b.classList.toggle("active", b.dataset.tvnav === k));
 }
+/* ---------- Drawer nav TV v41: tersembunyi secara default ----------
+   Buka: ← dari konten paling kiri, atau klik tab ☰ di tepi kiri.
+   Tutup: pilih item (navigasi + tutup), → dari item nav, Kembali/Escape.
+   Saat terbuka nav menutupi konten (overlay); konten tidak digeser.
+   Fokus terakhir di konten diingat (tvLastContent) dan dipulihkan saat tutup. */
+let tvLastContent = null;
+function tvNavIsOpen(){ return document.body.classList.contains("tv-nav-open"); }
+function tvOpenNav(){
+  if (!IS_TV || tvNavIsOpen() || tvLayerScope()) return false;
+  const cur = (tvCur && tvVisible(tvCur)) ? tvCur : document.activeElement;
+  tvLastContent = (cur && !cur.closest("#tvNav") && tvVisible(cur)) ? cur : null;
+  document.body.classList.add("tv-nav-open");
+  const items = $$("#tvNav .tv-nav-item").filter(tvVisible);
+  const active = items.find(b => b.classList.contains("active")) || items[0];
+  return active ? tvSetFocus(active) : false;
+}
+function tvCloseNav(restore){
+  if (!tvNavIsOpen()) return false;
+  document.body.classList.remove("tv-nav-open");
+  if (restore !== false) {
+    const t = (tvLastContent && tvVisible(tvLastContent) && !tvLastContent.disabled)
+      ? tvLastContent : tvInitialForScreen();
+    if (t) tvSetFocus(t); else tvEnsureFocus();
+  }
+  return true;
+}
 async function scheduleGridLoader(p){
   const d = await api("/api/schedule?day=all");
   const DAYS = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
@@ -3576,6 +3642,7 @@ async function scheduleGridLoader(p){
   return {items: items.slice(0, 120), total_pages: 1};
 }
 function tvGoNav(key){
+  if (IS_TV) tvCloseNav(false); /* pilih item = navigasi + drawer tertutup; fokus diatur timeout di bawah */
   tvSetActiveNav(key);
   if (key === "home" || key === "anime") goHome();
   else if (key === "donghua") openDonghuaGrid();
@@ -3662,6 +3729,8 @@ async function tvHeroFav(){
 }
 if (IS_TV) {
   $$("#tvNav [data-tvnav]").forEach(b => b.addEventListener("click", () => tvGoNav(b.dataset.tvnav)));
+  const tab = $("#tvNavTab");
+  if (tab) tab.addEventListener("click", () => tvOpenNav());
   const hf = $("#heroFav");
   if (hf) hf.addEventListener("click", tvHeroFav);
   /* Handler D-pad: capture-phase di document supaya preventDefault +
