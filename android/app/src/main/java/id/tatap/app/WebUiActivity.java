@@ -1,18 +1,26 @@
 package id.tatap.app;
 
 import android.app.Activity;
+import android.app.Dialog;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.util.Log;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -30,8 +38,6 @@ import android.widget.Toast;
 import androidx.core.content.FileProvider;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
@@ -57,6 +63,17 @@ public class WebUiActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean pageLoaded = false;
     private String homeUrl = HOME_URL;
+
+    // Unduhan update APK via DownloadManager (menggantikan streaming
+    // HttpURLConnection yang gagal diam-diam: tanpa progres, tanpa kabar).
+    private static final String UPDATE_APK_FILE = "Lumio-update.apk";
+    private long updateDownloadId = -1;
+    private String lastUpdateUrl;
+    private boolean updateRetried = false;
+    private boolean updateReceiverRegistered = false;
+    private BroadcastReceiver updateDownloadReceiver;
+    private Dialog updateProgressDialog;
+    private Runnable updateProgressRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -243,76 +260,313 @@ public class WebUiActivity extends Activity {
                     }
                     return;
                 }
-                Toast.makeText(WebUiActivity.this, "Mengunduh update…", Toast.LENGTH_SHORT).show();
-                new Thread(() -> downloadAndInstall(apkUrl)).start();
+                startUpdateDownload(apkUrl);
             });
         }
     }
 
-    private void downloadAndInstall(String apkUrl) {
-        // Unduh dengan verifikasi: ukuran harus persis Content-Length dan berkas
-        // harus terbaca sebagai APK paket ini dengan versi lebih baru SEBELUM
-        // installer dibuka — unduhan terpotong tak lagi berakhir di layar
-        // "App not installed" yang membingungkan. Gagal -> coba sekali lagi.
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            try {
-                File dir = getExternalCacheDir();
-                if (dir == null) dir = getCacheDir();
-                File out = new File(dir, "lumio-update.apk");
-                if (out.exists()) out.delete();
-                HttpURLConnection c = (HttpURLConnection) new URL(apkUrl).openConnection();
-                c.setConnectTimeout(15000);
-                c.setReadTimeout(60000);
-                c.setRequestProperty("User-Agent", "Lumio-Android");
-                c.connect();
-                if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
-                long expected = c.getContentLengthLong();
-                InputStream in = c.getInputStream();
-                FileOutputStream fos = new FileOutputStream(out);
-                byte[] buf = new byte[65536];
-                long got = 0;
-                int n;
-                while ((n = in.read(buf)) != -1) { fos.write(buf, 0, n); got += n; }
-                fos.flush();
-                fos.close();
-                in.close();
-                c.disconnect();
-                if (expected > 0 && got != expected)
-                    throw new Exception("unduhan tidak lengkap (" + got + " dari " + expected + " byte)");
-                android.content.pm.PackageInfo info =
-                        getPackageManager().getPackageArchiveInfo(out.getAbsolutePath(), 0);
-                if (info == null || !getPackageName().equals(info.packageName))
-                    throw new Exception("file update tidak valid / rusak");
-                android.content.pm.PackageInfo cur =
-                        getPackageManager().getPackageInfo(getPackageName(), 0);
-                if (info.versionCode <= cur.versionCode)
-                    throw new Exception("versi unduhan tidak lebih baru");
-                final File apkFile = out;
-                handler.post(() -> {
-                    try {
-                        Uri uri = FileProvider.getUriForFile(WebUiActivity.this,
-                                getPackageName() + ".fileprovider", apkFile);
-                        Intent it = new Intent(Intent.ACTION_VIEW);
-                        it.setDataAndType(uri, "application/vnd.android.package-archive");
-                        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(it);
-                    } catch (Exception e) {
-                        Toast.makeText(WebUiActivity.this,
-                                "Gagal membuka installer: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    }
-                });
+    /** Unduh APK update via DownloadManager (bukan streaming):
+     * berkas nyata di folder Download, progres di notifikasi + dialog
+     * dalam aplikasi, ketuk notifikasi untuk install. Dipanggil dari
+     * UI thread (installUpdate sudah berjalan di handler). */
+    private void startUpdateDownload(String apkUrl) {
+        if (updateDownloadId != -1) {
+            Toast.makeText(this, "Pengunduhan pembaruan sedang berlangsung...", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        lastUpdateUrl = apkUrl;
+        updateRetried = false;
+        enqueueUpdateDownload(apkUrl);
+    }
+
+    private void enqueueUpdateDownload(String apkUrl) {
+        File stale = new File(Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS), UPDATE_APK_FILE);
+        try { if (stale.exists()) stale.delete(); } catch (Exception ignored) {}
+        DownloadManager.Request req;
+        try {
+            req = new DownloadManager.Request(Uri.parse(apkUrl));
+        } catch (Exception e) {
+            Toast.makeText(this, "Tautan update tidak valid", Toast.LENGTH_LONG).show();
+            return;
+        }
+        req.setTitle("Mengunduh update Lumio");
+        req.setDescription("Lumio");
+        req.setMimeType("application/vnd.android.package-archive");
+        req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, UPDATE_APK_FILE);
+        req.setAllowedOverMetered(true);
+        req.setAllowedOverRoaming(false);
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (dm == null) {
+            Toast.makeText(this, "Unduh update gagal: layanan unduhan tidak tersedia", Toast.LENGTH_LONG).show();
+            return;
+        }
+        long id;
+        try {
+            id = dm.enqueue(req);
+        } catch (Exception e) {
+            Toast.makeText(this, "Unduh update gagal: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        updateDownloadId = id;
+        registerUpdateReceiver();
+        showUpdateProgressDialog();
+        scheduleUpdateProgressPoll();
+    }
+
+    private void registerUpdateReceiver() {
+        if (updateReceiverRegistered) return;
+        updateDownloadReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())) return;
+                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id == updateDownloadId) onUpdateDownloadFinished();
+            }
+        };
+        registerReceiver(updateDownloadReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+        updateReceiverRegistered = true;
+    }
+
+    private void showUpdateProgressDialog() {
+        dismissUpdateProgressDialog();
+        Dialog d = new Dialog(this);
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        d.setContentView(R.layout.dialog_app_download);
+        d.setCancelable(false);
+        if (d.getWindow() != null) {
+            d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            int w = getResources().getDisplayMetrics().widthPixels;
+            int target = (int) (w * (TvFocusHelper.isTv(this) ? 0.65f : 0.90f));
+            d.getWindow().setLayout(target, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        TextView tvTitle = d.findViewById(R.id.tv_download_title);
+        if (tvTitle != null) tvTitle.setText("Mengunduh update Lumio");
+        TextView tvTarget = d.findViewById(R.id.tv_download_target_version);
+        if (tvTarget != null) tvTarget.setText("Mengunduh update Lumio");
+        ProgressBar pb = d.findViewById(R.id.pb_download_horizontal);
+        if (pb != null) { pb.setMax(100); pb.setProgress(0); }
+        TextView tvStatus = d.findViewById(R.id.tv_download_status);
+        if (tvStatus != null) tvStatus.setText("Menghubungkan ke server rilis...");
+        TextView tvPercent = d.findViewById(R.id.tv_download_percent);
+        if (tvPercent != null) tvPercent.setText("0%");
+        View btnCancel = d.findViewById(R.id.btn_cancel_download);
+        if (btnCancel != null) {
+            btnCancel.setOnClickListener(v -> cancelUpdateDownload());
+            if (TvFocusHelper.isTv(this)) {
+                TvFocusHelper.attachFocusScale(btnCancel, 1.05f, 4f);
+                btnCancel.requestFocus();
+            }
+        }
+        updateProgressDialog = d;
+        d.show();
+    }
+
+    private void scheduleUpdateProgressPoll() {
+        if (updateProgressRunnable == null) {
+            updateProgressRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (updateDownloadId == -1) return;
+                    pollUpdateProgress();
+                    if (updateDownloadId != -1) handler.postDelayed(this, 500);
+                }
+            };
+        }
+        handler.removeCallbacks(updateProgressRunnable);
+        handler.postDelayed(updateProgressRunnable, 500);
+    }
+
+    private void pollUpdateProgress() {
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (dm == null || updateProgressDialog == null || !updateProgressDialog.isShowing()) return;
+        Cursor c = null;
+        try {
+            c = dm.query(new DownloadManager.Query().setFilterById(updateDownloadId));
+            if (c == null || !c.moveToFirst()) return;
+            int status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+            // Selesai/gagal ditangani penerima ACTION_DOWNLOAD_COMPLETE.
+            if (status == DownloadManager.STATUS_SUCCESSFUL || status == DownloadManager.STATUS_FAILED) return;
+            long soFar = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+            long total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+            ProgressBar pb = updateProgressDialog.findViewById(R.id.pb_download_horizontal);
+            TextView tvStatus = updateProgressDialog.findViewById(R.id.tv_download_status);
+            TextView tvPercent = updateProgressDialog.findViewById(R.id.tv_download_percent);
+            if (status == DownloadManager.STATUS_PAUSED) {
+                if (tvStatus != null) tvStatus.setText("Unduhan dijeda — menunggu jaringan…");
                 return;
-            } catch (Exception e) {
-                if (attempt == 2) {
-                    final String msg = e.getMessage();
-                    handler.post(() -> Toast.makeText(WebUiActivity.this,
-                            "Unduh update gagal: " + msg + " — periksa koneksi lalu coba lagi",
-                            Toast.LENGTH_LONG).show());
+            }
+            if (total > 0) {
+                int progress = (int) ((soFar * 100) / total);
+                if (pb != null) { pb.setIndeterminate(false); pb.setProgress(progress); }
+                if (tvPercent != null) tvPercent.setText(progress + "%");
+                if (tvStatus != null) {
+                    tvStatus.setText(String.format(java.util.Locale.US, "%.1f MB / %.1f MB",
+                            soFar / 1048576.0, total / 1048576.0));
+                }
+            } else {
+                if (pb != null) pb.setIndeterminate(true);
+                if (tvStatus != null) {
+                    tvStatus.setText(String.format(java.util.Locale.US, "%.1f MB terunduh", soFar / 1048576.0));
                 }
             }
+        } catch (Exception ignored) {
+        } finally {
+            if (c != null) c.close();
         }
     }
 
+    private void onUpdateDownloadFinished() {
+        if (updateDownloadId == -1) return;
+        long id = updateDownloadId;
+        stopUpdateProgressPoll();
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        int status = DownloadManager.STATUS_FAILED;
+        int reason = -1;
+        String localUri = null;
+        if (dm != null) {
+            Cursor c = null;
+            try {
+                c = dm.query(new DownloadManager.Query().setFilterById(id));
+                if (c != null && c.moveToFirst()) {
+                    status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                    reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
+                    int uriIdx = c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI);
+                    if (uriIdx >= 0) localUri = c.getString(uriIdx);
+                }
+            } catch (Exception ignored) {
+            } finally { if (c != null) c.close(); }
+        }
+        if (status != DownloadManager.STATUS_SUCCESSFUL) {
+            failUpdateDownload("Unduhan gagal (" + downloadFailReasonText(reason) + ")");
+            return;
+        }
+        File apkFile = null;
+        if (localUri != null) {
+            try { apkFile = new File(Uri.parse(localUri).getPath()); } catch (Exception ignored) {}
+        }
+        if (apkFile == null || !apkFile.exists()) {
+            apkFile = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS), UPDATE_APK_FILE);
+        }
+        String problem = verifyApkFile(apkFile);
+        if (problem != null) {
+            try { if (apkFile.exists()) apkFile.delete(); } catch (Exception ignored) {}
+            dismissUpdateProgressDialog();
+            unregisterUpdateReceiver();
+            updateDownloadId = -1;
+            Toast.makeText(this, "File update tidak valid: " + problem + " — coba lagi",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        dismissUpdateProgressDialog();
+        unregisterUpdateReceiver();
+        updateDownloadId = -1;
+        Uri installUri = null;
+        if (dm != null) {
+            try { installUri = dm.getUriForDownloadedFile(id); } catch (Exception ignored) {}
+        }
+        if (installUri == null) {
+            try {
+                installUri = FileProvider.getUriForFile(this,
+                        getPackageName() + ".fileprovider", apkFile);
+            } catch (Exception e) {
+                Toast.makeText(this, "Gagal membuka installer: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                return;
+            }
+        }
+        Toast.makeText(this, "Unduhan selesai! Memulai pemasangan...", Toast.LENGTH_SHORT).show();
+        try {
+            Intent it = new Intent(Intent.ACTION_VIEW);
+            it.setDataAndType(installUri, "application/vnd.android.package-archive");
+            it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(it);
+        } catch (Exception e) {
+            Toast.makeText(this, "Gagal membuka installer: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Periksa berkas APK hasil unduhan: paket yang sama + versi lebih baru.
+     * Mengembalikan null bila valid, atau alasan bila tidak valid. */
+    private String verifyApkFile(File apkFile) {
+        if (apkFile == null || !apkFile.exists() || apkFile.length() <= 0) return "berkas tidak ditemukan";
+        android.content.pm.PackageInfo info;
+        try {
+            info = getPackageManager().getPackageArchiveInfo(apkFile.getAbsolutePath(), 0);
+        } catch (Exception e) {
+            return "tidak terbaca sebagai APK";
+        }
+        if (info == null || !getPackageName().equals(info.packageName)) return "bukan APK Lumio";
+        try {
+            android.content.pm.PackageInfo cur = getPackageManager().getPackageInfo(getPackageName(), 0);
+            if (info.versionCode <= cur.versionCode) return "versi unduhan tidak lebih baru";
+        } catch (Exception e) {
+            return "tidak bisa memeriksa versi terpasang";
+        }
+        return null;
+    }
+
+    private void failUpdateDownload(String msg) {
+        dismissUpdateProgressDialog();
+        if (!updateRetried && lastUpdateUrl != null) {
+            updateRetried = true;
+            updateDownloadId = -1;
+            unregisterUpdateReceiver();
+            Toast.makeText(this, msg + " — mencoba lagi…", Toast.LENGTH_LONG).show();
+            enqueueUpdateDownload(lastUpdateUrl);
+            return;
+        }
+        updateDownloadId = -1;
+        unregisterUpdateReceiver();
+        Toast.makeText(this, msg + " — periksa koneksi lalu coba lagi", Toast.LENGTH_LONG).show();
+    }
+
+    private void cancelUpdateDownload() {
+        if (updateDownloadId != -1) {
+            try {
+                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm != null) dm.remove(updateDownloadId);
+            } catch (Exception ignored) {}
+            updateDownloadId = -1;
+        }
+        dismissUpdateProgressDialog();
+        unregisterUpdateReceiver();
+        Toast.makeText(this, "Pengunduhan pembaruan dibatalkan", Toast.LENGTH_SHORT).show();
+    }
+
+    private void dismissUpdateProgressDialog() {
+        stopUpdateProgressPoll();
+        try {
+            if (updateProgressDialog != null && updateProgressDialog.isShowing()) updateProgressDialog.dismiss();
+        } catch (Exception ignored) {}
+        updateProgressDialog = null;
+    }
+
+    private void stopUpdateProgressPoll() {
+        if (updateProgressRunnable != null) handler.removeCallbacks(updateProgressRunnable);
+    }
+
+    private void unregisterUpdateReceiver() {
+        if (updateReceiverRegistered && updateDownloadReceiver != null) {
+            try { unregisterReceiver(updateDownloadReceiver); } catch (Exception ignored) {}
+        }
+        updateReceiverRegistered = false;
+        updateDownloadReceiver = null;
+    }
+
+    private static String downloadFailReasonText(int reason) {
+        switch (reason) {
+            case DownloadManager.ERROR_INSUFFICIENT_SPACE: return "ruang penyimpanan habis";
+            case DownloadManager.ERROR_DEVICE_NOT_FOUND: return "penyimpanan tidak ditemukan";
+            case DownloadManager.ERROR_CANNOT_RESUME: return "unduhan tidak bisa dilanjutkan";
+            case DownloadManager.ERROR_FILE_ERROR: return "gagal menulis berkas";
+            case DownloadManager.ERROR_HTTP_DATA_ERROR: return "data HTTP rusak";
+            case DownloadManager.ERROR_TOO_MANY_REDIRECTS: return "terlalu banyak redirect";
+            case DownloadManager.ERROR_UNHANDLED_HTTP_CODE: return "server merespons kode tak dikenal";
+            default: return "kesalahan jaringan";
+        }
+    }
     private boolean handleUrl(Uri uri) {
         String u = uri.toString();
         if (u.startsWith("lumio://")) return true; // skema internal — UI klasik sudah tidak ada
@@ -407,6 +661,12 @@ public class WebUiActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // Unduhan DownloadManager tetap berjalan di sistem (notifikasi
+        // menuntun ke installer); di sini hanya bersihkan UI + receiver
+        // milik activity ini.
+        stopUpdateProgressPoll();
+        dismissUpdateProgressDialog();
+        unregisterUpdateReceiver();
         if (web != null) {
             web.destroy();
             web = null;

@@ -71,6 +71,16 @@ Format versi menggunakan skema `MAJOR.MINOR.PATCH`:
 - **Payload v2** - 2026-10-23: Manifest isi diambil via GitHub API terlebih dulu, raw sebagai cadangan.
 - **Payload v1** - 2026-10-23: Payload perdana (isi sama dengan APK 2.25.0).
 
+## [2.29.1] - 2026-11-12
+
+### Diperbaiki
+- **Updater APK tidak lagi gagal diam-diam di "Mengunduh" (laporan user 12 Nov).** `WebUiActivity` mengunduh APK via streaming `HttpURLConnection` di thread latar tanpa progress UI apa pun: toast "Mengunduh update…" hilang setelah ~2 detik, lalu tidak ada kabar sampai installer muncul (atau tidak pernah). Kini unduhan memakai **DownloadManager**: berkas nyata `Lumio-update.apk` di folder Download, progres di notifikasi + dialog progres dalam aplikasi (%, MB, tombol Batal — lebar TV 65%), penerima `ACTION_DOWNLOAD_COMPLETE`, verifikasi berkas sebelum installer dibuka (paket yang sama + versionCode lebih baru; bila tidak valid, berkas dihapus + toast alasan yang jelas), gagal unduh → toast alasan yang jelas + satu kali percobaan ulang otomatis. Bila activity ditutup saat mengunduh, unduhan tetap berjalan dan notifikasi menuntun ke installer. Alur izin install-unknown-apps tidak berubah.
+- **"Periksa Isi" di TV tidak berfungsi (catch-22 versi).** `backend/version.py` di APK 2.29.0 masih `2.28.1` (terlewat sinkronisasi saat rilis) sementara `VERSION` sudah `2.29.0`: `/api/payload/check` menganggap min_app v40 (2.29.0) > 2.28.1 → `needs_app=True` → "Periksa Isi" hanya menampilkan toast "Isi terbaru butuh update aplikasi dulu" dan tidak mengunduh apa-apa; perbaikan version.py di dalam payload v40 sendiri tidak akan pernah sampai karena gerbang itu menutup. `version.py` kini `2.29.1` (sinkron dengan `VERSION` via `tools/bump_version.py`); begitu 2.29.1 terpasang, "Periksa Isi" mengunduh v40 (atau otomatis saat buka aplikasi) karena gerbang min_app terbuka.
+
+### Notes
+- Kenaikan PATCH (2.29.0 → 2.29.1, versionCode 22901) karena perbaikan bug updater + perbaikan versi yang tidak sinkron, tanpa penambahan fitur. Rilis ini HANYA membawa aset `Lumio-v2.29.1.apk` + `Lumio.apk` (tanpa aset `tatap-*`).
+- `AppUpdateManager` (jalur update UI Klasik/MainActivity) TIDAK diubah: ia sudah punya dialog progres (% + MB + tombol Batal) sehingga tidak mengalami kegagalan diam-diam yang sama; MainActivity sendiri tidak bisa diluncurkan dari launcher (exported=false, tanpa intent-filter) sehingga jalur itu hanya cadangan.
+
 ## [2.29.0] - 2026-11-11
 
 ### Added

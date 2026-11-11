@@ -4,4 +4,7 @@
     <external-cache-path name="ext_cache_apk" path="." />
     <external-files-path name="ext_files_apk" path="." />
     <files-path name="internal_files_apk" path="." />
+    <!-- Jalur cadangan installer update: berkas APK DownloadManager di
+         folder Download publik (dipakai bila getUriForDownloadedFile null). -->
+    <external-path name="public_downloads" path="Download/" />
 </paths>
