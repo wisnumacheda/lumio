@@ -1,9 +1,9 @@
 {
-  "version": 40,
-  "label": "Isi 2.29.0 - Rapiin layout TV",
-  "notes": "Rapiin layout TV: hero berbasis vh dan rail pertama muat penuh di 720p dan 1080p; judul hero tanpa sufiks tipe; sinopsis kosong disembunyikan; backdrop blur dan scrim lebih kuat; banner update APK dan popup Yang Baru tidak tampil di TV; baris LUMIO jadi header non-fokus; perbaikan versi berjalan 2.28.1 menjadi 2.29.0.",
+  "version": 41,
+  "label": "Isi 2.29.1 - Nav TV hide + v40 nempel",
+  "notes": "Nav TV jadi drawer tersembunyi (buka dengan panah kiri atau tab Menu, tombol lebih kecil, konten lebar penuh); perbaikan loop unduh v40: backend payload kini 2.29.1 sehingga tidak ditolak aturan stale di APK 2.29.1; isi v40 tetap terbawa.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-40/lumio-payload.zip",
-  "sha256": "f7397a92f765a09ab6e0599705ea831f2e8c7aea0889372304a6f163c6cbc03e",
-  "size": 1056693
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-41/lumio-payload.zip",
+  "sha256": "88330f07a8e4c45eda6c85713f10c46393e9055c0c9049583e5669239142d297",
+  "size": 1058043
 }
