@@ -1,9 +1,9 @@
 {
-  "version": 42,
-  "label": "Isi 2.29.1 - Tombol player kecil + Donghua bersih",
-  "notes": "Tombol player TV diperkecil (pause tengah 96 ke 72px, tombol dan panel lebih rapat) supaya video lebih lega. Buffer HLS 30 ke 60 detik plus cap 120 detik; indikator resolusi yang sedang diputar tampil di status player; pilihan kualitas kini tersimpan dan Auto memuat ulang master ABR. Penjaga Donghua: tiap judul terpetakan dicek negara asalnya via AniList, yang bukan Cina dibuang dan dicatat di debug dropped_non_cn; kunci cache mapping dan halaman dinaikkan.",
+  "version": 43,
+  "label": "Isi 2.29.1 - Kualitas lengkap + Anime bersih",
+  "notes": "Pilihan kualitas kini dari level HLS (Auto + 1080/720/360 sesuai stream, ganti mulus tanpa reload); daftar Anime disaring asal-negara (donghua/aeni tidak masuk list Anime, pencarian tetap terbuka); cache asal-negara tidak lagi terhapus tiap boot.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-42/lumio-payload.zip",
-  "sha256": "c81256e18faefd1ec2ddec4f819bf9405cb5632fe8d80d44e408df094a749896",
-  "size": 1059483
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-43/lumio-payload.zip",
+  "sha256": "aceb0163577490e0c00f760713af9408e4ab7c83f3a09156d3f60b2cd0d5789f",
+  "size": 1060650
 }
