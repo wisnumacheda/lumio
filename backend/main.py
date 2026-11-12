@@ -1022,10 +1022,15 @@ async def filters():
 
 @app.get("/api/catalog")
 async def catalog(page: int = Query(1, ge=1, le=100), safe_mode: int = Query(1), fresh: int = Query(0)):
-    """Katalog umum: semua judul, default urut populer."""
+    """Katalog umum: semua judul, default urut populer.
+
+    Disaring asal-negaranya (v43): judul yang DIKENAL non-Jepang
+    (donghua/aeni) tidak dicampur ke daftar Anime — donghua punya endpoint
+    sendiri (/api/donghua). Judul bernegara tak dikenal tetap tampil
+    (fail-open, kontrak v13)."""
     try:
         import json as _json
-        key = f"catalog|page={page}"
+        key = f"catalog|page={page}|jp_only=v1"
         hit = None if fresh else await get_browse_cache(key, ttl=600)
         if hit:
             res = dict(hit)
@@ -1033,6 +1038,9 @@ async def catalog(page: int = Query(1, ge=1, le=100), safe_mode: int = Query(1),
         else:
             loop = asyncio.get_running_loop()
             res = await loop.run_in_executor(None, lambda: hi.browse({}, page))
+            if res and res.get("items"):
+                res = dict(res)
+                res["items"] = await _filter_anime_list_items(res.get("items") or [])
             await set_browse_cache(key, res)
             res = dict(res)
             res["cached"] = False
@@ -2040,10 +2048,11 @@ async def browse_ep(
                    "score": _to_str(score), "season": _to_str(season), "language": _to_str(language),
                    "sort": _to_str(sort), "genre": c_genre, "keyword": _to_str(keyword),
                    "sy": c_sy, "sm": c_sm, "ey": c_ey, "em": c_em}.items() if v}
-        # Daftar "terbaru/ongoing" disaring asal-negaranya: donghua/aeni yang
-        # dikenal non-JP tidak dicampur ke daftar Anime (lihat _filter_anime_list_items).
-        origin_filter = (params.get("sort") in ("release_date", "latest")
-                         or params.get("status") == "releasing")
+        # Semua daftar Anime disaring asal-negaranya (v43): donghua/aeni yang
+        # dikenal non-JP tidak dicampur ke daftar Anime (lihat
+        # _filter_anime_list_items). KECUALI pencarian (keyword): judul non-JP
+        # tetap bisa dicari + dibuka langsung (kontrak v13).
+        origin_filter = not params.get("keyword")
         key = "browse|" + _json.dumps(params, sort_keys=True) + f"|page={c_page}"
         if origin_filter:
             key += "|jp_only=v1"

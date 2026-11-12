@@ -2206,17 +2206,36 @@ $("#serverSel").addEventListener("change", e => {
   playEpisode(window._curSlug, window._curEp);
 });
 $("#qualitySel").addEventListener("change", e => {
-  const url = e.target.value;
+  const val = e.target.value;
   if (!hls) return;
-  // "Auto" (v42): kembali ke master ABR — sebelumnya pilihan Auto di panel
-  // tidak berbuat apa-apa karena handler berhenti di url kosong.
-  if (!url) {
+  // Opsi level HLS (v43, value "level:<indeks>"): ganti rendisi di dalam
+  // master yang sama via nextLevel — mulus, tanpa reload, posisi nonton
+  // tidak hilang.
+  if (val.startsWith("level:")) {
+    const idx = parseInt(val.slice(6), 10);
+    if (!isNaN(idx) && hls.levels && hls.levels[idx]) {
+      hls.nextLevel = idx;
+      updateRendInfo();
+    }
+    video.play().catch(() => {});
+    return;
+  }
+  // "Auto": kembali ke ABR bila sumber saat ini punya banyak level; bila
+  // sumber saat ini varian tunggal, muat ulang master (perilaku v42).
+  if (!val) {
+    if (hls.levels && hls.levels.length > 1) {
+      hls.nextLevel = -1;
+      updateRendInfo();
+      video.play().catch(() => {});
+      return;
+    }
     const m = e.target.dataset.master || "";
     if (m) { hls.loadSource(m); video.play().catch(() => {}); }
     return;
   }
+  // URL varian resolver (fallback bila level tidak tersedia): muat ulang sumber.
   const ref = e.target.dataset.referer || "";
-  hls.loadSource("/api/player/video?url=" + encodeURIComponent(url) + "&referer=" + encodeURIComponent(ref));
+  hls.loadSource("/api/player/video?url=" + encodeURIComponent(val) + "&referer=" + encodeURIComponent(ref));
   video.play().catch(() => {});
 });
 
@@ -2496,6 +2515,11 @@ async function playEpisode(slug, ep, fromAuto){
     hls.loadSource(proxied);
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      // Opsi kualitas dari level HLS (v43): bila master punya >=2 tinggi
+      // berbeda, isi #qualitySel dari level dan terapkan SETTINGS.quality ke
+      // level (buildQualityLevelOptions membersihkan _pendingVariant bila
+      // level dipakai). Bila tidak, jalur varian URL lama tetap berlaku.
+      buildQualityLevelOptions();
       if (window._pendingVariant) {
         const u = window._pendingVariant; window._pendingVariant = "";
         hls.loadSource("/api/player/video?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(referer));
@@ -2535,6 +2559,52 @@ function warmNextEpisode(){
       fetch("/api/player/sub?url=" + encodeURIComponent(en.url) + "&referer=" + encodeURIComponent(d.referer || "") + "&lang=id&src=" + sl + "&mode=gtx").catch(() => {});
     }).catch(() => {});
   } catch (e) {}
+}
+/* Opsi kualitas dari level HLS (v43). Master m3u8 berisi beberapa rendisi
+   (mis. 1080/720/360); varian resolver hanya URL m3u8 terpisah dan sering
+   cuma 1 (1080p) — itu sebabnya panel Kualitas selama ini cuma Auto +
+   1080p. Bila master punya >=2 tinggi berbeda, #qualitySel diisi Auto +
+   tiap tinggi yang BENAR-BENAR ADA di stream (urut turun, value
+   "level:<indeks>"); resolusi yang tidak ada di level TIDAK ditampilkan.
+   Pilihan level diganti via hls.nextLevel tanpa reload. Bila <2 tinggi,
+   opsi varian URL dipertahankan (fallback) dan _pendingVariant tetap
+   berlaku. Return true bila opsi level dibangun. */
+function buildQualityLevelOptions(){
+  const qSel = $("#qualitySel");
+  if (!hls || !hls.levels || !hls.levels.length) return false;
+  // Satu opsi per tinggi unik; bila beberapa level setinggi sama, pilih
+  // bitrate tertinggi (paling jernih di tinggi itu).
+  const byHeight = new Map();
+  hls.levels.forEach((lv, idx) => {
+    const h = lv && lv.height;
+    if (!h) return;
+    const prev = byHeight.get(h);
+    if (prev === undefined || (lv.bitrate || 0) > (hls.levels[prev].bitrate || 0)) byHeight.set(h, idx);
+  });
+  if (byHeight.size < 2) return false;
+  const heights = [...byHeight.keys()].sort((a, b) => b - a);
+  qSel.innerHTML = `<option value="">Kualitas: Auto</option>`;
+  heights.forEach(h => {
+    const o = document.createElement("option");
+    o.value = "level:" + byHeight.get(h);
+    o.textContent = "Kualitas: " + h + "p";
+    qSel.appendChild(o);
+  });
+  // Kualitas awal dari Pengaturan: tinggi yang sama, atau terdekat di
+  // bawahnya; bila tidak ada level <= setting, biarkan Auto (ABR).
+  window._pendingVariant = "";
+  if (SETTINGS.quality !== "auto") {
+    const want = parseInt(SETTINGS.quality, 10);
+    if (!isNaN(want)) {
+      const pick = heights.filter(h => h <= want)[0];
+      if (pick !== undefined) {
+        const idx = byHeight.get(pick);
+        qSel.value = "level:" + idx;
+        hls.nextLevel = idx;
+      }
+    }
+  }
+  return true;
 }
 function updateSubInfo(txt){ const el = $("#subInfo"); if (el) el.textContent = txt; }
 /* Indikator rendisi yang SEDANG diputar (v42): "📺 1080p" / "📺 720p" /
