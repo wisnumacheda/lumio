@@ -19,6 +19,7 @@ from api import manhwaindo as mimod
 from api import komiku as kmmod
 from api import tmdb as tmdbmod
 from api import vidsrc as vsmod
+from api import embed_providers as epmod
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
@@ -3908,27 +3909,27 @@ def _is_m3u8_url(url: str, ctype: str = "") -> bool:
     return False
 
 
-# --- Resolve Movie/Series (payload v44): sejajar /api/stream/resolve ---
+# --- Resolve Movie/Series (payload v44, failover v45): sejajar /api/stream/resolve ---
 # Hasil resolve TIDAK di-cache: URL HLS hoster bisa bertoken kedaluwarsa dan
 # token player VidSrc wajib segar tiap resolve — resolve segar tiap putar
 # adalah perilaku yang jujur + robust. Error per-provider jujur via
-# fail_reasons/_note() (pola v24).
+# fail_reasons (pola v24) + dedupe prefix (v45, epmod.note_reason).
+# Failover di sini HANYA antar resolver statis (v45: baru VidSrc — provider
+# lain browser-only, jalurnya mode embed via /api/stream/embed_urls).
 
 @app.get("/api/stream/resolve_movie")
 async def resolve_movie_ep(tmdb: int = Query(...)):
     try:
         fail_reasons = []
-
-        def _note(provider, exc):
-            msg = " ".join(str(exc or "").split())[:140]
-            fail_reasons.append((provider, msg or "gagal tanpa pesan"))
-
         got = None
         loop = asyncio.get_running_loop()
-        try:
-            got = await loop.run_in_executor(None, lambda: vsmod.resolve_movie(tmdb))
-        except Exception as e:
-            _note("VidSrc", e)
+        for prov_name, fn in [("VidSrc", lambda: vsmod.resolve_movie(tmdb))]:
+            try:
+                got = await loop.run_in_executor(None, fn)
+                if got:
+                    break
+            except Exception as e:
+                fail_reasons.append((prov_name, epmod.note_reason(prov_name, e)))
         if not got:
             parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
             raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
@@ -3947,18 +3948,15 @@ async def resolve_movie_ep(tmdb: int = Query(...)):
 async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), episode: int = Query(1)):
     try:
         fail_reasons = []
-
-        def _note(provider, exc):
-            msg = " ".join(str(exc or "").split())[:140]
-            fail_reasons.append((provider, msg or "gagal tanpa pesan"))
-
         got = None
         loop = asyncio.get_running_loop()
-        try:
-            got = await loop.run_in_executor(
-                None, lambda: vsmod.resolve_series(tmdb, season, episode))
-        except Exception as e:
-            _note("VidSrc", e)
+        for prov_name, fn in [("VidSrc", lambda: vsmod.resolve_series(tmdb, season, episode))]:
+            try:
+                got = await loop.run_in_executor(None, fn)
+                if got:
+                    break
+            except Exception as e:
+                fail_reasons.append((prov_name, epmod.note_reason(prov_name, e)))
         if not got:
             parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
             raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
@@ -3969,6 +3967,19 @@ async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), epis
         got["intro"] = got.get("intro") or {"start": 0, "end": 0}
         got["outro"] = got.get("outro") or {"start": 0, "end": 0}
         return ok(got)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/stream/embed_urls")
+async def embed_urls_ep(tmdb: int = Query(...), media_type: str = Query("movie", alias="type"),
+                        season: int = Query(1), episode: int = Query(1)):
+    # Konstruksi URL embed murni (tanpa fetch ke provider): dipakai mode
+    # embed iframe saat semua ekstraksi statis gagal (v45).
+    try:
+        if media_type not in ("movie", "tv"):
+            return fail("type harus movie atau tv")
+        return ok({"providers": epmod.embed_urls(tmdb, media_type, season, episode)})
     except Exception as e:
         return fail(str(e))
 

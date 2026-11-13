@@ -319,6 +319,15 @@
   .player-status .spin{width:15px;height:15px;border-radius:50%;flex:0 0 auto;
     border:2px solid rgba(255,255,255,.18);border-top-color:var(--amber);
     animation:rot .7s linear infinite;display:inline-block;vertical-align:-3px;margin-right:7px}
+  /* ---------- MODE EMBED IFRAME (v45) ---------- */
+  /* TANPA atribut sandbox: VidFast/VidLink menolak iframe ter-sandbox. */
+  .embed-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;z-index:8}
+  .embed-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 20px;background:var(--bg2);border-top:1px solid var(--line)}
+  .embed-bar .embed-lbl{font-size:13px;color:var(--muted);font-weight:600}
+  .embed-btn{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  .embed-btn.cur{border-color:var(--acc);background:rgba(139,92,246,.25)}
+  .embed-offer{display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .embed-note{font-size:12px;color:var(--faint)}
   @keyframes rot{to{transform:rotate(360deg)}}
 
   footer{border-top:1px solid var(--line);margin-top:56px;padding:26px 28px;text-align:center;
@@ -977,6 +986,7 @@
     </div>
     <div class="video-wrap">
       <video id="video" controls playsinline crossorigin="anonymous"></video>
+      <iframe id="embedFrame" class="embed-frame hidden" title="Pemutar embed" allow="autoplay *; fullscreen *; encrypted-media *; picture-in-picture" allowfullscreen></iframe>
       <div class="sub-overlay hidden" id="subOverlay"></div>
       <div class="seek-fx left" id="seekFxL"><span>⏪ 10 detik</span></div>
       <div class="seek-fx right" id="seekFxR"><span>⏩ 10 detik</span></div>
@@ -1028,6 +1038,11 @@
         </div>
         <div class="ep-picker-grid" id="epPickerGrid"></div>
       </div>
+    </div>
+    <div class="embed-bar hidden" id="embedBar">
+      <span class="embed-lbl">🎬 Mode embed — pilih penyedia:</span>
+      <span id="embedBtns"></span>
+      <button class="btn btn-ghost" id="embedCloseBtn" type="button">✕ Tutup embed</button>
     </div>
     <div class="player-status" id="playerStatus">Menyiapkan stream…</div>
   </div>
@@ -2334,7 +2349,11 @@ async function loadTmdbSeason(slug, t, seasonNum, autoplayEp){
 let hls = null, skipRange = null, subBlobUrl = null;
 const video = $("#video");
 function setPlayerStatus(html){ $("#playerStatus").innerHTML = html; }
+function setEpCtlVisible(show){
+  ["#ctlEpsBtn", "#ctlNextBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
+}
 function stopPlayer(){
+  exitEmbedMode();
   cancelNextEp();
   const epk = $("#epPicker"); if (epk) epk.classList.add("hidden");
   ctlOn = false; video.controls = true; hideCtl();
@@ -2361,6 +2380,8 @@ function cancelNextEp(){
   const ov = $("#nextEpOverlay"); if (ov) ov.classList.add("hidden");
 }
 function playNextEpisode(){
+  const pt = parseTmdbSlug(window._curSlug);
+  if (pt && pt.type === "movie") { toast("Film tidak punya episode berikutnya", true); return false; }
   const nxt = (window._curEp || 0) + 1;
   if (window._curSlug && (window._epsNums || []).includes(nxt)) {
     cancelNextEp();
@@ -2687,6 +2708,7 @@ async function playEpisode(slug, ep, fromAuto){
   if (!fromAuto) tryFullscreen();
   stopPlayer();
   video.controls = false; ctlOn = true; showCtl();
+  setEpCtlVisible(true);
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
   $("#pTitle").textContent = `${it.title || slug} — Episode ${ep}`;
   const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
@@ -2799,6 +2821,102 @@ async function playEpisode(slug, ep, fromAuto){
     setPlayerStatus("❌ Browser ini tidak mendukung pemutaran HLS.");
   }
 }
+/* ============ MODE EMBED IFRAME (v45) ============
+   Jalan putar terakhir saat semua ekstraksi statis gagal: URL embed
+   provider dimuat dalam iframe di modal player. TANPA atribut sandbox —
+   VidFast/VidLink menolak iframe ter-sandbox (dokumentasi publik).
+   Label jujur: subtitle + kontrol kualitas Lumio tidak berlaku di sini;
+   yang berlaku kontrol player penyedia. Di TV, kontrol di dalam iframe
+   mungkin tidak terjangkau remote — dilaporkan apa adanya di label. */
+window._embed = null;       // {list:[{id,name,url}], idx, slug, ep}
+window._embedOffer = null;  // {slug, ep, providers, errMsg}
+function embedStatusHtml(p){
+  const tvNote = (typeof IS_TV !== "undefined" && IS_TV)
+    ? " Di TV, kontrol di dalam player penyedia mungkin tidak terjangkau remote." : "";
+  return `<span>🎬 Mode embed — ${esc(p.name)}</span><span>Subtitle & kontrol kualitas Lumio tidak berlaku di mode ini; pakai kontrol player penyedia.${tvNote}</span>`;
+}
+function renderEmbedBar(){
+  const st = window._embed; const bar = $("#embedBar"); const box = $("#embedBtns");
+  if (!st || !bar || !box) return;
+  box.innerHTML = st.list.map((p, i) =>
+    `<button type="button" class="embed-btn${i === st.idx ? " cur" : ""}" data-i="${i}">${esc(p.name)}</button>`).join("");
+  $$(".embed-btn", box).forEach(b => b.addEventListener("click", () => loadEmbedProvider(Number(b.dataset.i))));
+  bar.classList.remove("hidden");
+  /* TV: bar di-rebuild tiap ganti penyedia — tombol terfokus lama hancur
+     bersama innerHTML; kembalikan fokus ke tombol penyedia aktif agar
+     D-pad tidak kehilangan jejak. */
+  if (typeof IS_TV !== "undefined" && IS_TV && typeof tvSetFocus === "function") {
+    const cur = box.querySelector(".embed-btn.cur");
+    if (cur) tvSetFocus(cur);
+  }
+}
+function loadEmbedProvider(i){
+  const st = window._embed; if (!st || !st.list.length) return;
+  st.idx = ((i % st.list.length) + st.list.length) % st.list.length;
+  const p = st.list[st.idx];
+  const fr = $("#embedFrame"); if (fr) fr.src = p.url;
+  renderEmbedBar();
+  setPlayerStatus(embedStatusHtml(p));
+}
+function enterEmbedMode(slug, ep, providers){
+  stopPlayer();
+  window._embed = {list: providers, idx: 0, slug, ep};
+  const fr = $("#embedFrame"); if (fr) fr.classList.remove("hidden");
+  loadEmbedProvider(0);
+}
+function exitEmbedMode(){
+  const fr = $("#embedFrame");
+  if (fr) { try { fr.removeAttribute("src"); } catch (e) {} fr.classList.add("hidden"); }
+  const bar = $("#embedBar"); if (bar) bar.classList.add("hidden");
+  window._embed = null;
+}
+function renderEmbedOffer(){
+  const o = window._embedOffer; if (!o) return;
+  setPlayerStatus(`❌ Gagal menyelesaikan stream: ${esc(o.errMsg)}<br><span class="embed-offer">Jalan lain: <button class="btn btn-play" id="btnEmbedMode" type="button">▶ Putar via embed</button> <span class="embed-note">subtitle & kualitas Lumio tidak berlaku di mode embed</span></span>`);
+  const b = $("#btnEmbedMode");
+  if (b) {
+    b.addEventListener("click", () => enterEmbedMode(o.slug, o.ep, o.providers));
+    if (typeof IS_TV !== "undefined" && IS_TV && typeof tvSetFocus === "function") tvSetFocus(b);
+  }
+}
+async function offerEmbedMode(slug, ep, errMsg){
+  const t = parseTmdbSlug(slug);
+  let providers = [];
+  if (t) {
+    try {
+      const q = t.type === "movie"
+        ? `tmdb=${t.id}&type=movie`
+        : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
+      const d = await api(`/api/stream/embed_urls?${q}`);
+      providers = (d && d.providers) || [];
+    } catch (e) { providers = []; }
+  }
+  exitFs();
+  if (!providers.length) {
+    setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(errMsg));
+    toast("Stream gagal dimuat: " + errMsg, true);
+    return;
+  }
+  window._embedOffer = {slug, ep, providers, errMsg};
+  renderEmbedOffer();
+  toast("Stream gagal dimuat — mode embed tersedia", true);
+}
+const _embClose = $("#embedCloseBtn");
+if (_embClose) _embClose.addEventListener("click", () => { exitEmbedMode(); renderEmbedOffer(); });
+/* Viduki mengabarkan kegagalan semua server via postMessage (dokumentasi
+   resmi): ganti otomatis ke penyedia embed berikutnya. Origin dibatasi
+   ketat ke viduki; hanya aktif saat mode embed berjalan di Viduki. */
+window.addEventListener("message", (ev) => {
+  try {
+    const st = window._embed; if (!st) return;
+    const cur = st.list[st.idx]; if (!cur || cur.id !== "viduki") return;
+    if (ev.origin !== "https://www.viduki.net" && ev.origin !== "https://viduki.net") return;
+    if (ev.data && ev.data.type === "viduki:all-servers-failed") {
+      toast("Viduki gagal semua server — pindah penyedia embed…", true);
+      loadEmbedProvider(st.idx + 1);
+    }
+  } catch (e) {}
+});
 /* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
    /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
    engine subtitle dipakai ulang tanpa perubahan perilaku; tanpa retry ganti
@@ -2816,6 +2934,7 @@ async function playTmdb(slug, ep, fromAuto){
   if (!fromAuto) tryFullscreen();
   stopPlayer();
   video.controls = false; ctlOn = true; showCtl();
+  setEpCtlVisible(t.type !== "movie");
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
   $("#pTitle").textContent = t.type === "movie"
     ? `${it.title || slug}`
@@ -2833,14 +2952,13 @@ async function playTmdb(slug, ep, fromAuto){
       new Promise((_, rej) => setTimeout(() => rej(new Error("Server terlalu lama merespons (batas 90 detik)")), 90000)),
     ]);
   } catch (e) {
-    exitFs();
-    setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(e.message));
-    toast("Stream gagal dimuat: " + e.message, true);
+    await offerEmbedMode(slug, ep, e.message);
     return;
   }
   const master = data.master || (data.picked && data.picked.url) || "";
   if (!master) {
-    exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk judul ini."); return;
+    await offerEmbedMode(slug, ep, "Server tidak mengembalikan URL stream untuk judul ini.");
+    return;
   }
   const referer = data.referer || "";
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
@@ -3904,7 +4022,9 @@ function tvFocusables(){
     const ctlOff = $("#ctlBar") && $("#ctlBar").classList.contains("off");
     const overlayOpen = !$("#ctlPanel").classList.contains("hidden")
       || !$("#epPicker").classList.contains("hidden")
-      || !$("#nextEpOverlay").classList.contains("hidden");
+      || !$("#nextEpOverlay").classList.contains("hidden")
+      || !$("#embedBar").classList.contains("hidden")
+      || !!document.querySelector("#btnEmbedMode");
     // Kontrol tersembunyi: hanya Skip Intro yang tetap bisa difokuskan;
     // panah kiri/kanan saat itu = seek (ditangani tvPlayerKey).
     if (ctlOff && !overlayOpen) els = els.filter(el => el.id === "skipBtn");
@@ -4039,7 +4159,9 @@ function tvPlayerKey(k){
   const ctlOff = $("#ctlBar").classList.contains("off");
   const overlayOpen = !$("#ctlPanel").classList.contains("hidden")
     || !$("#epPicker").classList.contains("hidden")
-    || !$("#nextEpOverlay").classList.contains("hidden");
+    || !$("#nextEpOverlay").classList.contains("hidden")
+    || !$("#embedBar").classList.contains("hidden")
+    || !!document.querySelector("#btnEmbedMode");
   const hidden = ctlOff && !overlayOpen;
   if (k === "Enter") {
     if (hidden) {
