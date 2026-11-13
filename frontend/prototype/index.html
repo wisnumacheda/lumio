@@ -2494,6 +2494,10 @@ function stopPlayer(){
   window._intro = null; window._outro = null;
   $("#skipBtn").classList.add("hidden");
   video.load();
+  /* v48: pengaman deterministik — video.pause() di atas tidak memicu event
+     pause bila video memang sudah paused (mis. keluar dari mode embed),
+     jadi lepas awake secara eksplisit di akhir stopPlayer. */
+  syncAwake();
 }
 $("#skipBtn").addEventListener("click", () => { if (skipRange) video.currentTime = skipRange.end + 0.1; });
 /* Hitung mundur auto-next gaya Netflix: 10 detik, bisa dibatalkan. */
@@ -2771,7 +2775,12 @@ video.addEventListener("click", (ev) => {
   }, 300)};
 });
 
-/* Layar tahan nyala HANYA selama video berputar (jembatan native + Wake Lock). */
+/* Layar tahan nyala HANYA selama video berputar (jembatan native + Wake Lock).
+   v48: satu sumber kebenaran syncAwake() — video HLS yang sedang play ATAU
+   mode embed aktif (video berjalan di iframe penyedia, <video> Lumio tidak
+   pernah play sehingga listener play tidak pernah terpanggil). Semua jalur
+   masuk/keluar memanggil syncAwake, bukan setAwake langsung, agar state
+   akhir selalu deterministik dari state yang sebenarnya. */
 let _wakeLock = null;
 function setAwake(on){
   try { if (window.LumioNative && LumioNative.setKeepAwake) LumioNative.setKeepAwake(!!on); } catch (e) {}
@@ -2781,10 +2790,13 @@ function setAwake(on){
     } else if (!on && _wakeLock) { _wakeLock.release().catch(() => {}); _wakeLock = null; }
   } catch (e) {}
 }
-video.addEventListener("play", () => setAwake(true));
-video.addEventListener("pause", () => setAwake(false));
-video.addEventListener("ended", () => setAwake(false));
-document.addEventListener("visibilitychange", () => { if (!document.hidden && !video.paused && !video.ended) setAwake(true); });
+function syncAwake(){
+  setAwake(!!window._embed || (!video.paused && !video.ended));
+}
+video.addEventListener("play", () => syncAwake());
+video.addEventListener("pause", () => syncAwake());
+video.addEventListener("ended", () => syncAwake());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncAwake(); });
 video.addEventListener("play", syncCtlPlay);
 video.addEventListener("pause", () => { syncCtlPlay(); if (ctlOn) showCtl(); });
 video.addEventListener("waiting", () => { if (ctlOn) $("#ctlSpin").classList.remove("hidden"); });
@@ -2986,12 +2998,20 @@ function enterEmbedMode(slug, ep, providers){
   window._embed = {list: providers, idx: 0, slug, ep};
   const fr = $("#embedFrame"); if (fr) fr.classList.remove("hidden");
   loadEmbedProvider(0);
+  /* v48: akuisisi SETELAH _embed diset — stopPlayer() di awal tadi sudah
+     melepas awake; tanpa panggilan ini layar mengikuti timer sistem. */
+  syncAwake();
 }
 function exitEmbedMode(){
   const fr = $("#embedFrame");
   if (fr) { try { fr.removeAttribute("src"); } catch (e) {} fr.classList.add("hidden"); }
   const bar = $("#embedBar"); if (bar) bar.classList.add("hidden");
   window._embed = null;
+  /* v48: lepas secara eksplisit SETELAH _embed dibersihkan — jangan andalkan
+     event pause (tidak terpanggil bila video memang sudah paused). Bila video
+     HLS sedang play, syncAwake tetap true dari sisi video; stopPlayer lalu
+     mem-pause dan trailing syncAwake-nya menutup ke false. */
+  syncAwake();
 }
 function renderEmbedOffer(){
   const o = window._embedOffer; if (!o) return;
