@@ -1,9 +1,9 @@
 {
-  "version": 43,
-  "label": "Isi 2.29.1 - Kualitas lengkap + Anime bersih",
-  "notes": "Pilihan kualitas kini dari level HLS (Auto + 1080/720/360 sesuai stream, ganti mulus tanpa reload); daftar Anime disaring asal-negara (donghua/aeni tidak masuk list Anime, pencarian tetap terbuka); cache asal-negara tidak lagi terhapus tiap boot.",
+  "version": 44,
+  "label": "Isi 2.29.1 - Movie & Series jalur anime",
+  "notes": "Movie & Series persis jalur anime: katalog TMDB + resolver VidSrc + player HLS sama, HP dan TV. Butuh kunci API TMDB gratis di Pengaturan.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-43/lumio-payload.zip",
-  "sha256": "aceb0163577490e0c00f760713af9408e4ab7c83f3a09156d3f60b2cd0d5789f",
-  "size": 1060650
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-44/lumio-payload.zip",
+  "sha256": "6e6b31990b62b93c639e3ef88e54742ca0e104c12126d9b7d74784a39d27bc63",
+  "size": 1075829
 }
