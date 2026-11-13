@@ -27,10 +27,19 @@ BATAS KERAS: playback client-side saja; TANPA download/rip/re-host;
 TANPA circumvention DRM; TANPA ekstraksi kredensial/key.
 """
 
-# Urutan = urutan fallback mode embed. VidSrc terakhir: rantai statisnya
-# sudah terbukti 403, tapi iframe-nya (JS di WebView, header browser
-# lengkap) adalah fingerprint berbeda — mungkin jalan, belum terbukti.
+# Urutan = urutan fallback mode embed; indeks 0 = default saat mode embed
+# dibuka (frontend loadEmbedProvider(0)). Viduki pertama sejak v46:
+# preferensi user dari tes on-device 14 Nov 2026 (paling disukai dari
+# 5 penyedia). VidSrc terakhir: rantai statisnya sudah terbukti 403,
+# tapi iframe-nya (JS di WebView, header browser lengkap) adalah
+# fingerprint berbeda — mungkin jalan, belum terbukti.
 PROVIDERS = [
+    {
+        "id": "viduki",
+        "name": "Viduki",
+        "movie": "https://viduki.net/1/movie/{tmdb}?color=e01621",
+        "tv": "https://viduki.net/1/tv/{tmdb}/{season}/{episode}?color=e01621",
+    },
     {
         "id": "vidlink",
         "name": "VidLink",
@@ -48,12 +57,6 @@ PROVIDERS = [
         "name": "VidRock",
         "movie": "https://vidrock.net/movie/{tmdb}",
         "tv": "https://vidrock.net/tv/{tmdb}/{season}/{episode}",
-    },
-    {
-        "id": "viduki",
-        "name": "Viduki",
-        "movie": "https://viduki.net/1/movie/{tmdb}?color=e01621",
-        "tv": "https://viduki.net/1/tv/{tmdb}/{season}/{episode}?color=e01621",
     },
     {
         "id": "vidsrc",
