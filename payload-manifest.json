@@ -1,9 +1,9 @@
 {
-  "version": 47,
-  "label": "Isi 2.29.1 - Lanjut Nonton per seksi",
-  "notes": "Lanjut Nonton dipisah per seksi: anime di beranda, movie di Movie, series di Series, donghua di Donghua; judul riwayat TMDB disimpan asli dan judul legacy diselesaikan malas; badge EP tidak tampil untuk film.",
+  "version": 48,
+  "label": "Isi 2.29.1 - Layar nyala di mode embed",
+  "notes": "Layar tahan nyala selama mode embed aktif via syncAwake terpusat; dilepas saat keluar embed, pause, atau tutup player; perilaku HLS dan browsing tidak berubah.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-47/lumio-payload.zip",
-  "sha256": "f7f278652c39c8ef62b84debfde4ddd83cf92fdaaeb9bf7231fb296402569248",
-  "size": 1081934
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-48/lumio-payload.zip",
+  "sha256": "b97e2e3117a656edc5605993f2db25da614829768040d8359aa4cfcdff2f4043",
+  "size": 1082351
 }
