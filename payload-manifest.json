@@ -1,9 +1,9 @@
 {
-  "version": 46,
-  "label": "Isi 2.29.1 - Viduki default",
-  "notes": "Viduki jadi penyedia embed default sesuai preferensi user dari tes on-device; urutan lain tidak berubah; 4 penyedia lain tetap satu ketukan di bar.",
+  "version": 47,
+  "label": "Isi 2.29.1 - Lanjut Nonton per seksi",
+  "notes": "Lanjut Nonton dipisah per seksi: anime di beranda, movie di Movie, series di Series, donghua di Donghua; judul riwayat TMDB disimpan asli dan judul legacy diselesaikan malas; badge EP tidak tampil untuk film.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-46/lumio-payload.zip",
-  "sha256": "86a30d9cbcf4f2b3a9386e066976bd09c4c0a64c42745976402d42a7847e05c3",
-  "size": 1080134
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-47/lumio-payload.zip",
+  "sha256": "f7f278652c39c8ef62b84debfde4ddd83cf92fdaaeb9bf7231fb296402569248",
+  "size": 1081934
 }
