@@ -290,6 +290,13 @@
   .detail-body .syn.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
   #dSeasons{padding:0 28px}
   @media (max-width:900px){ .detail-body{padding:2px 20px 6px} #dSeasons{padding:0 20px} }
+  /* ---------- TOMBOL "TONTON DI" (TMDB, v44) ---------- */
+  .watch-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+  .watch-row .watch-lbl{font-size:13px;color:var(--muted);margin-right:2px}
+  .watch-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font-size:13px;cursor:pointer}
+  .watch-btn img{width:20px;height:20px;border-radius:5px;object-fit:cover}
+  .watch-btn:hover{border-color:var(--acc)}
+  #dSeasonRow{margin-bottom:10px}
   .ctl{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;opacity:1;transition:opacity .25s;background:linear-gradient(rgba(0,0,0,.45),transparent 24%,transparent 70%,rgba(0,0,0,.6))}
   .ctl.off{opacity:0}
   .ctl.off > *{pointer-events:none !important}
@@ -665,6 +672,8 @@
   </div>
   <div class="tv-nav-home" aria-hidden="true">🏠 LUMIO</div>
   <button class="tv-nav-item active" data-tvnav="anime">🎌 Anime</button>
+  <button class="tv-nav-item" data-tvnav="movie">🎬 Movie</button>
+  <button class="tv-nav-item" data-tvnav="series">📺 Series</button>
   <button class="tv-nav-item" data-tvnav="donghua">🐉 Donghua</button>
   <button class="tv-nav-item" data-tvnav="manhwa">📖 Manhwa</button>
   <button class="tv-nav-item" data-tvnav="jadwal">📅 Jadwal Rilis</button>
@@ -686,8 +695,8 @@
   <div class="nav-group">
     <div class="nav-lbl">Konten</div>
     <button data-section="anime" class="active">🎌 Anime</button>
-    <button data-section="movie">🎬 Movie <span class="soon-tag">SEGERA</span></button>
-    <button data-section="series">📺 Series <span class="soon-tag">SEGERA</span></button>
+    <button data-section="movie">🎬 Movie</button>
+    <button data-section="series">📺 Series</button>
     <button data-section="donghua">🐉 Donghua</button>
     <button data-section="manhwa">📖 Manhwa</button>
   </div>
@@ -760,6 +769,17 @@
     <div class="fltbar hidden" id="fltBar">
       <button class="btn btn-ghost" id="fltToggle">🎛️ Filter <span id="fltCount"></span></button>
       <button class="btn btn-ghost hidden" id="fltReset">↺ Reset Filter</button>
+    </div>
+    <div class="fltbar hidden" id="tmdbBar">
+      <span class="sortbar-lbl">🌏 Asal:</span>
+      <div class="seg" id="tmdbLang">
+        <button data-val="" class="active">Semua</button>
+        <button data-val="ko">🇰🇷 Korea</button>
+        <button data-val="zh">🇨🇳 Cina</button>
+        <button data-val="ja">🇯🇵 Jepang</button>
+        <button data-val="id">🇮🇩 Indonesia</button>
+        <button data-val="en">🇺🇸 Barat</button>
+      </div>
     </div>
     <div class="fltpanel hidden" id="fltPanel">
       <div class="flt-group"><div class="flt-lbl">Genre</div><div class="flt-chips" id="fltGenres"><span class="flt-note">Memuat genre…</span></div></div>
@@ -917,14 +937,16 @@
       <p class="syn" id="dSyn">Memuat sinopsis…</p>
       <button class="syn-toggle hidden" id="dSynToggle" type="button">📖 Lihat Selengkapnya</button>
       <div class="gtags" id="dGenres"></div>
+      <div class="watch-row hidden" id="dWatchRow"></div>
     </div>
     <div id="dSeasons" class="hidden" style="margin-top:18px">
       <h3 class="d-sec-title">📺 Season &amp; Judul Terkait</h3>
       <div class="rel-row" id="dSeasonsRow"></div>
     </div>
     <div class="eps-sec">
-      <h3>Pilih Episode</h3>
+      <h3 id="epsSecTitle">Pilih Episode</h3>
       <div class="hint" id="epsHint">Memuat daftar episode…</div>
+      <div class="eps-pills" id="dSeasonRow"></div>
       <div class="eps-pills" id="epsRanges"></div>
       <div class="eps-grid" id="epsGrid"></div>
     </div>
@@ -1160,6 +1182,18 @@
     </div>
 
     <div class="set-sec">
+      <h4>🎬 Movie &amp; Series (TMDB)</h4>
+      <div class="set-row">
+        <div class="lbl">Kunci API TMDB</div>
+        <div class="desc">Katalog film &amp; series memakai TMDB (gratis). Buat kunci di themoviedb.org → Settings → API, lalu tempel di sini. Kunci tersimpan hanya di perangkat ini dan tidak pernah dikirim ke mana pun selain TMDB.</div>
+        <input id="tmdbKeyInput" class="fb-field" type="password" autocomplete="off" placeholder="Tempel kunci API TMDB di sini…">
+        <button class="btn-reset" id="btnSaveTmdbKey">💾 Simpan Kunci</button>
+        <button class="btn-reset" id="btnClearTmdbKey" style="margin-top:6px">🗑️ Hapus Kunci</button>
+        <div class="desc" id="tmdbKeyStatus">Memeriksa…</div>
+      </div>
+    </div>
+
+    <div class="set-sec">
       <h4>💬 Kirim Masukan</h4>
       <div class="set-row">
         <div class="lbl">Bantu Lumio jadi lebih baik</div>
@@ -1231,7 +1265,7 @@ let FORCE_FRESH = false;
 const API_TIMEOUT_MS = 30000;
 async function api(path){
   // Mode Aman (Pengaturan) diteruskan ke endpoint yang mendukung safe_mode.
-  if (/^\/api\/(catalog|search|browse|genres)\b/.test(path) && !path.includes("safe_mode=")) {
+  if (/^\/api\/(catalog|search|browse|genres|tmdb)\b/.test(path) && !path.includes("safe_mode=")) {
     path += (path.includes("?") ? "&" : "?") + "safe_mode=" + (typeof SETTINGS !== "undefined" && !SETTINGS.safeMode ? 0 : 1);
   }
   if (FORCE_FRESH && !path.includes("fresh=")) path += (path.includes("?") ? "&" : "?") + "fresh=1";
@@ -1735,7 +1769,11 @@ function setActiveSub(sub){
 }
 async function openGrid(title, loader, append){
   if (!append) { gridLoader = loader; gridPage = 1; gridTotalPages = 1; $("#grid").innerHTML = ""; }
-  if (!append) { const isF = (loader === filterLoader); $("#fltBar").classList.toggle("hidden", !isF); if (!isF) $("#fltPanel").classList.add("hidden"); }
+  if (!append) { const isF = (loader === filterLoader); $("#fltBar").classList.toggle("hidden", !isF); if (!isF) $("#fltPanel").classList.add("hidden");
+    /* Bar asal-negara TMDB hanya untuk grid seksi Movie/Series (v44). */
+    const isT = (loader === movieLoader || loader === seriesLoader);
+    $("#tmdbBar").classList.toggle("hidden", !isT);
+    if (isT) $$("#tmdbLang button").forEach(x => x.classList.toggle("active", x.dataset.val === TMDB_LANG)); }
   if (gridBusy) return;
   gridBusy = true;
   if (!append) showView("grid");
@@ -1765,6 +1803,9 @@ async function openGrid(title, loader, append){
     if (IS_TV) tvEnsureFocus();
   } catch (e) {
     if (!append) grid.innerHTML = "";
+    /* needs_key (v44): katalog TMDB butuh kunci — pesan jujur + shortcut ke
+       Pengaturan, bukan spinner selamanya dan bukan "gagal memuat" generik. */
+    if (e && e.message === "needs_key") { showNeedsKey(); return; }
     showState("⚠️", "Gagal memuat data", e.message, () => openGrid(title, gridLoader));
   } finally { gridBusy = false; }
 }
@@ -1809,6 +1850,7 @@ function goHome(){
   if (IS_TV) tvSetActiveNav("home");
   setActiveSub("all");
   $$("#genreRow .gchip.active").forEach(x => x.classList.remove("active"));
+  $("#searchInput").placeholder = "Cari judul anime… (Enter untuk mencari)";
   showView("home");
 }
 
@@ -1828,7 +1870,8 @@ function goSection(sec){
   closeNavDrawer();
   setActiveSection(sec);
   if (sec === "anime") { goHome(); return; }
-  if (sec === "movie" || sec === "series") { showCategory(sec); return; }
+  if (sec === "movie") { openMovieGrid(); return; }
+  if (sec === "series") { openSeriesGrid(); return; }
   if (sec === "donghua") { openDonghuaGrid(); return; }
   if (sec === "manhwa") { openMangaBrowser(); return; }
   if (sec === "fav") { openGrid("❤ Favorit Saya", favLoader); return; }
@@ -1854,6 +1897,13 @@ let searchTimer = null;
 function doSearch(q){
   q = (q || "").trim();
   if (!q) { goHome(); return; }
+  /* Pencarian mengikuti seksi aktif (v44): di Movie/Series, cari di TMDB. */
+  const activeBtn = document.querySelector("#navDrawer [data-section].active");
+  const sec = activeBtn ? activeBtn.dataset.section : "";
+  if (sec === "movie" || sec === "series") {
+    openGrid(`Hasil pencarian: "${q}"`, tmdbSearchLoader(q));
+    return;
+  }
   setActiveSection("");
   openGrid(`Hasil pencarian: "${q}"`, p => api(`/api/search?q=${encodeURIComponent(q)}&page=${p}`));
 }
@@ -1911,8 +1961,11 @@ function histTouch(slug, ep){
   const it = itemStore.get(slug) || currentItem || {};
   const prev = histGet(slug);
   const rest = loadHist().filter(x => x.slug !== slug);
+  /* Series TMDB: season disimpan supaya Lanjut Nonton kembali ke season
+     yang sama (v44); field undefined dibuang JSON.stringify. */
+  const season = String(slug).startsWith("tmdb:") ? (window._tmdbSeason || 1) : undefined;
   rest.unshift({ slug, title: it.title || (prev && prev.title) || slug, poster: it.poster || (prev && prev.poster) || "",
-    ep, pos: prev && prev.ep === ep ? (prev.pos || 0) : 0, dur: prev && prev.ep === ep ? (prev.dur || 0) : 0, ts: Date.now() });
+    ep, season, pos: prev && prev.ep === ep ? (prev.pos || 0) : 0, dur: prev && prev.ep === ep ? (prev.dur || 0) : 0, ts: Date.now() });
   saveHist(rest);
 }
 function histProgress(slug, ep, pos, dur){
@@ -2001,6 +2054,9 @@ function renderEpisodeGrid(slug, focusEp){
 }
 
 async function openDetail(slug, autoplayEp){
+  /* Judul TMDB (id "tmdb:movie:809" / "tmdb:tv:1396") memakai jalur detail
+     sendiri yang cermin jalur anime (v44). */
+  if (String(slug).startsWith("tmdb:")) { openTmdbDetail(slug, autoplayEp); return; }
   currentSlug = slug;
   currentItem = itemStore.get(slug) || {id: slug, title: slug};
   const it = currentItem;
@@ -2067,6 +2123,206 @@ async function openDetail(slug, autoplayEp){
     $("#epsHint").textContent = eps.length
       ? `${d.total || eps.length} episode tersedia — klik nomor untuk langsung memutar.` + (window._epsOngoing ? " 🆕 = episode terbaru." : "")
       : "Belum ada episode untuk judul ini.";
+    renderEpisodeGrid(slug, autoplayEp);
+    if (autoplayEp != null) playEpisode(slug, autoplayEp);
+  } catch (e) {
+    if (currentSlug === slug) $("#epsHint").textContent = "Daftar episode gagal dimuat: " + e.message;
+  }
+}
+
+/* ---------------- Movie & Series (TMDB, v44): cermin jalur anime ----------------
+   ID kartu: "tmdb:movie:<id>" / "tmdb:tv:<id>". Grid + detail + player memakai
+   pola yang sama dengan anime: openGrid + modal detail + grid episode (+ pil
+   season) + player HLS. Satu-satunya yang berbeda: sumber data (TMDB) dan
+   resolver (VidSrc). Tanpa kunci TMDB, backend menjawab needs_key dan grid
+   menampilkan state jujur + shortcut ke Pengaturan (showNeedsKey). */
+function parseTmdbSlug(slug){
+  const m = /^tmdb:(movie|tv):(\d+)$/.exec(String(slug || ""));
+  return m ? {type: m[1], id: Number(m[2])} : null;
+}
+let TMDB_LANG = "";
+function tmdbSortParam(){ return SETTINGS.sort === "terbaru" ? "terbaru" : SETTINGS.sort === "az" ? "az" : "populer"; }
+function tmdbDiscoverLoader(mediaType, extra){
+  return function(page){
+    const q = new URLSearchParams({type: mediaType, page: String(page), sort: tmdbSortParam()});
+    if (TMDB_LANG) q.set("lang", TMDB_LANG);
+    if (extra) Object.keys(extra).forEach(k => q.set(k, extra[k]));
+    return api("/api/tmdb/discover?" + q.toString());
+  };
+}
+function movieLoader(page){ return tmdbDiscoverLoader("movie")(page); }
+function seriesLoader(page){ return tmdbDiscoverLoader("tv")(page); }
+function tmdbSearchLoader(q){
+  return function(page){
+    return api("/api/tmdb/search?q=" + encodeURIComponent(q) + "&page=" + page);
+  };
+}
+function tmdbGenreLoader(mediaType, genreId){
+  return tmdbDiscoverLoader(mediaType, {genre: String(genreId)});
+}
+function openMovieGrid(){
+  setActiveSection("movie");
+  if (IS_TV) tvSetActiveNav("movie");
+  $("#searchInput").placeholder = "Cari judul film… (Enter untuk mencari)";
+  openGrid("🎬 Movie", movieLoader);
+}
+function openSeriesGrid(){
+  setActiveSection("series");
+  if (IS_TV) tvSetActiveNav("series");
+  $("#searchInput").placeholder = "Cari judul series… (Enter untuk mencari)";
+  openGrid("📺 Series", seriesLoader);
+}
+function showNeedsKey(){
+  showState("🔑", "Kunci API TMDB belum dipasang",
+    "Katalog Movie & Series memakai TMDB. Buat kunci gratis di themoviedb.org (Settings → API), lalu tempel di Pengaturan → Movie & Series (TMDB).",
+    () => { hideState(); openSettings(); refreshTmdbKeyStatus(); });
+  $("#stateRetry").textContent = "⚙️ Buka Pengaturan";
+  if (IS_TV) setTimeout(() => tvEnsureFocus($("#stateRetry")), 60);
+}
+$$("#tmdbLang button").forEach(b => b.addEventListener("click", () => {
+  TMDB_LANG = b.dataset.val;
+  $$("#tmdbLang button").forEach(x => x.classList.toggle("active", x === b));
+  if (gridLoader) openGrid($("#gridTitle").textContent, gridLoader);
+}));
+async function refreshTmdbKeyStatus(){
+  const el = $("#tmdbKeyStatus");
+  if (!el) return;
+  try {
+    const d = await api("/api/tmdb/key/status");
+    el.textContent = d.configured
+      ? "✅ Kunci terpasang (sumber: " + d.source + ", " + d.length + " karakter)."
+      : "❌ Belum ada kunci — katalog Movie & Series belum bisa dimuat.";
+  } catch (e) {
+    el.textContent = "Status kunci tidak bisa diperiksa (" + e.message + ").";
+  }
+}
+$("#btnSaveTmdbKey").addEventListener("click", async () => {
+  const v = $("#tmdbKeyInput").value.trim();
+  if (!v) { toast("Tempel dulu kunci API TMDB-nya.", true); return; }
+  try {
+    await apiSend("POST", "/api/tmdb/key", {key: v});
+    $("#tmdbKeyInput").value = "";
+    toast("🔑 Kunci TMDB tersimpan di perangkat ini.");
+    refreshTmdbKeyStatus();
+  } catch (e) { toast("Gagal menyimpan kunci: " + e.message, true); }
+});
+$("#btnClearTmdbKey").addEventListener("click", async () => {
+  try {
+    await apiSend("POST", "/api/tmdb/key", {key: ""});
+    toast("Kunci TMDB dihapus.");
+    refreshTmdbKeyStatus();
+  } catch (e) { toast("Gagal menghapus kunci: " + e.message, true); }
+});
+async function openTmdbDetail(slug, autoplayEp){
+  const t = parseTmdbSlug(slug);
+  if (!t) { toast("ID judul tidak dikenal.", true); return; }
+  currentSlug = slug;
+  currentItem = itemStore.get(slug) || {id: slug, title: slug};
+  const it = currentItem;
+  window._tmdbSeason = 1;
+  const dp = $("#dPoster"); dp.dataset.direct = it.poster || ""; dp.dataset.proxy = posterSrc(it.poster); dp.dataset.fb = 0; dp.style.visibility = ""; dp.src = posterSrc(it.poster);
+  $("#dTitle").textContent = it.title || slug;
+  refreshFavBtn(slug);
+  const sBox = $("#dSeasons"); if (sBox) { sBox.classList.add("hidden"); $("#dSeasonsRow").innerHTML = ""; }
+  const wRow = $("#dWatchRow"); wRow.classList.add("hidden"); wRow.innerHTML = "";
+  $("#dSeasonRow").innerHTML = "";
+  $("#dSyn").textContent = "Memuat sinopsis…";
+  $("#dSyn").classList.remove("clamp"); $("#dSynToggle").classList.add("hidden");
+  $("#dGenres").innerHTML = "";
+  const chips = [];
+  if (it.type) chips.push(`<span class="chip acc">${esc(it.type)}</span>`);
+  if (it.year) chips.push(`<span class="chip">${esc(it.year)}</span>`);
+  if (it.score) chips.push(`<span class="chip">⭐ ${esc(it.score)}</span>`);
+  if (it.duration) chips.push(`<span class="chip">${esc(it.duration)}</span>`);
+  $("#dChips").innerHTML = chips.join("");
+  $("#dKv").innerHTML = "";
+  $("#epsSecTitle").textContent = t.type === "movie" ? "Putar Film" : "Pilih Episode";
+  $("#epsHint").textContent = t.type === "movie" ? "Memuat…" : "Memuat daftar episode…";
+  $("#epsGrid").innerHTML = "";
+  $("#epsRanges").innerHTML = "";
+  openModal("detailModal");
+
+  // Detail & provider dimuat paralel; kegagalan salah satu tidak memblokir yang lain.
+  api(`/api/tmdb/${t.type}/${t.id}/detail`).then(d => {
+    if (currentSlug !== slug) return;
+    $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
+    setupSynClamp();
+    if (d.poster) { const dp2 = $("#dPoster"); dp2.dataset.direct = d.poster; dp2.dataset.proxy = posterSrc(d.poster); dp2.dataset.fb = 0; dp2.style.visibility = ""; dp2.src = posterSrc(d.poster); }
+    const kv = [];
+    if (d.score) kv.push(["Skor", "⭐ " + d.score]);
+    if (d.status) kv.push(["Status", d.status]);
+    if (d.year) kv.push(["Tahun", String(d.year)]);
+    if (d.duration) kv.push(["Durasi", d.duration]);
+    if (d.studio) kv.push(["Studio", d.studio]);
+    if (d.source) kv.push(["Sumber", d.source]);
+    if (t.type === "tv" && d.number_of_episodes) kv.push(["Episode", d.number_of_episodes + " episode · " + (d.number_of_seasons || 0) + " season"]);
+    $("#dKv").innerHTML = kv.map(([k, v]) => `<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("");
+    $("#dGenres").innerHTML = (d.genres || []).map(g =>
+      `<button data-genreid="${g.id}" data-genrename="${esc(g.name)}">${esc(g.name)}</button>`).join("");
+    $$("#dGenres button").forEach(b => b.addEventListener("click", () => {
+      closeModal("detailModal");
+      openGrid("Genre: " + b.dataset.genrename, tmdbGenreLoader(t.type, b.dataset.genreid));
+    }));
+    if (t.type === "tv") renderTmdbSeasons(slug, t, d.seasons || [], autoplayEp);
+  }).catch(() => {
+    if (currentSlug !== slug) return;
+    $("#dSyn").textContent = it.synopsis || "Sinopsis gagal dimuat dari server."; setupSynClamp();
+    if (t.type === "tv") $("#epsHint").textContent = "Daftar season gagal dimuat.";
+  });
+
+  api(`/api/tmdb/${t.type}/${t.id}/providers`).then(d => {
+    if (currentSlug !== slug) return;
+    const provs = d.providers || [];
+    if (!provs.length || !d.link) { wRow.classList.add("hidden"); return; }
+    wRow.innerHTML = `<span class="watch-lbl">Tonton di:</span>` + provs.map(p =>
+      `<button class="watch-btn" data-url="${esc(p.url)}">${p.logo ? `<img loading="lazy" src="${esc(posterSrc(p.logo))}" alt="">` : ""}${esc(p.name)}</button>`).join("");
+    $$(".watch-btn", wRow).forEach(b => b.addEventListener("click", () => openOfficialLink(b.dataset.url)));
+    wRow.classList.remove("hidden");
+  }).catch(() => { wRow.classList.add("hidden"); });
+
+  if (t.type === "movie") {
+    window._epsNums = [1];
+    window._epsAll = [{ep: 1, ep_id: "1"}];
+    window._epsOngoing = false;
+    $("#epsHint").textContent = "Film — klik tombol di bawah untuk memutar.";
+    $("#epsGrid").innerHTML = `<button class="ep-btn" data-ep="1">▶ Putar Film</button>`;
+    $$("#epsGrid .ep-btn").forEach(b => b.addEventListener("click", () => playEpisode(slug, 1)));
+    if (IS_TV) tvEnsureFocus();
+    if (autoplayEp != null) playEpisode(slug, 1);
+  }
+}
+function renderTmdbSeasons(slug, t, seasons, autoplayEp){
+  const row = $("#dSeasonRow");
+  const avail = (seasons || []).filter(s => (s.episode_count || 0) > 0);
+  if (!avail.length) { $("#epsHint").textContent = "Belum ada season untuk judul ini."; return; }
+  /* Default: season dari riwayat (Lanjut Nonton) bila ada, else season
+     bernomor >= 1 pertama, else season 0 (Spesial). */
+  const hist = histGet(slug);
+  let def = avail.find(s => s.season_number >= 1) || avail[0];
+  if (hist && hist.season != null) { const h = avail.find(s => s.season_number === hist.season); if (h) def = h; }
+  row.innerHTML = avail.map(s => `<button class="eps-pill${s.season_number === def.season_number ? " on" : ""}" data-season="${s.season_number}">${s.season_number === 0 ? "Spesial" : "Season " + s.season_number}</button>`).join("");
+  $$(".eps-pill", row).forEach(b => b.addEventListener("click", () => {
+    $$(".eps-pill", row).forEach(x => x.classList.toggle("on", x === b));
+    loadTmdbSeason(slug, t, Number(b.dataset.season));
+  }));
+  loadTmdbSeason(slug, t, def.season_number, autoplayEp);
+}
+async function loadTmdbSeason(slug, t, seasonNum, autoplayEp){
+  window._tmdbSeason = seasonNum;
+  $("#epsHint").textContent = "Memuat daftar episode…";
+  $("#epsGrid").innerHTML = "";
+  $("#epsRanges").innerHTML = "";
+  try {
+    const d = await api(`/api/tmdb/tv/${t.id}/season/${seasonNum}`);
+    if (currentSlug !== slug) return;
+    const eps = (d.episodes || []).slice().sort((a, b) => a.ep - b.ep);
+    window._epsNums = eps.map(e => e.ep);
+    window._epsAll = eps;
+    window._epsOngoing = false;
+    window._epsChunk = null; /* ganti season = mulai dari chunk pertama */
+    $("#epsHint").textContent = eps.length
+      ? `${d.season_name || ("Season " + seasonNum)} — ${d.total || eps.length} episode tersedia, klik nomor untuk memutar.`
+      : "Belum ada episode untuk season ini.";
     renderEpisodeGrid(slug, autoplayEp);
     if (autoplayEp != null) playEpisode(slug, autoplayEp);
   } catch (e) {
@@ -2419,6 +2675,8 @@ function tryFullscreen(){
 function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
 $("#ctlBackBtn").addEventListener("click", (e) => { e.stopPropagation(); closeModal("playerModal"); });
 async function playEpisode(slug, ep, fromAuto){
+  /* Judul TMDB memakai jalur putar sendiri (v44) — resolve berbeda, player sama. */
+  if (String(slug).startsWith("tmdb:")) return playTmdb(slug, ep, fromAuto);
   const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
   histTouch(slug, ep);
@@ -2519,6 +2777,104 @@ async function playEpisode(slug, ep, fromAuto){
       // berbeda, isi #qualitySel dari level dan terapkan SETTINGS.quality ke
       // level (buildQualityLevelOptions membersihkan _pendingVariant bila
       // level dipakai). Bila tidak, jalur varian URL lama tetap berlaku.
+      buildQualityLevelOptions();
+      if (window._pendingVariant) {
+        const u = window._pendingVariant; window._pendingVariant = "";
+        hls.loadSource("/api/player/video?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(referer));
+      }
+      video.play().catch(() => {});
+      updateRendInfo();
+    });
+    hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
+    hls.on(Hls.Events.ERROR, (ev, d) => {
+      if (!d.fatal) return;
+      if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); hls.startLoad(); }
+      else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); }
+      else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
+    });
+  } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = proxied;
+    video.play().catch(() => {});
+  } else {
+    setPlayerStatus("❌ Browser ini tidak mendukung pemutaran HLS.");
+  }
+}
+/* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
+   /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
+   engine subtitle dipakai ulang tanpa perubahan perilaku; tanpa retry ganti
+   server (satu provider) dan tanpa warmNextEpisode (khusus anime). */
+async function playTmdb(slug, ep, fromAuto){
+  const t = parseTmdbSlug(slug);
+  if (!t) return;
+  const it = itemStore.get(slug) || currentItem || {title: slug};
+  window._curSlug = slug; window._curEp = ep;
+  histTouch(slug, ep);
+  const savedHist = histGet(slug);
+  window._resumePos = (savedHist && savedHist.ep === ep && savedHist.pos > 15 && (!savedHist.dur || savedHist.pos < savedHist.dur - 20)) ? savedHist.pos : 0;
+  window._resumeKey = slug + "#" + ep;
+  openModal("playerModal");
+  if (!fromAuto) tryFullscreen();
+  stopPlayer();
+  video.controls = false; ctlOn = true; showCtl();
+  const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
+  $("#pTitle").textContent = t.type === "movie"
+    ? `${it.title || slug}`
+    : `${it.title || slug} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
+  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
+  setPlayerStatus(`<span><span class="spin"></span>Menghubungi server stream…</span>`);
+  const resolveUrl = t.type === "movie"
+    ? `/api/stream/resolve_movie?tmdb=${t.id}`
+    : `/api/stream/resolve_series?tmdb=${t.id}&season=${window._tmdbSeason || 1}&episode=${ep}`;
+  let data;
+  try {
+    data = await Promise.race([
+      api(resolveUrl),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("Server terlalu lama merespons (batas 90 detik)")), 90000)),
+    ]);
+  } catch (e) {
+    exitFs();
+    setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(e.message));
+    toast("Stream gagal dimuat: " + e.message, true);
+    return;
+  }
+  const master = data.master || (data.picked && data.picked.url) || "";
+  if (!master) {
+    exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk judul ini."); return;
+  }
+  const referer = data.referer || "";
+  const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
+  const qSel = $("#qualitySel");
+  qSel.dataset.referer = referer;
+  qSel.dataset.master = proxied;
+  (data.variants || []).forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.url; o.textContent = "Kualitas: " + (v.q || v.url);
+    qSel.appendChild(o);
+  });
+  window._pendingVariant = "";
+  if (SETTINGS.quality !== "auto") {
+    const opt = [...qSel.options].find(o => o.value && o.textContent.replace(/\D/g, "").includes(SETTINGS.quality));
+    if (opt) { qSel.value = opt.value; window._pendingVariant = opt.value; }
+  }
+  const info = [];
+  if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
+  if (data.source) info.push("Sumber: " + esc(data.source));
+  setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
+  skipRange = null;
+  window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
+  window._outro = data.outro && data.outro.end > data.outro.start ? {...data.outro, label: "outro"} : null;
+  attachSubtitle(data, referer);
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
+      abrEwmaDefaultEstimate: 3*1000*1000,
+      startBufferDuration: 3
+    });
+    hls.loadSource(proxied);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
       buildQualityLevelOptions();
       if (window._pendingVariant) {
         const u = window._pendingVariant; window._pendingVariant = "";
@@ -2834,6 +3190,7 @@ let verLoaded = false;
 function openSettings(){
   $("#settingsWrap").classList.remove("hidden");
   document.body.style.overflow = "hidden";
+  refreshTmdbKeyStatus();
   if (!verLoaded) {
     verLoaded = true;
     api("/api/version").then(d => { $("#verInfo").textContent = d.version || "?"; })
@@ -2863,6 +3220,9 @@ function showCategory(cat){
   setActiveSection(cat === "movie" ? "movie" : cat === "series" ? "series" : cat === "donghua" ? "donghua" : "anime");
   if (cat === "anime") { goHome(); return; }
   if (cat === "donghua") { openDonghuaGrid(); return; }
+  /* Movie/Series kini grid TMDB hidup (v44) — panel "Segera Hadir" pensiun. */
+  if (cat === "movie") { openMovieGrid(); return; }
+  if (cat === "series") { openSeriesGrid(); return; }
   const info = CAT_INFO[cat];
   if (!info) return;
   $("#soonIco").textContent = info.ico;
@@ -3757,6 +4117,8 @@ function tvGoNav(key){
   if (IS_TV) tvCloseNav(false); /* pilih item = navigasi + drawer tertutup; fokus diatur timeout di bawah */
   tvSetActiveNav(key);
   if (key === "home" || key === "anime") goHome();
+  else if (key === "movie") openMovieGrid();
+  else if (key === "series") openSeriesGrid();
   else if (key === "donghua") openDonghuaGrid();
   else if (key === "manhwa") openMangaBrowser();
   else if (key === "jadwal") openGrid("📅 Jadwal Rilis", scheduleGridLoader);

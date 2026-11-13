@@ -289,11 +289,15 @@ async def purge_expired_caches() -> dict:
     # pengecualian ini, cache 30 hari itu terhapus tiap boot dan filter
     # asal-negara membayar lookup AniList ulang untuk semua judul di tiap
     # daftar tersaring. Baris origin dibersihkan oleh spec 30 harinya sendiri.
+    # Baris TMDB (tmdb_v1|...) juga DIKECUALIKAN (v44): TTL baca detail/
+    # season 12 jam dan providers 24 jam — tanpa pengecualian, purge 6 jam
+    # menghapusnya tiap boot. Baris TMDB dibersihkan spec 24 jamnya sendiri.
     specs = [
         ("episode_cache", 12 * 3600, ""),
         ("search_cache", 24 * 3600, ""),
-        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v3|%' AND key NOT LIKE 'origin_v1|%'"),
+        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v3|%' AND key NOT LIKE 'origin_v1|%' AND key NOT LIKE 'tmdb_v1|%'"),
         ("browse_cache", 30 * 24 * 3600, " AND key LIKE 'origin_v1|%'"),
+        ("browse_cache", 24 * 3600, " AND key LIKE 'tmdb_v1|%'"),
         ("subtitle_cache", 7 * 24 * 3600, ""),
         ("slug_map", 7 * 24 * 3600, ""),
     ]

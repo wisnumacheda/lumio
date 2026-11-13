@@ -17,6 +17,8 @@ from api import komikcast as kcmod
 from api import asura as asmod
 from api import manhwaindo as mimod
 from api import komiku as kmmod
+from api import tmdb as tmdbmod
+from api import vidsrc as vsmod
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
@@ -2350,6 +2352,196 @@ async def donghua_ep(
         return fail(str(e))
 
 
+# --- Movie & Series (TMDB, payload v44): pola jalur anime ---
+# Katalog dari TMDB API v3 (kunci gratis milik user); detail/episode/player
+# dipakai ulang apa adanya. Tanpa kunci, endpoint katalog menjawab error
+# jujur "needs_key" (frontend menampilkan pesan + shortcut ke Pengaturan) —
+# tidak pernah spinner selamanya, tidak pernah mengarang kunci.
+# Cache: kunci tmdb_v1|... di browse_cache, TTL 6-12 jam (detail/season 12
+# jam, providers 24 jam); purge_expired_caches mengecualikan kunci tmdb_v1|
+# dari penghapusan 6 jam (pola donghua_v3/origin_v1 di v35/v43).
+
+_TMDB_CACHE_TTL = 6 * 3600
+_TMDB_DETAIL_TTL = 12 * 3600
+_TMDB_PROVIDERS_TTL = 24 * 3600
+
+
+def _tmdb_require_key():
+    """Kunci wajib ada SEBELUM cache dibaca — tanpa kunci, UI harus
+    menampilkan state needs_key, bukan data basi."""
+    if not tmdbmod.tmdb_key_info().get("configured"):
+        raise tmdbmod.NeedsKeyError("needs_key")
+
+
+@app.get("/api/tmdb/discover")
+async def tmdb_discover_ep(
+    type: str = Query("movie"), page: int = Query(1, ge=1, le=100),
+    sort: str = Query(""), genre: str = Query(""), lang: str = Query(""),
+    safe_mode: int = Query(1), fresh: int = Query(0),
+):
+    """Katalog discover TMDB — cermin /api/browse jalur anime."""
+    try:
+        _tmdb_require_key()
+        mt = "tv" if str(type).lower().startswith("tv") else "movie"
+        safe_mode_int = _parse_safe_mode(safe_mode)
+        c_page = page if isinstance(page, int) and page >= 1 else 1
+        key = f"tmdb_v1|discover|{mt}|p{c_page}|sort={sort}|genre={genre}|lang={lang}|safe={safe_mode_int}"
+        hit = None if fresh else await get_browse_cache(key, ttl=_TMDB_CACHE_TTL)
+        if hit:
+            hit = dict(hit)
+            hit["cached"] = True
+            return ok(hit)
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(
+            None, lambda: tmdbmod.discover(mt, c_page, sort, genre, lang, safe_mode_int))
+        await set_browse_cache(key, res)
+        res = dict(res)
+        res["cached"] = False
+        return ok(res)
+    except tmdbmod.NeedsKeyError:
+        return fail("needs_key")
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/tmdb/search")
+async def tmdb_search_ep(
+    q: str = Query(""), page: int = Query(1, ge=1, le=100),
+    safe_mode: int = Query(1), fresh: int = Query(0),
+):
+    """Pencarian film + series — cermin /api/search jalur anime."""
+    try:
+        q = (q if isinstance(q, str) else "").strip()
+        if not q:
+            return fail("missing q")
+        if q.lower() == "hentai" or "hentai" in q.lower().split():
+            return ok({"results": [], "page": page, "total_pages": 1, "has_next": False, "cached": False})
+        safe_mode_int = _parse_safe_mode(safe_mode)
+        if safe_mode_int == 1:
+            vulgar_words = {"ecchi", "erotica", "hentai", "magical-sex-shift"}
+            if any(w in q.lower() for w in vulgar_words):
+                return ok({"results": [], "page": page, "total_pages": 1, "has_next": False, "cached": False})
+        _tmdb_require_key()
+        c_page = page if isinstance(page, int) and page >= 1 else 1
+        key = f"tmdb_v1|search|{q.lower()}|p{c_page}|safe={safe_mode_int}"
+        hit = None if fresh else await get_browse_cache(key, ttl=_TMDB_CACHE_TTL)
+        if hit:
+            hit = dict(hit)
+            hit["cached"] = True
+            return ok(hit)
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(
+            None, lambda: tmdbmod.search_multi(q, c_page, safe_mode_int))
+        await set_browse_cache(key, res)
+        res = dict(res)
+        res["cached"] = False
+        return ok(res)
+    except tmdbmod.NeedsKeyError:
+        return fail("needs_key")
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/tmdb/{media_type}/{tmdb_id}/detail")
+async def tmdb_detail_ep(media_type: str, tmdb_id: int, safe_mode: int = Query(1)):
+    """Detail film/series — cermin /api/anime/{slug}/detail."""
+    try:
+        mt = str(media_type).lower()
+        if mt not in ("movie", "tv"):
+            return fail("media_type harus movie atau tv")
+        _tmdb_require_key()
+        safe_mode_int = _parse_safe_mode(safe_mode)
+        key = f"tmdb_v1|detail|{mt}|{tmdb_id}|safe={safe_mode_int}"
+        hit = await get_browse_cache(key, ttl=_TMDB_DETAIL_TTL)
+        if hit:
+            hit = dict(hit)
+            hit["cached"] = True
+            return ok(hit)
+        loop = asyncio.get_running_loop()
+        fn = tmdbmod.movie_detail if mt == "movie" else tmdbmod.tv_detail
+        res = await loop.run_in_executor(None, lambda: fn(tmdb_id, safe_mode_int))
+        await set_browse_cache(key, res)
+        res = dict(res)
+        res["cached"] = False
+        return ok(res)
+    except tmdbmod.NeedsKeyError:
+        return fail("needs_key")
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/tmdb/tv/{tmdb_id}/season/{season}")
+async def tmdb_season_ep(tmdb_id: int, season: int):
+    """Daftar episode satu season — cermin /api/anime/{slug}/episodes."""
+    try:
+        _tmdb_require_key()
+        key = f"tmdb_v1|season|{tmdb_id}|{season}"
+        hit = await get_browse_cache(key, ttl=_TMDB_DETAIL_TTL)
+        if hit:
+            hit = dict(hit)
+            hit["cached"] = True
+            return ok(hit)
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(None, lambda: tmdbmod.season_episodes(tmdb_id, season))
+        await set_browse_cache(key, res)
+        res = dict(res)
+        res["cached"] = False
+        return ok(res)
+    except tmdbmod.NeedsKeyError:
+        return fail("needs_key")
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/tmdb/{media_type}/{tmdb_id}/providers")
+async def tmdb_providers_ep(media_type: str, tmdb_id: int):
+    """Provider resmi region ID — tombol "Tonton di" (pola MangaDex
+    berlisensi: tautan resmi, paywall tidak pernah dilewati)."""
+    try:
+        mt = str(media_type).lower()
+        if mt not in ("movie", "tv"):
+            return fail("media_type harus movie atau tv")
+        _tmdb_require_key()
+        key = f"tmdb_v1|providers|{mt}|{tmdb_id}"
+        hit = await get_browse_cache(key, ttl=_TMDB_PROVIDERS_TTL)
+        if hit:
+            hit = dict(hit)
+            hit["cached"] = True
+            return ok(hit)
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(None, lambda: tmdbmod.watch_providers(mt, tmdb_id))
+        await set_browse_cache(key, res)
+        res = dict(res)
+        res["cached"] = False
+        return ok(res)
+    except tmdbmod.NeedsKeyError:
+        return fail("needs_key")
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/tmdb/key/status")
+async def tmdb_key_status_ep():
+    """Status kunci TMDB — TANPA nilai kunci (hanya configured/source/length)."""
+    return ok(tmdbmod.tmdb_key_info())
+
+
+@app.post("/api/tmdb/key")
+async def tmdb_key_save_ep(body: dict = None):
+    """Simpan kunci API TMDB ke perangkat (field Pengaturan). Kunci kosong
+    = hapus kunci tersimpan. Nilai kunci tidak pernah dikembalikan/di-log."""
+    try:
+        body = body or {}
+        if "key" not in body:
+            return fail("missing key")
+        info = tmdbmod.save_tmdb_key(body.get("key"))
+        return ok(info)
+    except ValueError as e:
+        return fail(str(e))
+    except Exception as e:
+        return fail(str(e))
+
+
 @app.get("/api/manga/search")
 async def manga_search(q: str = Query(""), limit: int = Query(24, ge=1, le=50),
                        offset: int = Query(0, ge=0), safe_mode: int = Query(1),
@@ -3714,6 +3906,71 @@ def _is_m3u8_url(url: str, ctype: str = "") -> bool:
     if any(p in url.lower() for p in ("/hls/playlist", "/api/hls", "format=m3u8", "output=m3u8", ".m3u8?")):
         return True
     return False
+
+
+# --- Resolve Movie/Series (payload v44): sejajar /api/stream/resolve ---
+# Hasil resolve TIDAK di-cache: URL HLS hoster bisa bertoken kedaluwarsa dan
+# token player VidSrc wajib segar tiap resolve — resolve segar tiap putar
+# adalah perilaku yang jujur + robust. Error per-provider jujur via
+# fail_reasons/_note() (pola v24).
+
+@app.get("/api/stream/resolve_movie")
+async def resolve_movie_ep(tmdb: int = Query(...)):
+    try:
+        fail_reasons = []
+
+        def _note(provider, exc):
+            msg = " ".join(str(exc or "").split())[:140]
+            fail_reasons.append((provider, msg or "gagal tanpa pesan"))
+
+        got = None
+        loop = asyncio.get_running_loop()
+        try:
+            got = await loop.run_in_executor(None, lambda: vsmod.resolve_movie(tmdb))
+        except Exception as e:
+            _note("VidSrc", e)
+        if not got:
+            parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
+            raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
+        got["picked"] = hi.select_quality(got["variants"], "best")
+        got["cached"] = False
+        got["subtitles"] = got.get("subtitles") or []
+        got["source"] = "vidsrc"
+        got["intro"] = got.get("intro") or {"start": 0, "end": 0}
+        got["outro"] = got.get("outro") or {"start": 0, "end": 0}
+        return ok(got)
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/stream/resolve_series")
+async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), episode: int = Query(1)):
+    try:
+        fail_reasons = []
+
+        def _note(provider, exc):
+            msg = " ".join(str(exc or "").split())[:140]
+            fail_reasons.append((provider, msg or "gagal tanpa pesan"))
+
+        got = None
+        loop = asyncio.get_running_loop()
+        try:
+            got = await loop.run_in_executor(
+                None, lambda: vsmod.resolve_series(tmdb, season, episode))
+        except Exception as e:
+            _note("VidSrc", e)
+        if not got:
+            parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
+            raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
+        got["picked"] = hi.select_quality(got["variants"], "best")
+        got["cached"] = False
+        got["subtitles"] = got.get("subtitles") or []
+        got["source"] = "vidsrc"
+        got["intro"] = got.get("intro") or {"start": 0, "end": 0}
+        got["outro"] = got.get("outro") or {"start": 0, "end": 0}
+        return ok(got)
+    except Exception as e:
+        return fail(str(e))
 
 
 @app.get("/api/player/video")
