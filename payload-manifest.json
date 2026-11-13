@@ -1,9 +1,9 @@
 {
-  "version": 44,
-  "label": "Isi 2.29.1 - Movie & Series jalur anime",
-  "notes": "Movie & Series persis jalur anime: katalog TMDB + resolver VidSrc + player HLS sama, HP dan TV. Butuh kunci API TMDB gratis di Pengaturan.",
+  "version": 45,
+  "label": "Isi 2.29.1 - Embed + fallback provider",
+  "notes": "Mode embed 5 penyedia saat ekstraksi statis gagal; failover berurutan dengan alasan jujur per penyedia; perbaikan prefix ganda pada pesan galat; tombol Episode disembunyikan untuk film; navigasi D-pad di mode embed untuk TV.",
   "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-44/lumio-payload.zip",
-  "sha256": "6e6b31990b62b93c639e3ef88e54742ca0e104c12126d9b7d74784a39d27bc63",
-  "size": 1075829
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-45/lumio-payload.zip",
+  "sha256": "029c7901ad6295f537d55057e0cce201618b615783047402c3453b65686cae4b",
+  "size": 1080088
 }
