@@ -315,7 +315,10 @@
   .ctl-time{color:#fff;font-size:12.5px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.8);margin-left:2px}
   .ctl-spin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:6}
   .player-status{padding:12px 20px;background:var(--bg2);color:var(--muted);font-size:13px;
-    display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+    display:flex;gap:16px;flex-wrap:wrap;align-items:center;overflow-wrap:anywhere}
+  /* v51: segmen status boleh menyusut agar ringkasan panjang membungkus rapi
+     di barisnya sendiri, tidak meluber atau terpotong. */
+  .player-status>*{min-width:0}
   .player-status .spin{width:15px;height:15px;border-radius:50%;flex:0 0 auto;
     border:2px solid rgba(255,255,255,.18);border-top-color:var(--amber);
     animation:rot .7s linear infinite;display:inline-block;vertical-align:-3px;margin-right:7px}
@@ -384,6 +387,18 @@
   .ctl-mid-btn{background:rgba(10,8,20,.66);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:99px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;backdrop-filter:blur(4px)}
   .ctl-mid-btn:active{background:var(--acc)}
   .ctl-row{flex-wrap:wrap}
+  /* v51: di layar sempit, baris tombol kontrol JANGAN melipat — lipatan
+     membuat .ctl (absolute setinggi video 16:9) meluber ke bawah dan
+     menutupi blok status (bug: ringkasan gagal tertutup tombol Subtitle).
+     Geser horizontal menjaga semua tombol terjangkau; TV/desktop tidak
+     berubah (video cukup tinggi untuk baris terlipat). */
+  @media (max-width:640px){
+    .ctl-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+    .ctl-row::-webkit-scrollbar{display:none}
+    .ctl-btn{padding:6px 10px;font-size:12px}
+    .ctl-center{width:52px;height:52px;font-size:20px}
+    .ctl-mid{gap:18px}
+  }
   .next-ep{position:absolute;inset:0;z-index:7;display:grid;place-items:end center;padding:0 16px 96px;pointer-events:none}
   .next-ep.hidden{display:none}
   .next-ep-card{pointer-events:auto;background:rgba(12,10,24,.94);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 18px;text-align:center;max-width:340px;width:100%}
@@ -2382,6 +2397,9 @@ async function openTmdbDetail(slug, autoplayEp){
       $("#dTitle").textContent = d.title;
       const prev = itemStore.get(slug) || {};
       itemStore.set(slug, {...prev, id: slug, title: d.title, poster: d.poster || prev.poster || it.poster || ""});
+      /* v51: bila player sudah kebuka untuk judul ini (jalur resume balapan
+         dengan fetch detail), perbarui header player ke judul asli. */
+      if (window._curSlug === slug && !$("#playerModal").classList.contains("hidden")) setTmdbPlayerTitle(slug, window._curEp || 1);
     }
     if (d.poster) it.poster = d.poster;
     $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
@@ -2475,6 +2493,12 @@ const video = $("#video");
 function setPlayerStatus(html){ $("#playerStatus").innerHTML = html; }
 function setEpCtlVisible(show){
   ["#ctlEpsBtn", "#ctlNextBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
+}
+function setServerCtlVisible(show){
+  /* v51: pemilih Server anime (HiAnime/Otakudesu/AniChan) tidak bermakna
+     untuk Movie/Series — sembunyikan selama pemutaran TMDB. Padanan TMDB
+     untuk ganti penyedia adalah tombol 🔄 Server lain, bukan panel ini. */
+  ["#serverSel", "#ctlServerBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
 }
 function stopPlayer(){
   cancelHiddenResolve();
@@ -2611,6 +2635,9 @@ video.addEventListener("ended", () => {
 });
 $("#serverSel").addEventListener("change", e => {
   if (!window._curSlug || !window._curEp) return;
+  /* v51: pertahanan — pemilih server anime tidak boleh memicu pemutaran
+     ulang dari player TMDB (kontrolnya disembunyikan; ini pengaman). */
+  if (String(window._curSlug).startsWith("tmdb:")) return;
   window._sourceOnce = e.target.value;
   toast("🔁 Mengganti server…");
   playEpisode(window._curSlug, window._curEp);
@@ -2672,6 +2699,8 @@ function syncCtlPlay(){
 function togglePlay(){ if (video.paused) video.play().catch(() => {}); else video.pause(); showCtl(); }
 function ctlPanelShow(kind){
   const panel = $("#ctlPanel"); if (!panel) return;
+  /* v51: panel Server anime tidak boleh tampil saat pemutaran TMDB. */
+  if (kind === "server" && String(window._curSlug || "").startsWith("tmdb:")) return;
   if (!panel.classList.contains("hidden") && panel.dataset.kind === kind) { panel.classList.add("hidden"); showCtl(); return; }
   panel.dataset.kind = kind;
   const opt = (val, label, on) => `<button data-v="${esc(val)}" class="${on ? "on" : ""}"><span>${esc(label)}</span>${on ? "<span>✓</span>" : ""}</button>`;
@@ -2858,6 +2887,7 @@ async function playEpisode(slug, ep, fromAuto){
   stopPlayer();
   video.controls = false; ctlOn = true; showCtl();
   setEpCtlVisible(true);
+  setServerCtlVisible(true);
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
   $("#pTitle").textContent = `${it.title || slug} — Episode ${ep}`;
   const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
@@ -3036,12 +3066,18 @@ function renderEmbedOffer(){
     if (typeof IS_TV !== "undefined" && IS_TV && typeof tvSetFocus === "function") tvSetFocus(b);
   }
 }
-async function offerEmbedMode(slug, ep, errMsg){
-  const providers = await fetchEmbedProviders(slug, ep);
+async function offerEmbedMode(slug, ep, errMsg, knownProviders){
+  /* v51: pakai daftar penyedia yang SUDAH diketahui bila ada — fetch ulang
+     di sini bisa gagal (tawaran embed lalu hilang dan toast menampilkan
+     ringkasan panjang yang terpotong), padahal rangkaian hidden sudah
+     memegang daftarnya. */
+  const providers = (knownProviders && knownProviders.length)
+    ? knownProviders
+    : await fetchEmbedProviders(slug, ep);
   exitFs();
   if (!providers.length) {
     setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(errMsg));
-    toast("Stream gagal dimuat: " + errMsg, true);
+    toast("Stream gagal dimuat — tidak ada penyedia embed", true);
     return;
   }
   window._embedOffer = {slug, ep, providers, errMsg};
@@ -3133,18 +3169,33 @@ async function tryHiddenResolve(slug, ep, ctx){
   /* v50: satu rangkaian resolve dengan ctx bersama {providers, skip,
      deadline, attempts}. Mengembalikan data sintetis siap jalur HLS,
      null (semua penyedia habis), atau HIDDEN_ABORTED (player ditutup di
-     tengah jalan — jangan tampilkan apa pun). Per penyedia maks 18 dtk
-     (native timeout 15 dtk + margin callback); tenggat rangkaian dipegang
-     ctx.deadline. Setiap kegagalan resolve dicatat ke ctx.attempts untuk
-     diagnostik. */
+     tengah jalan — jangan tampilkan apa pun). v51: tenggat rangkaian
+     (ctx.deadline) HANYA mengukur waktu resolve — waktu guard replay
+     dikembalikan oleh runHiddenLoop — dan sisa anggaran dibagi adil antar
+     penyedia tersisa (per penyedia maks 18 dtk: native timeout 15 dtk +
+     margin callback). Setiap kegagalan resolve dicatat ke ctx.attempts
+     untuk diagnostik; penyedia yang terlewat karena anggaran habis
+     dicatat jujur, tidak pernah dihilangkan diam-diam. */
   const gen = window.__lumioEmbedGen;
   for (const p of ctx.providers) {
     if (ctx.skip.has(p.id)) continue;
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    const untried = ctx.providers.filter(q => !ctx.skip.has(q.id)).length;
     const remain = ctx.deadline - Date.now();
-    if (remain < 5000) break;
+    if (remain < 5000) {
+      /* Anggaran resolve habis: catat SEMUA penyedia tersisa secara jujur
+         agar ringkasan menyebut mereka (bug v50: VidRock tidak pernah
+         disebut di ringkasan GoT S4E5 padahal belum dicoba). */
+      for (const q of ctx.providers) {
+        if (ctx.skip.has(q.id)) continue;
+        ctx.skip.add(q.id);
+        ctx.attempts.push({name: q.name || q.id, label: "terlewat (waktu habis)"});
+      }
+      return null;
+    }
+    const share = Math.max(5000, Math.min(18000, Math.floor(remain / Math.max(1, untried))));
     setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)}…</span>`);
-    const payload = await resolveOneHidden(p, Math.min(18000, remain));
+    const payload = await resolveOneHidden(p, share);
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
     ctx.skip.add(p.id);
     if (payload && payload.ok && payload.url) {
@@ -3359,7 +3410,13 @@ async function runHiddenLoop(ctx){
       }
     }
     ctx.lastProvider = data._hiddenProvider || "";
+    /* v51: waktu guard replay (grace 20 dtk / stall) BUKAN waktu resolve —
+       kembalikan ke anggaran supaya tidak memakan giliran penyedia
+       tersisa (akar bug v50: deadline 60 dtk habis dimakan 2× guard
+       sebelum VidRock kebagian giliran). */
+    const guardT0 = Date.now();
     const res = await attachHiddenAttempt(data, ctx, ctx.t, ctx.ep);
+    ctx.deadline += Math.max(0, Date.now() - guardT0);
     if (res.outcome === "aborted") return HIDDEN_ABORTED;
     if (res.outcome === "parsed") { updateCycleBtn(); return true; }
     clearHiddenGuard();
@@ -3386,12 +3443,34 @@ async function hiddenAdvance(ctx, label){
     if (!started) {
       const msg = hiddenSummary(ctx);
       stopPlayer();
-      await offerEmbedMode(ctx.slug, ctx.ep, msg);
+      await offerEmbedMode(ctx.slug, ctx.ep, msg, ctx.providers);
     }
   } finally {
     ctx.advancing = false;
     updateCycleBtn();
   }
+}
+function tmdbPlayerTitle(slug, it){
+  /* v51: judul bersih untuk header player — jangan pernah tampilkan slug
+     mentah "tmdb:*". Jalur resume balapan dengan fetch detail (playTmdb
+     jalan sebelum judul asli kembali), jadi jatuh ke judul riwayat, lalu
+     label bersih "🎬 Film #id" / "📺 Series #id" (logika yang sama dengan
+     histDisplayTitle). */
+  const cand = (it && it.title) || ((histGet(slug) || {}).title) || "";
+  if (cand && !String(cand).startsWith("tmdb:")) return cand;
+  const t = parseTmdbSlug(slug);
+  if (t) return (t.type === "movie" ? "🎬 Film #" : "📺 Series #") + t.id;
+  return cand || slug;
+}
+function setTmdbPlayerTitle(slug, ep){
+  const t = parseTmdbSlug(slug);
+  if (!t) return;
+  const it = itemStore.get(slug) || currentItem || {};
+  const title = tmdbPlayerTitle(slug, it);
+  $("#pTitle").textContent = t.type === "movie"
+    ? title
+    : `${title} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
+  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
 }
 /* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
    /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
@@ -3400,7 +3479,6 @@ async function hiddenAdvance(ctx, label){
 async function playTmdb(slug, ep, fromAuto){
   const t = parseTmdbSlug(slug);
   if (!t) return;
-  const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
   histTouch(slug, ep);
   const savedHist = histGet(slug);
@@ -3411,11 +3489,9 @@ async function playTmdb(slug, ep, fromAuto){
   stopPlayer();
   video.controls = false; ctlOn = true; showCtl();
   setEpCtlVisible(t.type !== "movie");
+  setServerCtlVisible(false);
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
-  $("#pTitle").textContent = t.type === "movie"
-    ? `${it.title || slug}`
-    : `${it.title || slug} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
-  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  setTmdbPlayerTitle(slug, ep);
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
   setPlayerStatus(`<span><span class="spin"></span>Menghubungi server stream…</span>`);
   /* v50: lookup subtitle statis berjalan paralel dengan resolve statis. */
@@ -3455,7 +3531,7 @@ async function playTmdb(slug, ep, fromAuto){
     if (!started) {
       const msg = hiddenSummary(ctx);
       stopPlayer();
-      await offerEmbedMode(slug, ep, msg);
+      await offerEmbedMode(slug, ep, msg, ctx.providers);
       return;
     }
     return;
