@@ -20,6 +20,7 @@ from api import komiku as kmmod
 from api import tmdb as tmdbmod
 from api import vidsrc as vsmod
 from api import embed_providers as epmod
+from api import embed_subs as esmod
 import httpx
 
 _ANIME_FAILOVER_CACHE: dict = {}
@@ -3980,6 +3981,24 @@ async def embed_urls_ep(tmdb: int = Query(...), media_type: str = Query("movie",
         if media_type not in ("movie", "tv"):
             return fail("type harus movie atau tv")
         return ok({"providers": epmod.embed_urls(tmdb, media_type, season, episode)})
+    except Exception as e:
+        return fail(str(e))
+
+
+@app.get("/api/stream/embed_subtitles")
+async def embed_subtitles_ep(tmdb: int = Query(...), media_type: str = Query("movie", alias="type"),
+                             season: int = Query(1), episode: int = Query(1)):
+    # Daftar subtitle statis via rezesubs (v50): hidden resolver tidak bisa
+    # menangkap subtitle dari hidden WebView (daftarnya JSON API, file-nya
+    # malas dimuat) — backend mengambil endpoint yang sama dengan yang
+    # dipakai player Viduki sendiri. Gagal apa pun -> daftar kosong jujur.
+    try:
+        if media_type not in ("movie", "tv"):
+            return fail("type harus movie atau tv")
+        loop = asyncio.get_running_loop()
+        subs = await loop.run_in_executor(
+            None, lambda: esmod.fetch_embed_subtitles(tmdb, media_type, season, episode))
+        return ok({"subtitles": subs, "source": "rezesubs", "count": len(subs)})
     except Exception as e:
         return fail(str(e))
 

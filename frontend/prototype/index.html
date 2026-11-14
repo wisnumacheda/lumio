@@ -1019,6 +1019,7 @@
             <button class="ctl-btn" id="ctlNextBtn" type="button">⏭ Berikutnya</button>
             <button class="ctl-btn" id="ctlSpeedBtn" type="button">⏩ 1×</button>
             <button class="ctl-btn" id="ctlServerBtn" type="button">🌐 Server</button>
+            <button class="ctl-btn hidden" id="ctlCycleBtn" type="button">🔄 Server lain</button>
             <button class="ctl-btn" id="ctlQualityBtn" type="button">🎚️ Kualitas</button>
             <button class="ctl-btn" id="ctlSubBtn" type="button">💬 Subtitle</button>
           </div>
@@ -2477,6 +2478,10 @@ function setEpCtlVisible(show){
 }
 function stopPlayer(){
   cancelHiddenResolve();
+  /* v50: lucuti guard hidden-resolver + konteks rangkaian. */
+  clearHiddenGuard();
+  window._hiddenCtx = null;
+  const cyb = $("#ctlCycleBtn"); if (cyb) cyb.classList.add("hidden");
   exitEmbedMode();
   cancelNextEp();
   const epk = $("#epPicker"); if (epk) epk.classList.add("hidden");
@@ -2735,6 +2740,14 @@ $("#ctlBack10").addEventListener("click", () => { try { video.currentTime = Math
 $("#ctlFwd10").addEventListener("click", () => { try { video.currentTime = Math.min(video.duration || 1e18, video.currentTime + 10); } catch (e) {} showCtl(); });
 $("#ctlFsBtn").addEventListener("click", () => { if (document.fullscreenElement) exitFs(); else tryFullscreen(); });
 $("#ctlServerBtn").addEventListener("click", () => ctlPanelShow("server"));
+/* v50: siklus manual ke penyedia hidden berikutnya (stream jalan tapi
+   kualitasnya buruk — mis. watermark). Hanya tampil saat relevan. */
+$("#ctlCycleBtn").addEventListener("click", () => {
+  const ctx = window._hiddenCtx;
+  if (!ctx || ctx.advancing) return;
+  toast("🔄 Mencoba penyedia berikutnya…");
+  hiddenAdvance(ctx, "diganti manual");
+});
 $("#ctlQualityBtn").addEventListener("click", () => ctlPanelShow("quality"));
 $("#ctlSubBtn").addEventListener("click", () => ctlPanelShow("sub"));
 $("#ctlSpeedBtn").addEventListener("click", () => ctlPanelShow("speed"));
@@ -3116,22 +3129,24 @@ async function fetchEmbedProviders(slug, ep){
     return (d && d.providers) || [];
   } catch (e) { return []; }
 }
-async function tryHiddenResolve(slug, ep){
-  /* Data sintetis siap jalur HLS, null (semua gagal — lanjut tawaran
-     embed), atau HIDDEN_ABORTED (player ditutup di tengah jalan — jangan
-     tampilkan apa pun). Anggaran total 60 dtk, per penyedia maks 18 dtk
-     (native timeout 15 dtk + margin callback). */
-  const providers = await fetchEmbedProviders(slug, ep);
+async function tryHiddenResolve(slug, ep, ctx){
+  /* v50: satu rangkaian resolve dengan ctx bersama {providers, skip,
+     deadline, attempts}. Mengembalikan data sintetis siap jalur HLS,
+     null (semua penyedia habis), atau HIDDEN_ABORTED (player ditutup di
+     tengah jalan — jangan tampilkan apa pun). Per penyedia maks 18 dtk
+     (native timeout 15 dtk + margin callback); tenggat rangkaian dipegang
+     ctx.deadline. Setiap kegagalan resolve dicatat ke ctx.attempts untuk
+     diagnostik. */
   const gen = window.__lumioEmbedGen;
-  const deadline = Date.now() + 60000;
-  for (const p of providers) {
-    if (HIDDEN_RESOLVER_SKIP.includes(p.id)) continue;
+  for (const p of ctx.providers) {
+    if (ctx.skip.has(p.id)) continue;
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
-    const remain = deadline - Date.now();
+    const remain = ctx.deadline - Date.now();
     if (remain < 5000) break;
     setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)}…</span>`);
     const payload = await resolveOneHidden(p, Math.min(18000, remain));
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    ctx.skip.add(p.id);
     if (payload && payload.ok && payload.url) {
       return {
         master: payload.url,
@@ -3140,11 +3155,243 @@ async function tryHiddenResolve(slug, ep){
         source: "",
         subtitles: Array.isArray(payload.subtitles) ? payload.subtitles.filter(s => s && s.url) : [],
         _viaHidden: true,
-        _hiddenProvider: p.name || p.id
+        _hiddenProvider: p.name || p.id,
+        _hiddenProviderId: p.id
       };
     }
+    const err = (payload && payload.error) || "tidak menemukan stream";
+    ctx.attempts.push({name: p.name || p.id,
+      label: err === "timeout" ? "waktu habis" : "tidak menemukan stream"});
   }
   return null;
+}
+/* ---- Resolver v2 (payload v50): loop lanjutan + guard latar + diagnostik ---- */
+function hiddenDiagHost(master){
+  /* Host manifest saja untuk diagnostik — URL lengkap TIDAK PERNAH
+     ditampilkan (bisa membawa token). */
+  try { return new URL(master).hostname || ""; } catch (e) { return ""; }
+}
+function hiddenSummary(ctx){
+  if (!ctx || !ctx.attempts.length) return "Semua penyedia gagal menemukan stream yang bisa diputar.";
+  return "Semua penyedia gagal: " + ctx.attempts.map(a => `${a.name} (${a.label})`).join(" · ");
+}
+function hiddenUntriedRemain(ctx){
+  if (!ctx || !ctx.providers) return false;
+  return ctx.providers.some(p => !ctx.skip.has(p.id));
+}
+function updateCycleBtn(){
+  const b = $("#ctlCycleBtn");
+  if (!b) return;
+  const ctx = window._hiddenCtx;
+  const g = window._hiddenGuard;
+  const show = !!(ctx && g && g.ctx === ctx && g.parsed && !ctx.advancing && hiddenUntriedRemain(ctx));
+  b.classList.toggle("hidden", !show);
+}
+function clearHiddenGuard(){
+  const g = window._hiddenGuard;
+  if (g && g.timer) { try { clearInterval(g.timer); } catch (e) {} }
+  window._hiddenGuard = null;
+}
+function teardownHiddenAttempt(){
+  /* Teardown MINIMAL antar-percobaan hidden: hancurkan hls + reset video
+     TANPA stopPlayer (stopPlayer menaikkan gen, menyembunyikan ctl, dan
+     membersihkan subtitle — tidak diinginkan di tengah rangkaian). */
+  if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+  try { video.pause(); } catch (e) {}
+  video.removeAttribute("src");
+  try { video.load(); } catch (e) {}
+  skipRange = null;
+  window._intro = null; window._outro = null;
+}
+function restoreSubInfo(){
+  /* Setelah status di-render ulang antar-percobaan, kembalikan teks info
+     subtitle sesuai pilihan aktif (tanpa me-reset pilihan user). */
+  const cur = (window._subOptions || []).find(o => o.id === window._subActiveId);
+  if (cur) updateSubInfo("Subtitle: " + cur.label);
+  else if ((window._subOptions || []).length) updateSubInfo("Subtitle: mati.");
+  else updateSubInfo("Subtitle: tidak tersedia untuk episode ini.");
+}
+async function fetchEmbedSubtitles(t, ep){
+  /* Daftar subtitle statis (rezesubs) untuk judul TMDB — lapisan mekanisme,
+     independen penyedia (bukti: Viduki DAN VidFast sama-sama 0 trek
+     tertangkap — kesenjangan subtitle melintasi penyedia). Timeout mandiri
+     5 dtk; kegagalan/timeout berarti daftar kosong, bukan error. */
+  try {
+    const q = t.type === "movie"
+      ? `tmdb=${t.id}&type=movie`
+      : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
+    const d = await Promise.race([
+      api(`/api/stream/embed_subtitles?${q}`),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("subtitle lookup timeout")), 5000))
+    ]);
+    return ((d && d.subtitles) || []).filter(s => s && s.url);
+  } catch (e) { return []; }
+}
+function attachHiddenAttempt(data, ctx, t, ep){
+  /* Memasang HLS untuk satu percobaan hidden. Promise selesai:
+     {outcome:"parsed"} | {outcome:"failed"} | {outcome:"aborted"}.
+     Saat parsed, guard latar (watchdog stall + penghitung error fatal)
+     TETAP HIDUP dan dapat memicu hiddenAdvance sendiri. */
+  return new Promise((settle) => {
+    const gen = window.__lumioEmbedGen;
+    const referer = data.referer || "";
+    const proxied = "/api/player/video?url=" + encodeURIComponent(data.master) + "&referer=" + encodeURIComponent(referer);
+    const qSel = $("#qualitySel");
+    qSel.dataset.referer = referer;
+    qSel.dataset.master = proxied;
+    qSel.innerHTML = `<option value="">Kualitas: Auto</option>`;
+    window._pendingVariant = "";
+    const subCount = (data.subtitles || []).length;
+    const host = hiddenDiagHost(data.master);
+    const info = [];
+    if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
+    if (host) info.push("Host: " + esc(host));
+    info.push("💬 " + subCount + " subtitle");
+    setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
+    skipRange = null;
+    window._intro = null; window._outro = null;
+    if (!ctx.subsAttached) { ctx.subsAttached = true; attachSubtitle(data, referer); }
+    else restoreSubInfo();
+    let settled = false;
+    let parsed = false;
+    let fatalCount = 0;
+    const guard = {ctx, timer: null, parsed: false, lastT: -1, lastAdvance: Date.now(),
+      graceUntil: Date.now() + 20000, disarmed: false};
+    window._hiddenGuard = guard;
+    const done = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (outcome.outcome !== "parsed") clearHiddenGuard();
+      settle(outcome);
+    };
+    const failAttempt = (label) => {
+      if (settled) return;
+      ctx.attempts.push({name: data._hiddenProvider || "penyedia", label});
+      done({outcome: "failed"});
+    };
+    guard.timer = setInterval(() => {
+      if (guard.disarmed) return;
+      if (window.__lumioEmbedGen !== gen || window._hiddenCtx !== ctx) {
+        guard.disarmed = true; clearInterval(guard.timer);
+        done({outcome: "aborted"});
+        return;
+      }
+      const now = Date.now();
+      if (!parsed) {
+        if (now > guard.graceUntil) failAttempt("tidak bisa diputar (waktu habis)");
+        return;
+      }
+      /* Pasca-parse: watchdog progres. Jeda/seek/berakhir dari pengguna
+         me-reset jam; hanya kemacetan saat seharusnya berputar yang
+         dihitung. */
+      try {
+        if (video.paused || video.ended || video.seeking) { guard.lastT = video.currentTime; guard.lastAdvance = now; return; }
+        if (now < guard.graceUntil) { guard.lastT = video.currentTime; guard.lastAdvance = now; return; }
+        const cur = video.currentTime;
+        if (guard.lastT < 0 || cur > guard.lastT + 0.05) { guard.lastT = cur; guard.lastAdvance = now; return; }
+        if (now - guard.lastAdvance > 15000) {
+          guard.disarmed = true; clearInterval(guard.timer);
+          hiddenAdvance(ctx, "macet (tidak ada progres)");
+        }
+      } catch (e) {}
+    }, 1000);
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        abrEwmaDefaultEstimate: 3*1000*1000,
+        startBufferDuration: 3
+      });
+      hls.loadSource(proxied);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        parsed = true; guard.parsed = true;
+        guard.lastT = -1; guard.lastAdvance = Date.now();
+        buildQualityLevelOptions();
+        video.play().catch(() => {});
+        updateRendInfo();
+        updateCycleBtn();
+        done({outcome: "parsed"});
+      });
+      hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
+      hls.on(Hls.Events.ERROR, (ev, d) => {
+        if (!d.fatal) return;
+        if (!parsed) { failAttempt("tidak bisa diputar"); return; }
+        /* Pasca-parse: pemulihan BERBATAS (v50). Perilaku lama
+           (startLoad tanpa batas) membuat layar hitam selamanya bila
+           segmen gagal persisten. */
+        fatalCount++;
+        if (fatalCount > 3) {
+          guard.disarmed = true; clearInterval(guard.timer);
+          hiddenAdvance(ctx, "tidak stabil");
+          return;
+        }
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); try { hls.startLoad(); } catch (e) {} }
+        else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { try { hls.recoverMediaError(); } catch (e) {} }
+        else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = proxied;
+      video.play().catch(() => {});
+      parsed = true; guard.parsed = true;
+      updateCycleBtn();
+      done({outcome: "parsed"});
+    } else {
+      setPlayerStatus("❌ Browser ini tidak mendukung pemutaran HLS.");
+      failAttempt("tidak bisa diputar");
+    }
+  });
+}
+async function runHiddenLoop(ctx){
+  /* Mengembalikan true bila sebuah percobaan berhasil parse (guard latar
+     mengambil alih), false bila semua penyedia habis, HIDDEN_ABORTED bila
+     dibatalkan. */
+  const gen = window.__lumioEmbedGen;
+  while (true) {
+    if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    const data = await tryHiddenResolve(ctx.slug, ctx.ep, ctx);
+    if (data === HIDDEN_ABORTED) return HIDDEN_ABORTED;
+    if (!data) return false;
+    if (ctx.lookedUpSubs && ctx.lookedUpSubs.length) {
+      const seen = new Set((data.subtitles || []).map(s => s && s.url));
+      for (const s of ctx.lookedUpSubs) {
+        if (s && s.url && !seen.has(s.url)) { data.subtitles.push(s); seen.add(s.url); }
+      }
+    }
+    ctx.lastProvider = data._hiddenProvider || "";
+    const res = await attachHiddenAttempt(data, ctx, ctx.t, ctx.ep);
+    if (res.outcome === "aborted") return HIDDEN_ABORTED;
+    if (res.outcome === "parsed") { updateCycleBtn(); return true; }
+    clearHiddenGuard();
+    teardownHiddenAttempt();
+    updateCycleBtn();
+  }
+}
+async function hiddenAdvance(ctx, label){
+  /* Guard latar (stall/error-limit) atau tombol "Server lain": catat
+     penyedia berjalan, teardown, jalankan rangkaian berikutnya; bila habis,
+     tawarkan embed dengan ringkasan diagnostik. Single-flight. */
+  if (!ctx || window._hiddenCtx !== ctx || ctx.advancing) return;
+  ctx.advancing = true;
+  try {
+    if (ctx.lastProvider) ctx.attempts.push({name: ctx.lastProvider, label});
+    const gen = window.__lumioEmbedGen;
+    clearHiddenGuard();
+    teardownHiddenAttempt();
+    updateCycleBtn();
+    if (window.__lumioEmbedGen !== gen) return;
+    ctx.deadline = Date.now() + 45000;
+    const started = await runHiddenLoop(ctx);
+    if (started === HIDDEN_ABORTED) return;
+    if (!started) {
+      const msg = hiddenSummary(ctx);
+      stopPlayer();
+      await offerEmbedMode(ctx.slug, ctx.ep, msg);
+    }
+  } finally {
+    ctx.advancing = false;
+    updateCycleBtn();
+  }
 }
 /* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
    /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
@@ -3171,6 +3418,8 @@ async function playTmdb(slug, ep, fromAuto){
   const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
   setPlayerStatus(`<span><span class="spin"></span>Menghubungi server stream…</span>`);
+  /* v50: lookup subtitle statis berjalan paralel dengan resolve statis. */
+  const subsPromise = fetchEmbedSubtitles(t, ep);
   const resolveUrl = t.type === "movie"
     ? `/api/stream/resolve_movie?tmdb=${t.id}`
     : `/api/stream/resolve_series?tmdb=${t.id}&season=${window._tmdbSeason || 1}&episode=${ep}`;
@@ -3185,15 +3434,43 @@ async function playTmdb(slug, ep, fromAuto){
     staticErr = (e && e.message) || String(e);
   }
   let master = (data && (data.master || (data.picked && data.picked.url))) || "";
-  /* v49: resolve statis gagal -> coba hidden WebView (bila bridge ada) */
+  const subsLookedUp = await subsPromise;
+  /* v49/v50: resolve statis gagal -> rangkaian hidden WebView (bila bridge
+     ada). Loop + guard latar mengambil alih sampai putar atau habis. */
   if (!master && hiddenResolverAvailable()) {
-    const hidden = await tryHiddenResolve(slug, ep);
-    if (hidden === HIDDEN_ABORTED) return;
-    if (hidden) { data = hidden; master = hidden.master; }
+    const ctx = {
+      slug, ep, t,
+      providers: await fetchEmbedProviders(slug, ep),
+      skip: new Set(HIDDEN_RESOLVER_SKIP),
+      deadline: Date.now() + 60000,
+      attempts: [],
+      lookedUpSubs: subsLookedUp,
+      subsAttached: false,
+      advancing: false,
+      lastProvider: ""
+    };
+    window._hiddenCtx = ctx;
+    const started = await runHiddenLoop(ctx);
+    if (started === HIDDEN_ABORTED) return;
+    if (!started) {
+      const msg = hiddenSummary(ctx);
+      stopPlayer();
+      await offerEmbedMode(slug, ep, msg);
+      return;
+    }
+    return;
   }
   if (!master) {
     await offerEmbedMode(slug, ep, staticErr || "Server tidak mengembalikan URL stream untuk judul ini.");
     return;
+  }
+  /* Jalur statis: gabungkan subtitle hasil lookup (dedupe per URL). */
+  if (subsLookedUp.length) {
+    data.subtitles = data.subtitles || [];
+    const seenSubs = new Set(data.subtitles.map(s => s && s.url));
+    for (const s of subsLookedUp) {
+      if (s && s.url && !seenSubs.has(s.url)) { data.subtitles.push(s); seenSubs.add(s.url); }
+    }
   }
   const referer = data.referer || "";
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
@@ -3457,18 +3734,21 @@ async function attachSubtitle(data, referer){
   let subs = (data.subtitles || []).filter(s => s && s.url);
   if (!subs.length && data.sub) subs = [{label: data.sub_lang || "Subtitle", lang: "en", url: data.sub}];
   if (!subs.length) { updateSubInfo("Subtitle: tidak tersedia untuk episode ini."); return; }
-  const mkUrl = (u, extra) => "/api/player/sub?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(referer || "") + (extra || "");
+  /* v50: referer per-trek — trek hasil lookup rezesubs WAJIB memakai
+     Referer viduki (403 tanpanya), sedangkan referer video bisa berasal
+     dari penyedia lain. Trek tanpa referer sendiri memakai referer video. */
+  const mkUrl = (u, extra, tref) => "/api/player/sub?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(tref || referer || "") + (extra || "");
   const opts = [];
   const srcTrack = subs.find(s => (s.lang || "").startsWith("en")) || subs.find(s => !(s.lang || "").startsWith("id"));
   if (srcTrack) {
     const sl = (srcTrack.lang || "en").slice(0, 2);
-    opts.push({id: "id-gtx", label: "Indonesia (GTX — Cepat)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx"))});
-    opts.push({id: "id-gtxplus", label: "Indonesia (GTX+ — Smart Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx+"))});
-    opts.push({id: "id-ai", label: "Indonesia (AI Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("ai"))});
+    opts.push({id: "id-gtx", label: "Indonesia (GTX — Cepat)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx"), srcTrack.referer)});
+    opts.push({id: "id-gtxplus", label: "Indonesia (GTX+ — Smart Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx+"), srcTrack.referer)});
+    opts.push({id: "id-ai", label: "Indonesia (AI Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("ai"), srcTrack.referer)});
   }
   subs.forEach((s, i) => {
     const isId = (s.lang || "").startsWith("id");
-    opts.push({id: "raw-" + i, label: isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1))), srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url)});
+    opts.push({id: "raw-" + i, label: isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1))), srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url, "", s.referer)});
   });
   window._subOptions = opts;
   let def = null;
