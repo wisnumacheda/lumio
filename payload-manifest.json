@@ -1,9 +1,9 @@
 {
-  "version": 49,
-  "label": "Isi 2.30.0 - Resolver WebView tersembunyi",
-  "notes": "Movie dan Series kini bisa diputar lewat resolver WebView tersembunyi bila resolve statis gagal: manifest diputar di player HLS Lumio yang terjangkau remote TV; gagal total sebelum manifest ter-parse jatuh ke tawaran embed; tanpa bridge native, perilaku lama persis.",
+  "version": 50,
+  "label": "Resolver v2: subtitle + pemulihan stream",
+  "notes": "Subtitle statis rezesubs untuk semua penyedia; loop lanjut ke penyedia tersisa saat replay gagal; watchdog stall + retry berbatas; diagnostik UI penyedia + jumlah subtitle + host manifest; tombol Server lain. Tanpa perubahan native.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-49/lumio-payload.zip",
-  "sha256": "bc8f177be8d9c6a89f720f4f8bd12b5362a0a6181c1bcb034802b1c8815b5433",
-  "size": 1084090
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-50/lumio-payload.zip",
+  "sha256": "0c59870add18cdde6adbebf8588471a600c72a74fc505f6858de03ef01b30933",
+  "size": 1091016
 }
