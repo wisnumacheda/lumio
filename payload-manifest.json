@@ -1,9 +1,9 @@
 {
-  "version": 48,
-  "label": "Isi 2.29.1 - Layar nyala di mode embed",
-  "notes": "Layar tahan nyala selama mode embed aktif via syncAwake terpusat; dilepas saat keluar embed, pause, atau tutup player; perilaku HLS dan browsing tidak berubah.",
-  "min_app": "2.29.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-48/lumio-payload.zip",
-  "sha256": "b97e2e3117a656edc5605993f2db25da614829768040d8359aa4cfcdff2f4043",
-  "size": 1082351
+  "version": 49,
+  "label": "Isi 2.30.0 - Resolver WebView tersembunyi",
+  "notes": "Movie dan Series kini bisa diputar lewat resolver WebView tersembunyi bila resolve statis gagal: manifest diputar di player HLS Lumio yang terjangkau remote TV; gagal total sebelum manifest ter-parse jatuh ke tawaran embed; tanpa bridge native, perilaku lama persis.",
+  "min_app": "2.30.0",
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-49/lumio-payload.zip",
+  "sha256": "bc8f177be8d9c6a89f720f4f8bd12b5362a0a6181c1bcb034802b1c8815b5433",
+  "size": 1084090
 }
