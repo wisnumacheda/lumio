@@ -327,7 +327,13 @@
   .embed-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;z-index:8}
   .embed-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 20px;background:var(--bg2);border-top:1px solid var(--line)}
   .embed-bar .embed-lbl{font-size:13px;color:var(--muted);font-weight:600}
-  .embed-btn{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  /* v52: bar menampung 12 penyedia — tombol dalam satu baris
+     scroll-horizontal (HP: geser; TV: tvSetFocus scrollIntoView
+     membawa tombol terfokus ke dalam pandangan, semua tetap
+     terjangkau D-pad). */
+  #embedBtns{display:flex;flex:1 1 auto;min-width:120px;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #embedBtns::-webkit-scrollbar{display:none}
+  .embed-btn{flex-shrink:0;white-space:nowrap;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
   .embed-btn.cur{border-color:var(--acc);background:rgba(139,92,246,.25)}
   .embed-offer{display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center}
   .embed-note{font-size:12px;color:var(--faint)}
@@ -3029,11 +3035,22 @@ function renderEmbedBar(){
     if (cur) tvSetFocus(cur);
   }
 }
+function embedPlayUrl(p){
+  /* v52: param khusus per penyedia yang hanya frontend yang tahu
+     konteksnya. VidRift di TV: uiScale=1.5 (ukuran kontrol TV,
+     terdokumentasi di vidrift.net). exit=1 sudah dibakar di template
+     backend (semua perangkat). */
+  if (p && p.id === "vidrift" && typeof IS_TV !== "undefined" && IS_TV) {
+    const sep = p.url.indexOf("?") === -1 ? "?" : "&";
+    return p.url + sep + "uiScale=1.5";
+  }
+  return p ? p.url : "";
+}
 function loadEmbedProvider(i){
   const st = window._embed; if (!st || !st.list.length) return;
   st.idx = ((i % st.list.length) + st.list.length) % st.list.length;
   const p = st.list[st.idx];
-  const fr = $("#embedFrame"); if (fr) fr.src = p.url;
+  const fr = $("#embedFrame"); if (fr) fr.src = embedPlayUrl(p);
   renderEmbedBar();
   setPlayerStatus(embedStatusHtml(p));
 }
@@ -3073,7 +3090,7 @@ async function offerEmbedMode(slug, ep, errMsg, knownProviders){
      memegang daftarnya. */
   const providers = (knownProviders && knownProviders.length)
     ? knownProviders
-    : await fetchEmbedProviders(slug, ep);
+    : (await fetchEmbedProviders(slug, ep)).providers;
   exitFs();
   if (!providers.length) {
     setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(errMsg));
@@ -3086,17 +3103,30 @@ async function offerEmbedMode(slug, ep, errMsg, knownProviders){
 }
 const _embClose = $("#embedCloseBtn");
 if (_embClose) _embClose.addEventListener("click", () => { exitEmbedMode(); renderEmbedOffer(); });
-/* Viduki mengabarkan kegagalan semua server via postMessage (dokumentasi
-   resmi): ganti otomatis ke penyedia embed berikutnya. Origin dibatasi
-   ketat ke viduki; hanya aktif saat mode embed berjalan di Viduki. */
+/* Pesan postMessage dari player embed (origin dibatasi ketat per
+   penyedia; hanya aktif saat mode embed berjalan di penyedia itu):
+   - Viduki mengabarkan kegagalan semua server (dokumentasi resmi):
+     ganti otomatis ke penyedia embed berikutnya.
+   - VidRift (v52, param exit=1): tombol keluar player mengirim
+     {type:'vidrift:exit'} (format terverifikasi dari kode player di
+     HTML embed) — perlakukan seperti tombol "Tutup embed". Pesan lain
+     VidRift (progress/quality/subtitle) sengaja tidak ditangani di
+     v52: tidak ada UX Lumio yang memakainya. */
 window.addEventListener("message", (ev) => {
   try {
     const st = window._embed; if (!st) return;
-    const cur = st.list[st.idx]; if (!cur || cur.id !== "viduki") return;
-    if (ev.origin !== "https://www.viduki.net" && ev.origin !== "https://viduki.net") return;
-    if (ev.data && ev.data.type === "viduki:all-servers-failed") {
-      toast("Viduki gagal semua server — pindah penyedia embed…", true);
-      loadEmbedProvider(st.idx + 1);
+    const cur = st.list[st.idx]; if (!cur) return;
+    if (cur.id === "viduki") {
+      if (ev.origin !== "https://www.viduki.net" && ev.origin !== "https://viduki.net") return;
+      if (ev.data && ev.data.type === "viduki:all-servers-failed") {
+        toast("Viduki gagal semua server — pindah penyedia embed…", true);
+        loadEmbedProvider(st.idx + 1);
+      }
+    } else if (cur.id === "vidrift") {
+      if (ev.origin !== "https://embed.vidrift.net" && ev.origin !== "https://embed.vidrift.in") return;
+      if (ev.data && ev.data.type === "vidrift:exit") {
+        exitEmbedMode(); renderEmbedOffer();
+      }
     }
   } catch (e) {}
 });
@@ -3104,10 +3134,15 @@ window.addEventListener("message", (ev) => {
    native ada, kegagalan resolve statis dicoba dulu lewat hidden WebView —
    manifest .m3u8 yang diintersepsi diputar di player HLS Lumio (D-pad TV
    penuh, panel kualitas, subtitle). Tanpa bridge (APK lama / browser),
-   perilaku lama persis: langsung tawaran embed. VidSrc dilewati di loop
-   ini: bukti probe 14 Nov NONE (iframe nested token-gated, 403 terbukti) —
-   tetap tersedia sebagai tombol iframe di mode embed. */
-const HIDDEN_RESOLVER_SKIP = ["vidsrc"];
+   perilaku lama persis: langsung tawaran embed.
+   v52: urutan loop resolver BERBEDA dari urutan bar embed dan merupakan
+   ALLOWLIST eksplisit dari backend (RESOLVER_ORDER: VidRift, Viduki,
+   VidLink, VidFast, VidRock) — menggantikan denylist HIDDEN_RESOLVER_SKIP
+   v49-v51. Penyedia embed-only (EmbedWave, VidNest, CineSrc, Vidly,
+   Vidy, vidsrc.pk) dan VidSrc TIDAK PERNAH dipanggil resolver: tidak ada
+   bukti replay untuk mereka. Loop mengiterasi ctx.resolverProviders;
+   ctx.providers (daftar lengkap urutan embed) hanya dipakai untuk bar
+   embed / tawaran embed. */
 const HIDDEN_ABORTED = {aborted: true};
 window.__lumioEmbedPending = window.__lumioEmbedPending || {};
 window.__lumioEmbedSeq = window.__lumioEmbedSeq || 0;
@@ -3155,38 +3190,63 @@ function resolveOneHidden(provider, budgetMs){
   });
 }
 async function fetchEmbedProviders(slug, ep){
+  /* v52: mengembalikan {providers, resolverOrder} — providers dalam
+     urutan BAR EMBED (lengkap), resolverOrder adalah allowlist + urutan
+     loop resolver dari backend. Gagal apa pun -> daftar kosong jujur. */
   const t = parseTmdbSlug(slug);
-  if (!t) return [];
+  if (!t) return {providers: [], resolverOrder: []};
   try {
     const q = t.type === "movie"
       ? `tmdb=${t.id}&type=movie`
       : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
     const d = await api(`/api/stream/embed_urls?${q}`);
-    return (d && d.providers) || [];
-  } catch (e) { return []; }
+    return {
+      providers: (d && d.providers) || [],
+      resolverOrder: (d && d.resolver_order) || []
+    };
+  } catch (e) { return {providers: [], resolverOrder: []}; }
+}
+function buildResolverProviders(fetched){
+  /* Daftar loop resolver: allowlist eksplisit backend (resolver_order),
+     dipetakan ke objek penyedia; entri tanpa objek / tanpa flag resolver
+     dibuang. TIDAK PERNAH fallback ke daftar lengkap — penyedia
+     embed-only tidak boleh masuk loop dalam kondisi apa pun. */
+  const byId = {};
+  (fetched.providers || []).forEach(p => { if (p && p.id) byId[p.id] = p; });
+  const out = [];
+  (fetched.resolverOrder || []).forEach(id => {
+    const p = byId[id];
+    if (p && p.resolver && !out.includes(p)) out.push(p);
+  });
+  return out;
 }
 async function tryHiddenResolve(slug, ep, ctx){
-  /* v50: satu rangkaian resolve dengan ctx bersama {providers, skip,
-     deadline, attempts}. Mengembalikan data sintetis siap jalur HLS,
-     null (semua penyedia habis), atau HIDDEN_ABORTED (player ditutup di
-     tengah jalan — jangan tampilkan apa pun). v51: tenggat rangkaian
-     (ctx.deadline) HANYA mengukur waktu resolve — waktu guard replay
-     dikembalikan oleh runHiddenLoop — dan sisa anggaran dibagi adil antar
-     penyedia tersisa (per penyedia maks 18 dtk: native timeout 15 dtk +
-     margin callback). Setiap kegagalan resolve dicatat ke ctx.attempts
-     untuk diagnostik; penyedia yang terlewat karena anggaran habis
-     dicatat jujur, tidak pernah dihilangkan diam-diam. */
+  /* v50: satu rangkaian resolve dengan ctx bersama {resolverProviders,
+     skip, deadline, attempts}. Mengembalikan data sintetis siap jalur
+     HLS, null (semua penyedia habis), atau HIDDEN_ABORTED (player
+     ditutup di tengah jalan — jangan tampilkan apa pun). v51: tenggat
+     rangkaian (ctx.deadline) HANYA mengukur waktu resolve — waktu guard
+     replay dikembalikan oleh runHiddenLoop — dan sisa anggaran dibagi
+     adil antar penyedia tersisa (per penyedia maks 18 dtk: native
+     timeout 15 dtk + margin callback). Setiap kegagalan resolve dicatat
+     ke ctx.attempts untuk diagnostik; penyedia yang terlewat karena
+     anggaran habis dicatat jujur, tidak pernah dihilangkan diam-diam.
+     v52: loop mengiterasi ctx.resolverProviders (allowlist eksplisit
+     backend) — BUKAN ctx.providers (daftar bar embed). Penyedia yang
+     punya mirror (VidRift) mendapat percobaan kedua ke mirror dalam
+     attempt yang sama bila URL utama gagal. */
   const gen = window.__lumioEmbedGen;
-  for (const p of ctx.providers) {
+  const list = ctx.resolverProviders || [];
+  for (const p of list) {
     if (ctx.skip.has(p.id)) continue;
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
-    const untried = ctx.providers.filter(q => !ctx.skip.has(q.id)).length;
+    const untried = list.filter(q => !ctx.skip.has(q.id)).length;
     const remain = ctx.deadline - Date.now();
     if (remain < 5000) {
       /* Anggaran resolve habis: catat SEMUA penyedia tersisa secara jujur
          agar ringkasan menyebut mereka (bug v50: VidRock tidak pernah
          disebut di ringkasan GoT S4E5 padahal belum dicoba). */
-      for (const q of ctx.providers) {
+      for (const q of list) {
         if (ctx.skip.has(q.id)) continue;
         ctx.skip.add(q.id);
         ctx.attempts.push({name: q.name || q.id, label: "terlewat (waktu habis)"});
@@ -3195,13 +3255,27 @@ async function tryHiddenResolve(slug, ep, ctx){
     }
     const share = Math.max(5000, Math.min(18000, Math.floor(remain / Math.max(1, untried))));
     setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)}…</span>`);
-    const payload = await resolveOneHidden(p, share);
+    let attemptUrl = p.url;
+    let payload = await resolveOneHidden(p, share);
+    /* v52: percobaan mirror dalam attempt yang sama — satu catatan
+       attempts per penyedia; referer replay mengikuti URL yang sukses,
+       karena replay VidRift mensyaratkan Referer URL embed yang
+       menyajikan manifest. */
+    if ((!payload || !payload.ok) && p.mirror && window.__lumioEmbedGen === gen) {
+      const remain2 = ctx.deadline - Date.now();
+      if (remain2 >= 5000) {
+        setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)} (mirror)…</span>`);
+        const share2 = Math.max(5000, Math.min(share, remain2));
+        const payload2 = await resolveOneHidden({id: p.id, name: p.name, url: p.mirror}, share2);
+        if (payload2 && payload2.ok) { payload = payload2; attemptUrl = p.mirror; }
+      }
+    }
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
     ctx.skip.add(p.id);
     if (payload && payload.ok && payload.url) {
       return {
         master: payload.url,
-        referer: p.url,
+        referer: attemptUrl,
         server: "Embed · " + (p.name || p.id),
         source: "",
         subtitles: Array.isArray(payload.subtitles) ? payload.subtitles.filter(s => s && s.url) : [],
@@ -3227,8 +3301,10 @@ function hiddenSummary(ctx){
   return "Semua penyedia gagal: " + ctx.attempts.map(a => `${a.name} (${a.label})`).join(" · ");
 }
 function hiddenUntriedRemain(ctx){
-  if (!ctx || !ctx.providers) return false;
-  return ctx.providers.some(p => !ctx.skip.has(p.id));
+  /* v52: penyedia "tersisa" dihitung dari allowlist resolver, bukan
+     dari daftar bar embed (yang memuat penyedia embed-only). */
+  if (!ctx || !ctx.resolverProviders) return false;
+  return ctx.resolverProviders.some(p => !ctx.skip.has(p.id));
 }
 function updateCycleBtn(){
   const b = $("#ctlCycleBtn");
@@ -3514,10 +3590,12 @@ async function playTmdb(slug, ep, fromAuto){
   /* v49/v50: resolve statis gagal -> rangkaian hidden WebView (bila bridge
      ada). Loop + guard latar mengambil alih sampai putar atau habis. */
   if (!master && hiddenResolverAvailable()) {
+    const fetched = await fetchEmbedProviders(slug, ep);
     const ctx = {
       slug, ep, t,
-      providers: await fetchEmbedProviders(slug, ep),
-      skip: new Set(HIDDEN_RESOLVER_SKIP),
+      providers: fetched.providers,
+      resolverProviders: buildResolverProviders(fetched),
+      skip: new Set(),
       deadline: Date.now() + 60000,
       attempts: [],
       lookedUpSubs: subsLookedUp,

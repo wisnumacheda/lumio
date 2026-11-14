@@ -3976,11 +3976,14 @@ async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), epis
 async def embed_urls_ep(tmdb: int = Query(...), media_type: str = Query("movie", alias="type"),
                         season: int = Query(1), episode: int = Query(1)):
     # Konstruksi URL embed murni (tanpa fetch ke provider): dipakai mode
-    # embed iframe saat semua ekstraksi statis gagal (v45).
+    # embed iframe saat semua ekstraksi statis gagal (v45). v52: sertakan
+    # resolver_order (allowlist + urutan loop resolver, berbeda dari
+    # urutan bar embed) agar frontend tidak menebak urutan per jalur.
     try:
         if media_type not in ("movie", "tv"):
             return fail("type harus movie atau tv")
-        return ok({"providers": epmod.embed_urls(tmdb, media_type, season, episode)})
+        return ok({"providers": epmod.embed_urls(tmdb, media_type, season, episode),
+                   "resolver_order": list(epmod.RESOLVER_ORDER)})
     except Exception as e:
         return fail(str(e))
 
