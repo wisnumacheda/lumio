@@ -1,9 +1,9 @@
 {
-  "version": 51,
-  "label": "Anggaran resolver adil + panel Server + layout status + header bersih",
-  "notes": "Perbaikan dari screenshot on-device 14 Nov 22:12-22:14: (1) anggaran resolver dibagi adil antar penyedia tersisa + waktu guard replay dikembalikan ke tenggat + penyedia terlewat dicatat jujur, VidRock tidak lagi hilang dari ringkasan; (2) panel Server anime disembunyikan di player TMDB; (3) ringkasan gagal tidak lagi tertutup tombol di HP; (4) header player tidak pernah tampil slug mentah tmdb:. Frontend-only, tanpa APK; version.py tetap 2.30.0. Terverifikasi CDP headless: 52/54 + 7/7 re-probe, tanpa error JS.",
+  "version": 52,
+  "label": "VidRift + 6 penyedia embed baru, urutan resolver terpisah",
+  "notes": "7 penyedia baru dari riset 14 Nov: VidRift masuk loop resolver PERTAMA (bukti replay Referer-only) + bar embed nomor 2; EmbedWave, VidNest, CineSrc, Vidly, Vidy, vidsrc.pk embed-only (tidak pernah masuk loop resolver); Viduki tetap default embed. Urutan resolver dan bar embed kini terpisah (allowlist backend). Mirror VidRift .in sebagai percobaan kedua otomatis di loop resolver. Embed VidRift: exit=1 + handler vidrift:exit, uiScale=1.5 di TV. Bar embed 12 tombol scroll-horizontal. Tanpa APK baru; version.py tetap 2.30.0. Terverifikasi CDP headless: 66/69 + re-probe 8/10, tanpa error JS; intersepsi VidRift nyata hanya terbukti di perangkat.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-51/lumio-payload.zip",
-  "sha256": "2368ff9b663b5eae17ace212cb0df0ed1076712214d0761f244ac22d9b59b96f",
-  "size": 1092627
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-52/lumio-payload.zip",
+  "sha256": "bf6e5bedd239a558646cb92e13159e9e2712be20da349b06e521142649a7fd49",
+  "size": 1096043
 }
