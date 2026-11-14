@@ -276,15 +276,28 @@ async def set_search_cache(query: str, payload):
 async def purge_expired_caches() -> dict:
     """Hapus entri cache yang sudah kedaluwarsa. Return jumlah baris per tabel."""
     now = _now()
-    # Baris Donghua (donghua_v2|...) DIKECUALIKAN dari purge browse_cache:
+    # Baris Donghua (donghua_v3|...) DIKECUALIKAN dari purge browse_cache:
     # halaman Donghua memakai TTL 12 jam sendiri dan dipertahankan sebagai
     # kandidat stale-while-revalidate (/api/donghua menyajikannya saat
     # kedaluwarsa sambil membangun ulang di latar). Jumlah kuncinya terbatas
     # (satu baris per halaman x safe_mode) dan ditimpa ulang oleh build baru.
+    # v3 (v42): kunci halaman naik dari v2 agar halaman basi yang mungkin
+    # mengandung judul non-CN tidak pernah disajikan lagi; baris v2 lama
+    # dibiarkan terhapus oleh purge biasa.
+    # Baris asal-negara (origin_v1|...) juga DIKECUALIKAN dari batas 6 jam
+    # (v43): TTL bacanya 30 hari (_origin_country_for_title) — tanpa
+    # pengecualian ini, cache 30 hari itu terhapus tiap boot dan filter
+    # asal-negara membayar lookup AniList ulang untuk semua judul di tiap
+    # daftar tersaring. Baris origin dibersihkan oleh spec 30 harinya sendiri.
+    # Baris TMDB (tmdb_v1|...) juga DIKECUALIKAN (v44): TTL baca detail/
+    # season 12 jam dan providers 24 jam — tanpa pengecualian, purge 6 jam
+    # menghapusnya tiap boot. Baris TMDB dibersihkan spec 24 jamnya sendiri.
     specs = [
         ("episode_cache", 12 * 3600, ""),
         ("search_cache", 24 * 3600, ""),
-        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v2|%'"),
+        ("browse_cache", 6 * 3600, " AND key NOT LIKE 'donghua_v3|%' AND key NOT LIKE 'origin_v1|%' AND key NOT LIKE 'tmdb_v1|%'"),
+        ("browse_cache", 30 * 24 * 3600, " AND key LIKE 'origin_v1|%'"),
+        ("browse_cache", 24 * 3600, " AND key LIKE 'tmdb_v1|%'"),
         ("subtitle_cache", 7 * 24 * 3600, ""),
         ("slug_map", 7 * 24 * 3600, ""),
     ]
@@ -294,9 +307,9 @@ async def purge_expired_caches() -> dict:
             try:
                 cutoff = now - ttl
                 cur = await db.execute(f"DELETE FROM {table} WHERE fetched_at < ?{extra}", (cutoff,))
-                removed[table] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                removed[table] = removed.get(table, 0) + (cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0)
             except Exception:
-                removed[table] = 0
+                removed[table] = removed.get(table, 0)
         await db.commit()
     return removed
 

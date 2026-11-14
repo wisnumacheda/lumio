@@ -37,6 +37,8 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -67,6 +69,10 @@ public class WebUiActivity extends Activity {
     // Unduhan update APK via DownloadManager (menggantikan streaming
     // HttpURLConnection yang gagal diam-diam: tanpa progres, tanpa kabar).
     private static final String UPDATE_APK_FILE = "Lumio-update.apk";
+    // Resolver embed WebView tersembunyi (APK 2.30.0): dibuat malas saat
+    // pertama dipakai, dihancurkan di onDestroy.
+    private EmbedResolver embedResolver;
+
     private long updateDownloadId = -1;
     private String lastUpdateUrl;
     private boolean updateRetried = false;
@@ -261,6 +267,45 @@ public class WebUiActivity extends Activity {
                     return;
                 }
                 startUpdateDownload(apkUrl);
+            });
+        }
+
+        /** Resolver embed (APK 2.30.0): muat halaman embed di WebView
+         * tersembunyi, intersepsi request manifest .m3u8, kembalikan
+         * hasilnya ke UI web lewat callback evaluateJavascript
+         * window.__lumioEmbedResolveResult(requestId, payload). Asinkron:
+         * metode ini langsung kembali; hasilnya datang lewat callback.
+         * Jembatan ini HANYA ada di WebView utama (halaman Lumio sendiri);
+         * hidden WebView tidak mendapat JavascriptInterface apa pun. */
+        @JavascriptInterface
+        public void resolveEmbed(final String embedUrl, final String requestId) {
+            handler.post(() -> {
+                if (embedResolver == null) {
+                    String ua = "";
+                    try {
+                        if (web != null) ua = web.getSettings().getUserAgentString();
+                    } catch (Exception ignored) {
+                    }
+                    embedResolver = new EmbedResolver(getApplicationContext(), handler, ua);
+                }
+                embedResolver.resolve(embedUrl, requestId, (id, payload) -> {
+                    if (web == null || isFinishing() || isDestroyed()) return;
+                    try {
+                        String js = "window.__lumioEmbedResolveResult("
+                                + JSONObject.quote(id) + "," + payload.toString() + ")";
+                        web.evaluateJavascript(js, null);
+                    } catch (Exception ignored) {
+                    }
+                });
+            });
+        }
+
+        /** Batalkan resolve embed yang sedang berjalan (dipanggil UI web
+         * saat player ditutup / timeout). */
+        @JavascriptInterface
+        public void cancelEmbedResolve(final String requestId) {
+            handler.post(() -> {
+                if (embedResolver != null) embedResolver.cancel(requestId);
             });
         }
     }
@@ -667,6 +712,10 @@ public class WebUiActivity extends Activity {
         stopUpdateProgressPoll();
         dismissUpdateProgressDialog();
         unregisterUpdateReceiver();
+        if (embedResolver != null) {
+            embedResolver.destroy();
+            embedResolver = null;
+        }
         if (web != null) {
             web.destroy();
             web = null;

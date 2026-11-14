@@ -2476,6 +2476,7 @@ function setEpCtlVisible(show){
   ["#ctlEpsBtn", "#ctlNextBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
 }
 function stopPlayer(){
+  cancelHiddenResolve();
   exitEmbedMode();
   cancelNextEp();
   const epk = $("#epPicker"); if (epk) epk.classList.add("hidden");
@@ -3023,17 +3024,7 @@ function renderEmbedOffer(){
   }
 }
 async function offerEmbedMode(slug, ep, errMsg){
-  const t = parseTmdbSlug(slug);
-  let providers = [];
-  if (t) {
-    try {
-      const q = t.type === "movie"
-        ? `tmdb=${t.id}&type=movie`
-        : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
-      const d = await api(`/api/stream/embed_urls?${q}`);
-      providers = (d && d.providers) || [];
-    } catch (e) { providers = []; }
-  }
+  const providers = await fetchEmbedProviders(slug, ep);
   exitFs();
   if (!providers.length) {
     setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(errMsg));
@@ -3060,6 +3051,101 @@ window.addEventListener("message", (ev) => {
     }
   } catch (e) {}
 });
+/* Resolver embed WebView tersembunyi (v49, butuh APK 2.30.0): bila bridge
+   native ada, kegagalan resolve statis dicoba dulu lewat hidden WebView —
+   manifest .m3u8 yang diintersepsi diputar di player HLS Lumio (D-pad TV
+   penuh, panel kualitas, subtitle). Tanpa bridge (APK lama / browser),
+   perilaku lama persis: langsung tawaran embed. VidSrc dilewati di loop
+   ini: bukti probe 14 Nov NONE (iframe nested token-gated, 403 terbukti) —
+   tetap tersedia sebagai tombol iframe di mode embed. */
+const HIDDEN_RESOLVER_SKIP = ["vidsrc"];
+const HIDDEN_ABORTED = {aborted: true};
+window.__lumioEmbedPending = window.__lumioEmbedPending || {};
+window.__lumioEmbedSeq = window.__lumioEmbedSeq || 0;
+window.__lumioEmbedGen = window.__lumioEmbedGen || 0;
+/* Callback native -> JS (dipanggil bridge via evaluateJavascript). Id tak
+   dikenal / basi diabaikan. */
+window.__lumioEmbedResolveResult = function(id, payload){
+  const p = window.__lumioEmbedPending[id];
+  if (!p) return;
+  delete window.__lumioEmbedPending[id];
+  if (p.timer) clearTimeout(p.timer);
+  p.settle(payload);
+};
+function hiddenResolverAvailable(){
+  try { return !!(window.LumioNative && typeof LumioNative.resolveEmbed === "function"); } catch (e) { return false; }
+}
+function cancelHiddenResolve(){
+  window.__lumioEmbedGen = (window.__lumioEmbedGen || 0) + 1;
+  const pend = window.__lumioEmbedPending || {};
+  Object.keys(pend).forEach(id => {
+    const p = pend[id];
+    delete pend[id];
+    if (p.timer) clearTimeout(p.timer);
+    try { if (window.LumioNative && LumioNative.cancelEmbedResolve) LumioNative.cancelEmbedResolve(id); } catch (e) {}
+    p.settle({ok: false, error: "dibatalkan"});
+  });
+}
+function resolveOneHidden(provider, budgetMs){
+  return new Promise((settle) => {
+    const id = "er" + (++window.__lumioEmbedSeq) + "_" + Date.now();
+    const timer = setTimeout(() => {
+      if (!window.__lumioEmbedPending[id]) return;
+      delete window.__lumioEmbedPending[id];
+      try { if (window.LumioNative && LumioNative.cancelEmbedResolve) LumioNative.cancelEmbedResolve(id); } catch (e) {}
+      settle({ok: false, error: "timeout"});
+    }, Math.max(1000, budgetMs));
+    window.__lumioEmbedPending[id] = {settle, timer};
+    try {
+      LumioNative.resolveEmbed(provider.url, id);
+    } catch (e) {
+      delete window.__lumioEmbedPending[id];
+      clearTimeout(timer);
+      settle({ok: false, error: String((e && e.message) || e)});
+    }
+  });
+}
+async function fetchEmbedProviders(slug, ep){
+  const t = parseTmdbSlug(slug);
+  if (!t) return [];
+  try {
+    const q = t.type === "movie"
+      ? `tmdb=${t.id}&type=movie`
+      : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
+    const d = await api(`/api/stream/embed_urls?${q}`);
+    return (d && d.providers) || [];
+  } catch (e) { return []; }
+}
+async function tryHiddenResolve(slug, ep){
+  /* Data sintetis siap jalur HLS, null (semua gagal — lanjut tawaran
+     embed), atau HIDDEN_ABORTED (player ditutup di tengah jalan — jangan
+     tampilkan apa pun). Anggaran total 60 dtk, per penyedia maks 18 dtk
+     (native timeout 15 dtk + margin callback). */
+  const providers = await fetchEmbedProviders(slug, ep);
+  const gen = window.__lumioEmbedGen;
+  const deadline = Date.now() + 60000;
+  for (const p of providers) {
+    if (HIDDEN_RESOLVER_SKIP.includes(p.id)) continue;
+    if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    const remain = deadline - Date.now();
+    if (remain < 5000) break;
+    setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)}…</span>`);
+    const payload = await resolveOneHidden(p, Math.min(18000, remain));
+    if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    if (payload && payload.ok && payload.url) {
+      return {
+        master: payload.url,
+        referer: p.url,
+        server: "Embed · " + (p.name || p.id),
+        source: "",
+        subtitles: Array.isArray(payload.subtitles) ? payload.subtitles.filter(s => s && s.url) : [],
+        _viaHidden: true,
+        _hiddenProvider: p.name || p.id
+      };
+    }
+  }
+  return null;
+}
 /* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
    /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
    engine subtitle dipakai ulang tanpa perubahan perilaku; tanpa retry ganti
@@ -3088,19 +3174,25 @@ async function playTmdb(slug, ep, fromAuto){
   const resolveUrl = t.type === "movie"
     ? `/api/stream/resolve_movie?tmdb=${t.id}`
     : `/api/stream/resolve_series?tmdb=${t.id}&season=${window._tmdbSeason || 1}&episode=${ep}`;
-  let data;
+  let data = null;
+  let staticErr = "";
   try {
     data = await Promise.race([
       api(resolveUrl),
       new Promise((_, rej) => setTimeout(() => rej(new Error("Server terlalu lama merespons (batas 90 detik)")), 90000)),
     ]);
   } catch (e) {
-    await offerEmbedMode(slug, ep, e.message);
-    return;
+    staticErr = (e && e.message) || String(e);
   }
-  const master = data.master || (data.picked && data.picked.url) || "";
+  let master = (data && (data.master || (data.picked && data.picked.url))) || "";
+  /* v49: resolve statis gagal -> coba hidden WebView (bila bridge ada) */
+  if (!master && hiddenResolverAvailable()) {
+    const hidden = await tryHiddenResolve(slug, ep);
+    if (hidden === HIDDEN_ABORTED) return;
+    if (hidden) { data = hidden; master = hidden.master; }
+  }
   if (!master) {
-    await offerEmbedMode(slug, ep, "Server tidak mengembalikan URL stream untuk judul ini.");
+    await offerEmbedMode(slug, ep, staticErr || "Server tidak mengembalikan URL stream untuk judul ini.");
     return;
   }
   const referer = data.referer || "";
@@ -3126,6 +3218,11 @@ async function playTmdb(slug, ep, fromAuto){
   window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
   window._outro = data.outro && data.outro.end > data.outro.start ? {...data.outro, label: "outro"} : null;
   attachSubtitle(data, referer);
+  /* v49: penanda fallback replay — stream hasil hidden resolver yang gagal
+     total sebelum manifest ter-parse jatuh ke tawaran embed (lihat handler
+     ERROR di bawah). */
+  const viaHidden = !!(data && data._viaHidden);
+  let tmdbManifestParsed = false, tmdbFallbackDone = false;
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({
       maxBufferLength: 60,
@@ -3136,6 +3233,7 @@ async function playTmdb(slug, ep, fromAuto){
     hls.loadSource(proxied);
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      tmdbManifestParsed = true;
       buildQualityLevelOptions();
       if (window._pendingVariant) {
         const u = window._pendingVariant; window._pendingVariant = "";
@@ -3147,6 +3245,17 @@ async function playTmdb(slug, ep, fromAuto){
     hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
+      /* v49: URL hasil intersepsi kadang tidak bisa diputar ulang di luar
+         sesi halaman penyedia (cookie/token). Bila gagal total SEBELUM
+         manifest ter-parse, langsung tawarkan mode embed — tanpa loop
+         (tawaran butuh tap user). Setelah manifest ter-parse, perilaku
+         lama berlaku. */
+      if (viaHidden && !tmdbManifestParsed && !tmdbFallbackDone) {
+        tmdbFallbackDone = true;
+        stopPlayer();
+        offerEmbedMode(slug, ep, "Stream dari " + (data._hiddenProvider || "penyedia embed") + " tidak bisa diputar di player Lumio.");
+        return;
+      }
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); hls.startLoad(); }
       else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); }
       else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
