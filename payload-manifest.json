@@ -1,9 +1,9 @@
 {
-  "version": 50,
-  "label": "Resolver v2: subtitle + pemulihan stream",
-  "notes": "Subtitle statis rezesubs untuk semua penyedia; loop lanjut ke penyedia tersisa saat replay gagal; watchdog stall + retry berbatas; diagnostik UI penyedia + jumlah subtitle + host manifest; tombol Server lain. Tanpa perubahan native.",
+  "version": 51,
+  "label": "Anggaran resolver adil + panel Server + layout status + header bersih",
+  "notes": "Perbaikan dari screenshot on-device 14 Nov 22:12-22:14: (1) anggaran resolver dibagi adil antar penyedia tersisa + waktu guard replay dikembalikan ke tenggat + penyedia terlewat dicatat jujur, VidRock tidak lagi hilang dari ringkasan; (2) panel Server anime disembunyikan di player TMDB; (3) ringkasan gagal tidak lagi tertutup tombol di HP; (4) header player tidak pernah tampil slug mentah tmdb:. Frontend-only, tanpa APK; version.py tetap 2.30.0. Terverifikasi CDP headless: 52/54 + 7/7 re-probe, tanpa error JS.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-50/lumio-payload.zip",
-  "sha256": "0c59870add18cdde6adbebf8588471a600c72a74fc505f6858de03ef01b30933",
-  "size": 1091016
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-51/lumio-payload.zip",
+  "sha256": "2368ff9b663b5eae17ace212cb0df0ed1076712214d0761f244ac22d9b59b96f",
+  "size": 1092627
 }
