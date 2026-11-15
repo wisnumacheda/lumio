@@ -1,9 +1,9 @@
 {
-  "version": 52,
-  "label": "VidRift + 6 penyedia embed baru, urutan resolver terpisah",
-  "notes": "7 penyedia baru dari riset 14 Nov: VidRift masuk loop resolver PERTAMA (bukti replay Referer-only) + bar embed nomor 2; EmbedWave, VidNest, CineSrc, Vidly, Vidy, vidsrc.pk embed-only (tidak pernah masuk loop resolver); Viduki tetap default embed. Urutan resolver dan bar embed kini terpisah (allowlist backend). Mirror VidRift .in sebagai percobaan kedua otomatis di loop resolver. Embed VidRift: exit=1 + handler vidrift:exit, uiScale=1.5 di TV. Bar embed 12 tombol scroll-horizontal. Tanpa APK baru; version.py tetap 2.30.0. Terverifikasi CDP headless: 66/69 + re-probe 8/10, tanpa error JS; intersepsi VidRift nyata hanya terbukti di perangkat.",
+  "version": 53,
+  "label": "VidRift statis + header player + pesan timeout",
+  "notes": "Resolver statis VidRift: shell embed ke hash orion ke manifest replayable, mirror .in bila fetch gagal atau 0 hash; percobaan statis pertama sebelum VidSrc. VidRift keluar dari loop hidden (kini 4 penyedia); bar embed 12 tidak berubah. Header player dua baris di HP sempit: judul terlihat, tombol X bulat. Pesan timeout manusiawi tanpa URL mentah. Diagnostik host dan jumlah subtitle di jalur statis. Tanpa APK baru; version.py tetap 2.30.0. Stream Orion memakai codec HEVC: pemutaran hanya terbukti di perangkat yang mendukung HEVC.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-52/lumio-payload.zip",
-  "sha256": "bf6e5bedd239a558646cb92e13159e9e2712be20da349b06e521142649a7fd49",
-  "size": 1096043
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-53/lumio-payload.zip",
+  "sha256": "0b58c99f2b0ccef5f50efdd7dc28a425f6e400b5831c31d27f9862ab1bcb7df2",
+  "size": 1100092
 }
