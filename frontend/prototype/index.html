@@ -2917,6 +2917,22 @@ function tryFullscreen(){
 }
 function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
 $("#ctlBackBtn").addEventListener("click", (e) => { e.stopPropagation(); closeModal("playerModal"); });
+/* v54: detail error FATAL hls.js yang menandakan codec stream tidak
+   didukung perangkat — diverifikasi dari hls.min.js 1.5.13 yang
+   dikapalkan (frontend/js/vendor/hls.min.js):
+   - manifestIncompatibleCodecsError (MEDIA_ERROR, fatal): tidak ada
+     level dengan codec kompatibel di manifest. Kasus nyata: stream
+     Orion/VidRift yang semuanya HEVC (hvc1) di perangkat tanpa HEVC.
+   - bufferIncompatibleCodecsError (MEDIA_ERROR, fatal): source buffer
+     tidak bisa dibuat untuk codec media.
+   bufferAddCodecError SENGAJA tidak masuk set ini: non-fatal dan
+   ditangani internal hls.js via ganti level; bila semua level gagal,
+   hls.js mengeskalasi ke bufferIncompatibleCodecsError. Error
+   non-codec TIDAK PERNAH masuk jalur ini. */
+const CODEC_FATAL_DETAILS = ["manifestIncompatibleCodecsError", "bufferIncompatibleCodecsError"];
+function isCodecError(d){
+  return !!(d && d.fatal && CODEC_FATAL_DETAILS.indexOf(d.details) !== -1);
+}
 async function playEpisode(slug, ep, fromAuto){
   /* Judul TMDB memakai jalur putar sendiri (v44) — resolve berbeda, player sama. */
   if (String(slug).startsWith("tmdb:")) return playTmdb(slug, ep, fromAuto);
@@ -3033,6 +3049,11 @@ async function playEpisode(slug, ep, fromAuto){
     hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
+      /* v54: codec tidak didukung bersifat deterministik — retry
+         (startLoad/recoverMediaError) atas manifest yang sama sia-sia
+         dan bisa mengulang tanpa batas. Hentikan dengan pesan jujur;
+         perilaku sukses dan error non-codec tidak berubah. */
+      if (isCodecError(d)) { setPlayerStatus("❌ Codec stream tidak didukung perangkat ini. Coba episode/server lain."); return; }
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); hls.startLoad(); }
       else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); }
       else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
@@ -3485,6 +3506,16 @@ function attachHiddenAttempt(data, ctx, t, ep){
       hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
       hls.on(Hls.Events.ERROR, (ev, d) => {
         if (!d.fatal) return;
+        /* v54: codec tidak didukung -> pindah penyedia LANGSUNG, tanpa
+           retry dan tanpa menunggu guard (20 dtk grace / 15 dtk stall):
+           manifest yang sama akan gagal sama persis. Alasan codec
+           dicatat jujur di ringkasan. */
+        if (isCodecError(d)) {
+          if (!parsed) { failAttempt("codec tidak didukung"); return; }
+          guard.disarmed = true; clearInterval(guard.timer);
+          hiddenAdvance(ctx, "codec tidak didukung");
+          return;
+        }
         if (!parsed) { failAttempt("tidak bisa diputar"); return; }
         /* Pasca-parse: pemulihan BERBATAS (v50). Perilaku lama
            (startLoad tanpa batas) membuat layar hitam selamanya bila
@@ -3590,6 +3621,41 @@ function setTmdbPlayerTitle(slug, ep){
     : `${title} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
   const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
 }
+/* v54: pintu masuk rangkaian hidden resolver untuk judul TMDB — dipakai
+   DUA tempat: (a) resolve statis tidak mengembalikan master (jalur
+   v49/v50), (b) fallback codec jalur statis (stream statis gagal karena
+   codec tidak didukung; penyedia hidden lain bisa memberi H.264).
+   preAttempts: catatan diagnostik yang sudah diketahui sebelum loop
+   (mis. penyedia statis yang gagal karena codec) — tampil di ringkasan
+   akhir bersama catatan hidden. Mengembalikan HIDDEN_ABORTED bila
+   dibatalkan, true bila sebuah stream berhasil parse (guard latar
+   mengambil alih), false bila semua habis (tawaran embed sudah
+   ditampilkan). */
+async function startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, preAttempts){
+  const fetched = await fetchEmbedProviders(slug, ep);
+  const ctx = {
+    slug, ep, t,
+    providers: fetched.providers,
+    resolverProviders: buildResolverProviders(fetched),
+    skip: new Set(),
+    deadline: Date.now() + 60000,
+    attempts: (preAttempts || []).slice(),
+    lookedUpSubs: subsLookedUp || [],
+    subsAttached: false,
+    advancing: false,
+    lastProvider: ""
+  };
+  window._hiddenCtx = ctx;
+  const started = await runHiddenLoop(ctx);
+  if (started === HIDDEN_ABORTED) return HIDDEN_ABORTED;
+  if (!started) {
+    const msg = hiddenSummary(ctx);
+    stopPlayer();
+    await offerEmbedMode(slug, ep, msg, ctx.providers);
+    return false;
+  }
+  return true;
+}
 /* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
    /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
    engine subtitle dipakai ulang tanpa perubahan perilaku; tanpa retry ganti
@@ -3632,28 +3698,7 @@ async function playTmdb(slug, ep, fromAuto){
   /* v49/v50: resolve statis gagal -> rangkaian hidden WebView (bila bridge
      ada). Loop + guard latar mengambil alih sampai putar atau habis. */
   if (!master && hiddenResolverAvailable()) {
-    const fetched = await fetchEmbedProviders(slug, ep);
-    const ctx = {
-      slug, ep, t,
-      providers: fetched.providers,
-      resolverProviders: buildResolverProviders(fetched),
-      skip: new Set(),
-      deadline: Date.now() + 60000,
-      attempts: [],
-      lookedUpSubs: subsLookedUp,
-      subsAttached: false,
-      advancing: false,
-      lastProvider: ""
-    };
-    window._hiddenCtx = ctx;
-    const started = await runHiddenLoop(ctx);
-    if (started === HIDDEN_ABORTED) return;
-    if (!started) {
-      const msg = hiddenSummary(ctx);
-      stopPlayer();
-      await offerEmbedMode(slug, ep, msg, ctx.providers);
-      return;
-    }
+    await startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, null);
     return;
   }
   if (!master) {
@@ -3700,7 +3745,7 @@ async function playTmdb(slug, ep, fromAuto){
      total sebelum manifest ter-parse jatuh ke tawaran embed (lihat handler
      ERROR di bawah). */
   const viaHidden = !!(data && data._viaHidden);
-  let tmdbManifestParsed = false, tmdbFallbackDone = false;
+  let tmdbManifestParsed = false, tmdbFallbackDone = false, tmdbCodecFallbackDone = false;
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({
       maxBufferLength: 60,
@@ -3723,6 +3768,29 @@ async function playTmdb(slug, ep, fromAuto){
     hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
+      /* v54: codec tidak didukung di jalur statis (mis. stream HEVC di
+         perangkat tanpa HEVC) — JANGAN mentok di "Memutar": teardown
+         stream statis, lalu masuk rangkaian hidden (penyedia lain bisa
+         memberi stream H.264); bila hidden habis, tawaran embed seperti
+         biasa. Alasan codec dicatat di ringkasan. Tanpa bridge, langsung
+         tawaran embed. Sekali saja per pemutaran (flag) — error codec
+         dari percobaan hidden ditangani handler attachHiddenAttempt. */
+      if (isCodecError(d) && !tmdbCodecFallbackDone) {
+        tmdbCodecFallbackDone = true;
+        stopPlayer();
+        /* stopPlayer menyembunyikan ctl + mengembalikan kontrol native;
+           kembalikan keadaan prologue playTmdb agar rangkaian hidden
+           memakai bilah kontrol Lumio (bukan kontrol native). */
+        video.controls = false; ctlOn = true; showCtl();
+        setPlayerStatus("<span>Codec stream tidak didukung perangkat — mencoba jalur lain…</span>");
+        const pre = [{name: (data && data.server) || "penyedia statis", label: "codec tidak didukung"}];
+        if (hiddenResolverAvailable()) {
+          startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, pre);
+        } else {
+          offerEmbedMode(slug, ep, "Codec stream tidak didukung perangkat ini.");
+        }
+        return;
+      }
       /* v49: URL hasil intersepsi kadang tidak bisa diputar ulang di luar
          sesi halaman penyedia (cookie/token). Bila gagal total SEBELUM
          manifest ter-parse, langsung tawarkan mode embed — tanpa loop
