@@ -850,7 +850,7 @@ async def _enrich_search_results_with_metadata(items: list, al_meta_list: list):
         # 1. Cek detail lokal dari browse_cache jika pernah dibuka
         if slug:
             try:
-                cached = await get_browse_cache(f"detail_v2|{slug}")
+                cached = await get_browse_cache(f"detail_v3|{slug}")
                 if cached and cached.get("year"):
                     it["year"] = cached["year"]
                     it["season"] = cached.get("season") or str(cached["year"])
@@ -3322,7 +3322,10 @@ async def anime_detail_endpoint(slug: str):
     try:
         if "hentai" in (slug or "").lower():
             return fail("Konten genre Hentai diblokir")
-        cache_key = f"detail_v2|{slug}"
+        # v55: v3 karena hianime_details kini menyertakan "title" (dipakai
+        # frontend untuk header player). Entri v2 lama diabaikan agar judul
+        # muncul segera, bukan setelah TTL 24 jam.
+        cache_key = f"detail_v3|{slug}"
         cached = await get_browse_cache(cache_key, ttl=86400)
         if cached:
             cached["cached"] = True
@@ -3512,6 +3515,21 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         title_failover = _ANIME_FAILOVER_CACHE.get(slug)
         active_source = (source or title_failover or pref_source or "hianime").lower()
 
+        # v55 — ANGGARAN TOTAL RESOLVE (agnostik-host): endpoint harus menjawab
+        # dalam 25 dtk worst-case, di bawah batas 30 dtk api() frontend.
+        # Sebelumnya timeout per-tahap menumpuk (satu _fetch bisa ~36 dtk,
+        # loop probe paralel tanpa batas) sehingga blokir jaringan yang
+        # termanifestasi sebagai HANG membuat frontend menyerah sementara
+        # backend masih bekerja, tanpa diagnosis apa pun. Deadline diteruskan
+        # ke rantai HiAnime (batas per-tahap: daftar episode 8 dtk, daftar
+        # server 6 dtk, probe server = sisa anggaran, panen subtitle hanya
+        # bila sisa >= 3 dtk); percobaan Otakudesu/AniChan dibatasi sisa
+        # anggaran via wait_for (backstop); tahap pasca-resolve dibatasi
+        # 5/4 dtk dan fail-open. Prioritas sumber TIDAK berubah.
+        _resolve_deadline = time.monotonic() + 25.0
+        def _remaining():
+            return _resolve_deadline - time.monotonic()
+
         # Cache key mencakup source agar stream tidak tertukar
         cache_slug = f"{active_source}:{slug}" if active_source != "hianime" else slug
         if should_refresh:
@@ -3592,14 +3610,19 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                     raw_title = clean_slug.replace("-sub-indo", "").replace("-episode", "").replace("-", " ").strip()
                     try:
                         loop = asyncio.get_running_loop()
-                        matched = await _match_slug_one(loop, raw_title)
-                        if matched:
-                            hi_slug = matched
+                        if _remaining() > 0.5:
+                            matched = await asyncio.wait_for(_match_slug_one(loop, raw_title), timeout=min(5.0, _remaining()))
+                            if matched:
+                                hi_slug = matched
                     except Exception:
                         pass
                 try:
                     loop = asyncio.get_running_loop()
-                    harvested = await loop.run_in_executor(None, lambda: hi.hianime_subtitles_for_episode(hi_slug, ep))
+                    harvested = None
+                    if _remaining() > 0.5:
+                        harvested = await asyncio.wait_for(
+                            loop.run_in_executor(None, lambda: hi.hianime_subtitles_for_episode(hi_slug, ep, deadline=_resolve_deadline)),
+                            timeout=min(5.0, _remaining()))
                     if harvested and harvested.get("subtitles"):
                         hit["subtitles"] = harvested["subtitles"]
                         hit["sub"] = harvested.get("sub")
@@ -3629,7 +3652,11 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 # mal_id bawaan cache/resolver sering kosong; isi dari AniList (idMal).
                 try:
                     loop = asyncio.get_running_loop()
-                    _meta2 = await loop.run_in_executor(None, lambda: al.search_anime_metadata(raw_title_hit or clean_slug_hit, per_page=3))
+                    _meta2 = None
+                    if _remaining() > 0.5:
+                        _meta2 = await asyncio.wait_for(
+                            loop.run_in_executor(None, lambda: al.search_anime_metadata(raw_title_hit or clean_slug_hit, per_page=3)),
+                            timeout=min(5.0, _remaining()))
                     for _m in (_meta2 or []):
                         if _m.get("idMal"):
                             hit["mal_id"] = str(_m["idMal"])
@@ -3637,12 +3664,12 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 except Exception:
                     pass
 
-            if (hit["intro"].get("end", 0) == 0 or hit["outro"].get("end", 0) == 0) and hit.get("mal_id"):
+            if (hit["intro"].get("end", 0) == 0 or hit["outro"].get("end", 0) == 0) and hit.get("mal_id") and _remaining() > 0.5:
                 try:
                     loop = asyncio.get_running_loop()
                     sk = await asyncio.wait_for(
                         loop.run_in_executor(None, lambda: aniskip.get_skip_times(hit["mal_id"], ep)),
-                        timeout=4.0
+                        timeout=min(4.0, _remaining())
                     )
                     if sk.get("intro", {}).get("end", 0) > 0 and hit["intro"].get("end", 0) == 0:
                         hit["intro"] = sk["intro"]
@@ -3671,73 +3698,94 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
             msg = " ".join(str(exc or "").split())[:140]
             fail_reasons.append((provider, msg or "gagal tanpa pesan"))
 
-        if active_source == "anichan":
+        # v55: backstop anggaran untuk percobaan provider. Setiap percobaan
+        # dibatasi SISA anggaran global; habisnya anggaran dicatat sebagai
+        # alasan jujur per-provider, bukan timeout telanjang. Semantik
+        # prioritas sumber (Auto/HiAnime/Otakudesu/AniChan) TIDAK berubah —
+        # hanya pembungkus eksekusinya yang berbatas.
+        async def _try_provider(fn):
+            rem = _remaining()
+            if rem <= 1.0:
+                return None, RuntimeError("anggaran resolve habis sebelum mencoba")
             try:
-                got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
+                return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=rem), None
+            except asyncio.TimeoutError:
+                return None, RuntimeError("batas waktu resolve habis")
             except Exception as e:
-                last_error = e
-                _note("AniChan", e)
+                # Kegagalan provider BUKAN exception endpoint: kembalikan
+                # sebagai (None, exc) agar rantai failover berjalan dan
+                # pesan akhir tetap "Semua sumber gagal — ..." per-provider
+                # (semantik v24/v54; tanpa ini, kegagalan provider pertama
+                # langsung mengakhiri endpoint tanpa failover).
+                return None, e
+
+        async def _try_hianime():
+            maps, err = await _try_provider(lambda: hi.hianime_episodes(slug, deadline=min(_resolve_deadline, time.monotonic() + 8.0)))
+            if err is not None:
+                return None, err
+            return await _try_provider(lambda: hi.hianime_m3u8(maps, ep, mode, slug, deadline=_resolve_deadline))
+
+        if active_source == "anichan":
+            got, _err = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q))
+            if _err is not None:
+                last_error = _err
+                _note("AniChan", _err)
                 if source == "auto" or not source:
-                    try:
-                        maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
-                        got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
+                    got, _err2 = await _try_hianime()
+                    if _err2 is not None:
+                        _note("HiAnime", _err2)
+                    else:
                         active_source = "hianime"
                         cache_slug = slug
-                    except Exception as e2:
-                        _note("HiAnime", e2)
         elif active_source == "otakudesu":
-            try:
-                got = await loop.run_in_executor(None, lambda: otaku.resolve_stream(slug, ep))
-            except Exception as e:
-                last_error = e
-                _note("Otakudesu", e)
+            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep))
+            if _err is not None:
+                last_error = _err
+                _note("Otakudesu", _err)
                 # Fallback ke hianime kalau user pakai auto
                 if source == "auto" or not source:
-                    try:
-                        maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
-                        got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
+                    got, _err2 = await _try_hianime()
+                    if _err2 is not None:
+                        _note("HiAnime", _err2)
+                    else:
                         active_source = "hianime"
                         cache_slug = slug
-                    except Exception as e2:
-                        _note("HiAnime", e2)
                     if not got:
-                        try:
-                            got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q))
+                        if _err3 is not None:
+                            _note("AniChan", _err3)
+                        else:
                             active_source = "anichan"
                             cache_slug = f"anichan:{slug}"
                             is_failover = True
                             failover_from = "otakudesu"
                             _set_failover(slug, "anichan")
-                        except Exception as e3:
-                            _note("AniChan", e3)
         else:
-            try:
-                maps = await loop.run_in_executor(None, lambda: hi.hianime_episodes(slug))
-                got = await loop.run_in_executor(None, lambda: hi.hianime_m3u8(maps, ep, mode, slug))
-            except Exception as e:
-                last_error = e
-                _note("HiAnime", e)
+            got, _err = await _try_hianime()
+            if _err is not None:
+                last_error = _err
+                _note("HiAnime", _err)
                 # Fallback ke otakudesu jika hianime gagal
                 if source == "auto" or not source:
-                    try:
-                        got = await loop.run_in_executor(None, lambda: otaku.resolve_stream(slug, ep))
+                    got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep))
+                    if _err2 is not None:
+                        _note("Otakudesu", _err2)
+                    else:
                         active_source = "otakudesu"
                         cache_slug = f"otakudesu:{slug}"
-                    except Exception as e2:
-                        _note("Otakudesu", e2)
                     # JIKA HIANIME & OTAKUDESU GAGAL (KASUS EYESHIELD 21):
                     # Failover otomatis per-judul ke AniChan langsung ke HLS M3U8
                     if not got:
-                        try:
-                            got = await loop.run_in_executor(None, lambda: anichan.resolve_stream(slug, ep, mode, q))
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q))
+                        if _err3 is not None:
+                            last_error = _err3
+                            _note("AniChan", _err3)
+                        else:
                             active_source = "anichan"
                             cache_slug = f"anichan:{slug}"
                             is_failover = True
                             failover_from = "hianime"
                             _set_failover(slug, "anichan")
-                        except Exception as anichan_err:
-                            last_error = anichan_err
-                            _note("AniChan", anichan_err)
 
         if not got:
             if fail_reasons:
@@ -3759,13 +3807,18 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
             if active_source == "otakudesu" or clean_slug.startswith("otakudesu"):
                 raw_title = clean_slug.replace("-sub-indo", "").replace("-episode", "").replace("-", " ").strip()
                 try:
-                    matched = await _match_slug_one(loop, raw_title)
-                    if matched:
-                        hi_slug = matched
+                    if _remaining() > 0.5:
+                        matched = await asyncio.wait_for(_match_slug_one(loop, raw_title), timeout=min(5.0, _remaining()))
+                        if matched:
+                            hi_slug = matched
                 except Exception:
                     pass
             try:
-                harvested = await loop.run_in_executor(None, lambda: hi.hianime_subtitles_for_episode(hi_slug, ep))
+                harvested = None
+                if _remaining() > 0.5:
+                    harvested = await asyncio.wait_for(
+                        loop.run_in_executor(None, lambda: hi.hianime_subtitles_for_episode(hi_slug, ep, deadline=_resolve_deadline)),
+                        timeout=min(5.0, _remaining()))
                 if harvested and harvested.get("subtitles"):
                     got["subtitles"] = harvested["subtitles"]
                     got["sub"] = harvested.get("sub")
@@ -3791,7 +3844,11 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         if not mal_id:
             # mal_id dari resolver sering kosong; isi dari AniList (idMal).
             try:
-                _meta = await loop.run_in_executor(None, lambda: al.search_anime_metadata(raw_title or clean_slug, per_page=3))
+                _meta = None
+                if _remaining() > 0.5:
+                    _meta = await asyncio.wait_for(
+                        loop.run_in_executor(None, lambda: al.search_anime_metadata(raw_title or clean_slug, per_page=3)),
+                        timeout=min(5.0, _remaining()))
                 for _m in (_meta or []):
                     if _m.get("idMal"):
                         mal_id = str(_m["idMal"])
@@ -3799,11 +3856,11 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         break
             except Exception:
                 pass
-        if (got["intro"].get("end", 0) == 0 or got["outro"].get("end", 0) == 0) and mal_id:
+        if (got["intro"].get("end", 0) == 0 or got["outro"].get("end", 0) == 0) and mal_id and _remaining() > 0.5:
             try:
                 sk = await asyncio.wait_for(
                     loop.run_in_executor(None, lambda: aniskip.get_skip_times(mal_id, ep)),
-                    timeout=4.0
+                    timeout=min(4.0, _remaining())
                 )
                 if sk.get("intro", {}).get("end", 0) > 0 and got["intro"].get("end", 0) == 0:
                     got["intro"] = sk["intro"]

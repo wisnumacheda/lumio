@@ -2077,7 +2077,12 @@ function histDisplayTitle(h){
   return "Tanpa judul";
 }
 function histTouch(slug, ep){
-  const it = itemStore.get(slug) || currentItem || {};
+  /* v55: currentItem global hanya dipakai bila memang item untuk slug ini
+     (id/slug cocok, atau tanpa id/slug); currentItem milik judul LAIN
+     tidak boleh meracuni entri riwayat judul ini dengan judul yang salah
+     (cacat yang sama dengan yang diperbaiki animePlayerTitle). */
+  const _cur = currentItem;
+  const it = itemStore.get(slug) || ((_cur && (_cur.id === slug || _cur.slug === slug || (!_cur.id && !_cur.slug))) ? _cur : {}) || {};
   const prev = histGet(slug);
   const rest = loadHist().filter(x => x.slug !== slug);
   /* Series TMDB: season disimpan supaya Lanjut Nonton kembali ke season
@@ -2136,7 +2141,7 @@ function renderHistRail(){
   renderGridHistRail();
   /* Entri legacy berjudul mentah "tmdb:*" dari SEMUA seksi: selesaikan judul
      asli via detail TMDB (asinkron); kartu diperbarui begitu judul tiba. */
-  loadHist().forEach(x => { if (String(x.title || "").startsWith("tmdb:")) resolveHistTitle(x); });
+  loadHist().forEach(x => { if (String(x.title || "").startsWith("tmdb:") || isRawSlugTitle(x.title, x.slug)) resolveHistTitle(x); });
 }
 /* Rail Lanjut Nonton di atas grid seksi Movie/Series/Donghua (v47). */
 function gridHistKind(){
@@ -2166,22 +2171,36 @@ function renderGridHistRail(){
 const _histTitleRetry = new Map();
 async function resolveHistTitle(h){
   const t = parseTmdbSlug(h.slug);
-  if (!t) return;
   const now = Date.now();
   if (now - (_histTitleRetry.get(h.slug) || 0) < 60000) return;
   _histTitleRetry.set(h.slug, now);
   try {
-    const d = await api(`/api/tmdb/${t.type}/${t.id}/detail`);
-    const title = String(d.title || "").trim();
-    if (!title || title.startsWith("tmdb:")) return;
+    let title = "", poster = "";
+    if (t){
+      const d = await api(`/api/tmdb/${t.type}/${t.id}/detail`);
+      title = String(d.title || "").trim();
+      poster = d.poster || "";
+      if (!title || title.startsWith("tmdb:")) return;
+    } else {
+      /* v55: entri anime yang menyimpan slug mentah sebagai judul —
+         selesaikan via endpoint detail anime (mengembalikan "title"
+         sejak v55). Entri yang judulnya sudah bersih tidak sampai ke
+         sini (disaring pemanggil). */
+      if (String(h.slug || "").startsWith("tmdb:")) return;
+      if (!isRawSlugTitle(h.title, h.slug)) return;
+      const d = await api(`/api/anime/${encodeURIComponent(h.slug)}/detail`);
+      title = String(d.title || "").trim();
+      poster = d.poster || "";
+      if (!title || isRawSlugTitle(title, h.slug)) return;
+    }
     const all = loadHist();
     const e = all.find(x => x.slug === h.slug);
     if (e && e.title !== title) {
       e.title = title;
-      if (d.poster) e.poster = d.poster;
+      if (poster) e.poster = poster;
       saveHist(all);
       const prev = itemStore.get(h.slug) || {};
-      itemStore.set(h.slug, {...prev, id: h.slug, title, poster: d.poster || prev.poster || e.poster || ""});
+      itemStore.set(h.slug, {...prev, id: h.slug, title, poster: poster || prev.poster || e.poster || ""});
       renderHistRail();
     }
   } catch (_) { /* label bersih tetap tampil; coba lagi lain waktu */ }
@@ -2270,6 +2289,21 @@ async function openDetail(slug, autoplayEp, kindHint){
   // Detail & episode dimuat paralel; kegagalan salah satu tidak memblokir yang lain.
   api(`/api/anime/${encodeURIComponent(slug)}/detail`).then(d => {
     if (currentSlug !== slug) return;
+    /* v55: benih judul asli (endpoint detail mengembalikan "title" sejak
+       v55) — hanya mengisi kekosongan, tidak pernah menimpa judul bersih
+       dari kartu. Tanpa ini, pemutaran dari jalur tanpa judul (riwayat)
+       menampilkan slug mentah di header player. Pola yang sama dengan
+       cabang TMDB (v47). */
+    if (d.title && !isRawSlugTitle(d.title, slug)) {
+      const clean = String(d.title).trim();
+      if (isRawSlugTitle($("#dTitle").textContent, slug)) $("#dTitle").textContent = clean;
+      const prev = itemStore.get(slug) || {};
+      if (isRawSlugTitle(prev.title, slug)) itemStore.set(slug, {...prev, id: slug, title: clean, poster: d.poster || prev.poster || it.poster || ""});
+      if (!it.title || isRawSlugTitle(it.title, slug)) it.title = clean;
+      /* Bila player sudah kebuka untuk judul ini (autoplay balapan dengan
+         fetch detail), perbarui header player ke judul asli. */
+      if (window._curSlug === slug && !$("#playerModal").classList.contains("hidden")) setAnimePlayerTitle(slug, window._curEp || 1);
+    }
     $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
     setupSynClamp();
     if (d.poster) { const dp2 = $("#dPoster"); dp2.dataset.direct = d.poster; dp2.dataset.proxy = posterSrc(d.poster); dp2.dataset.fb = 0; dp2.style.visibility = ""; dp2.src = posterSrc(d.poster); }
@@ -2597,7 +2631,9 @@ function startNextEpCountdown(){
   if (!window._curSlug || !(window._epsNums || []).includes(nxt)) return;
   cancelNextEp();
   const it = itemStore.get(window._curSlug) || currentItem || {};
-  const t = $("#nextEpTitle"); if (t) t.textContent = `${it.title || window._curSlug} — Episode ${nxt}`;
+  /* v55: jangan pernah tampilkan slug mentah — fallback "Episode N" saja. */
+  const _nxTitle = animePlayerTitle(window._curSlug, it);
+  const t = $("#nextEpTitle"); if (t) t.textContent = _nxTitle ? `${_nxTitle} — Episode ${nxt}` : `Episode ${nxt}`;
   nextEpLeft = 10;
   const c = $("#nextEpCount"); if (c) c.textContent = nextEpLeft;
   const ov = $("#nextEpOverlay"); if (ov) ov.classList.remove("hidden");
@@ -2949,8 +2985,9 @@ async function playEpisode(slug, ep, fromAuto){
   setEpCtlVisible(true);
   setServerCtlVisible(true);
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
-  $("#pTitle").textContent = `${it.title || slug} — Episode ${ep}`;
-  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  /* v55: judul header via helper — slug mentah tidak boleh tampil; bila
+     judul belum diketahui, tampil "Episode N" lalu ditingkatkan async. */
+  setAnimePlayerTitle(slug, ep);
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
   const effSource = window._sourceOnce || SETTINGS.source;
   window._sourceOnce = "";
@@ -3620,6 +3657,77 @@ function setTmdbPlayerTitle(slug, ep){
     ? title
     : `${title} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
   const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+}
+/* v55: judul player anime — slug mentah TIDAK BOLEH tampil di pTitle /
+   ctlTitle / nextEpTitle dalam kondisi apa pun. Akar masalah: jalur play
+   tanpa judul (resume/riwayat) membuat itemStore/currentItem kosong,
+   sehingga playEpisode jatuh ke {title: slug}. Jalur detail sudah benar
+   (kartu membawa judul) dan TIDAK diubah perilakunya — helper ini hanya
+   mengisi kekosongan, tidak pernah menimpa judul bersih.
+   Sumber judul berurutan: objek item -> itemStore -> entri riwayat ->
+   fetch detail (terbatas, async). FALLBACK BILA JUDUL TIDAK DIDAPAT:
+   tampilkan HANYA "Episode N" (tanpa judul). */
+function isRawSlugTitle(s, slug){
+  const v = String(s || "").trim();
+  if (!v) return true;
+  if (slug && v === String(slug)) return true;
+  /* Slug HiAnime: huruf kecil + angka + strip, diakhiri -<id angka>.
+     Judul asli selalu mengandung huruf besar/spasi/tanda baca. */
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*-\d+$/.test(v);
+}
+function animePlayerTitle(slug, it){
+  if (String(slug).startsWith("tmdb:")) return tmdbPlayerTitle(slug, it);
+  /* it boleh berasal dari currentItem global — hanya pakai bila memang
+     item untuk slug ini (id/slug cocok, atau tanpa id/slug sama sekali);
+     currentItem milik judul LAIN tidak boleh membocorkan judulnya ke
+     header player judul ini. */
+  const ownTitle = (it && (it.id === slug || it.slug === slug || (!it.id && !it.slug))) ? it.title : null;
+  const cands = [
+    ownTitle,
+    (itemStore.get(slug) || {}).title,
+    (histGet(slug) || {}).title,
+  ];
+  for (const c of cands){
+    if (c && !isRawSlugTitle(c, slug)) return String(c).trim();
+  }
+  return "";
+}
+function setAnimePlayerTitle(slug, ep){
+  const title = animePlayerTitle(slug, itemStore.get(slug) || currentItem || {});
+  $("#pTitle").textContent = title ? `${title} — Episode ${ep}` : `Episode ${ep}`;
+  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  if (!title) upgradeAnimePlayerTitle(slug, ep);
+}
+const _animeTitleUpgrade = new Map();
+async function upgradeAnimePlayerTitle(slug, ep){
+  const now = Date.now();
+  if (now - (_animeTitleUpgrade.get(slug) || 0) < 60000) return;
+  _animeTitleUpgrade.set(slug, now);
+  try {
+    const d = await Promise.race([
+      api(`/api/anime/${encodeURIComponent(slug)}/detail`),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("detail timeout")), 8000)),
+    ]);
+    const title = d && d.title;
+    if (!title || isRawSlugTitle(title, slug)) return;
+    const clean = String(title).trim();
+    /* Benih untuk pemutaran berikutnya (hanya isi kekosongan) + perbaiki
+       entri riwayat yang menyimpan slug mentah sebagai judul. */
+    const stored = itemStore.get(slug) || {};
+    if (isRawSlugTitle(stored.title, slug)) itemStore.set(slug, {...stored, id: slug, title: clean});
+    if (currentItem && (currentItem.id === slug || currentItem.slug === slug) && isRawSlugTitle(currentItem.title, slug)) currentItem.title = clean;
+    const all = loadHist(); const ix = all.findIndex(x => x.slug === slug);
+    if (ix >= 0 && isRawSlugTitle(all[ix].title, slug)){
+      all[ix].title = clean;
+      saveHist(all);
+      if (typeof renderHistRail === "function") renderHistRail();
+    }
+    /* Tingkatkan header HANYA bila masih memutar slug/episode yang sama. */
+    if (window._curSlug === slug && (window._curEp || 0) === ep && !$("#playerModal").classList.contains("hidden")){
+      $("#pTitle").textContent = `${clean} — Episode ${ep}`;
+      const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+    }
+  } catch (e) { /* gagal diam-diam: label "Episode N" sudah bersih */ }
 }
 /* v54: pintu masuk rangkaian hidden resolver untuk judul TMDB — dipakai
    DUA tempat: (a) resolve statis tidak mengembalikan master (jalur

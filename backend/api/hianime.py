@@ -40,6 +40,43 @@ _neg_pair_cache = {}   # "host|slug|ep" -> expires_at_epoch
 _MEM_LOCK = threading.Lock()
 _MEM_MAX_ENTRIES = 256
 
+# ---------------------------------------------------------------------------
+# Anggaran waktu resolve (v55, agnostik-host).
+#
+# Latar: resolve anime di HP user TIMEOUT >30 dtk untuk judul tertentu,
+# sementara judul lain jalan dan cold resolve sandbox hanya ~9 dtk. Akar
+# masalahnya adalah penumpukan timeout: SATU panggilan _fetch() bisa makan
+# ~36 dtk (curl 12 dtk -> httpx 12 dtk -> desync 12 dtk), dan loop tunggu
+# probe paralel di hianime_m3u8() tidak punya batas sama sekali — sehingga
+# blokir jaringan (mis. DPI) yang termanifestasi sebagai HANG menghabiskan
+# seluruh anggaran sebelum diagnosis apa pun tercapai.
+#
+# Mekanisme: pemanggil resolve meneruskan `deadline` (monotonic) ke bawah
+# rantai. Setiap tahap fetch memakai timeout efektif = min(timeout nominal,
+# sisa anggaran). Tanpa deadline, perilaku PERSIS seperti sebelumnya
+# (jalur non-resolve tidak berubah).
+# ---------------------------------------------------------------------------
+class _ResolveBudgetExceeded(RuntimeError):
+    """Anggaran waktu resolve habis. Pesan tidak memuat URL apa pun."""
+    pass
+
+
+def _budget_remaining(deadline):
+    if deadline is None:
+        return None
+    return deadline - _time.monotonic()
+
+
+def _cap_timeout(timeout, deadline):
+    """Timeout efektif yang tidak melebihi sisa anggaran. Raise
+    _ResolveBudgetExceeded bila sisa anggaran terlalu kecil untuk fetch."""
+    if deadline is None:
+        return timeout
+    rem = deadline - _time.monotonic()
+    if rem <= 0.3:
+        raise _ResolveBudgetExceeded("batas waktu resolve habis")
+    return min(float(timeout), rem)
+
 
 def _mem_get(cache, key):
     """Ambil nilai dari TTL-cache. Mengembalikan None bila miss/expired."""
@@ -85,23 +122,26 @@ _SERVERS_CACHE_TTL = 600          # 10 menit — daftar server jarang berubah
 _EMBED_CACHE_TTL = 1800           # 30 menit — halaman embed relatif statis
 
 
-def _fetch_servers(ep_id) -> str:
+def _fetch_servers(ep_id, deadline=None) -> str:
     """Fetch (atau kembalikan dari cache) server HTML untuk suatu episode_id.
     Endpoint /api/theme/episode/servers?episodeId={} sama persis dipanggil
     oleh hianime_m3u8() dan hianime_subtitles_for_episode() — cache mencegah
     round-trip TCP/TLS yang duplikat (bisa 12s timeout per panggilan)."""
     if not ep_id:
-        return _fetch(SERVERS_API.format(ep_id))
+        return _fetch(SERVERS_API.format(ep_id), deadline=deadline)
     cached = _mem_get(_servers_mem_cache, ep_id)
     if cached:
         return cached
-    html = _fetch(SERVERS_API.format(ep_id))
+    try:
+        html = _fetch(SERVERS_API.format(ep_id), deadline=deadline)
+    except _ResolveBudgetExceeded:
+        raise _ResolveBudgetExceeded("batas waktu resolve habis (daftar server)")
     if html:
         _mem_set(_servers_mem_cache, ep_id, html, _SERVERS_CACHE_TTL)
     return html
 
 
-def _fetch_embed_cached(url: str, ttl: int = _EMBED_CACHE_TTL) -> str:
+def _fetch_embed_cached(url: str, ttl: int = _EMBED_CACHE_TTL, deadline=None) -> str:
     """Fetch halaman embed dengan TTL cache. Halaman embed (data-id / window.__P)
     relatif statis — tidak berubah signifikan dalam 30 menit."""
     if not url:
@@ -109,7 +149,7 @@ def _fetch_embed_cached(url: str, ttl: int = _EMBED_CACHE_TTL) -> str:
     cached = _mem_get(_embed_mem_cache, url)
     if cached:
         return cached
-    html = _fetch(url, referer="https://hianime.at/")
+    html = _fetch(url, referer="https://hianime.at/", deadline=deadline)
     if html:
         _mem_set(_embed_mem_cache, url, html, ttl)
     return html
@@ -185,10 +225,16 @@ def _is_blocked_dpi_host(host: str) -> bool:
         return host.lower() in _BLOCKED_DPI_HOSTS
 
 
-def _probe_master(master_url, referer):
+def _probe_master(master_url, referer, deadline=None):
     """Probe cepat master.m3u8:
     100% Direct TCP port 443 tanpa VPN.
-    Bypass DPI ISP menggunakan TLS Client-Hello record fragmentation (desync)."""
+    Bypass DPI ISP menggunakan TLS Client-Hello record fragmentation (desync).
+
+    v55: bila deadline diberikan, SELURUH probe (desync-awal + direct +
+    desync-ulang) dibatasi total 14 dtk, dipotong sisa anggaran global.
+    Sebelumnya satu probe bisa menumpuk ~26 dtk. Anggaran habis = raise
+    _ResolveBudgetExceeded TANPA menandai host mati (bukan bukti host rusak).
+    Tanpa deadline, perilaku persis seperti sebelumnya."""
     if not master_url or not master_url.startswith("http"):
         raise RuntimeError("invalid master url")
     host = _host_from(master_url)
@@ -196,14 +242,19 @@ def _probe_master(master_url, referer):
         raise RuntimeError(f"host dead: {host}")
     headers = {"User-Agent": HI_UA,
                **({"Referer": referer} if referer else {})}
-    
+    call_deadline = None
+    if deadline is not None:
+        call_deadline = min(float(deadline), _time.monotonic() + 14.0)
+
     # Jika host terdeteksi diblokir DPI ISP, gunakan TLS desync langsung
     if _is_blocked_dpi_host(host):
         try:
             from api.desync import tls_desync_request
-            content = tls_desync_request(master_url, headers=headers, timeout=8.0)
+            content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
             if content and b"#EXTM3U" in content:
                 return content
+        except _ResolveBudgetExceeded:
+            raise
         except Exception:
             pass
 
@@ -211,17 +262,21 @@ def _probe_master(master_url, referer):
     try:
         try:
             from curl_cffi import requests as creq
-            kw = dict(headers=headers, impersonate="chrome124", timeout=10)
+            kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(10, call_deadline))
             r = creq.get(master_url, **kw)
+        except _ResolveBudgetExceeded:
+            raise
         except Exception:
             # Gunakan shared pooled client (bukan httpx.get module-level) agar
             # koneksi TCP/TLS dipakai ulang antar request.
             client = _get_shared_client()
-            r = client.get(master_url, headers=headers, timeout=10, follow_redirects=True)
+            r = client.get(master_url, headers=headers, timeout=_cap_timeout(10, call_deadline), follow_redirects=True)
         if r.status_code == 200 and r.content:
             return r.content
         if r.status_code >= 400:
             raise RuntimeError(f"upstream {r.status_code} for {host}")
+    except _ResolveBudgetExceeded:
+        raise
     except Exception as e:
         err_str = str(e).lower()
         is_known_dpi = any(k in host for k in ("dramahot", "zokoanime"))
@@ -230,9 +285,11 @@ def _probe_master(master_url, referer):
             _add_blocked_dpi_host(host)
             try:
                 from api.desync import tls_desync_request
-                content = tls_desync_request(master_url, headers=headers, timeout=8.0)
+                content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
                 if content and b"#EXTM3U" in content:
                     return content
+            except _ResolveBudgetExceeded:
+                raise
             except Exception:
                 pass
         _mark_dead(host)
@@ -365,6 +422,7 @@ def hianime_synopsis(slug: str) -> str:
 def hianime_details(slug: str) -> dict:
     """Ambil metadata detail lengkap (sinopsis, skor, genre, studio, status, durasi, musim) dari halaman film HiAnime."""
     out = {
+        "title": "",
         "synopsis": "",
         "score": 0.0,
         "status": "",
@@ -383,6 +441,17 @@ def hianime_details(slug: str) -> dict:
         if not html_txt:
             return out
         import html as _html
+
+        # Judul (v55): dipakai frontend untuk header player saat judul asli
+        # tidak tersedia dari kartu/riwayat — agar slug mentah tidak pernah
+        # tampil di header player. Sumber utama: <h2 class="film-name">.
+        m_title = re.search(r'class="film-name[^"]*"[^>]*>(.*?)</h2>', html_txt, re.S)
+        if m_title:
+            out["title"] = _html.unescape(re.sub(r"<[^>]+>", "", m_title.group(1)).strip())
+        if not out["title"]:
+            m_t = re.search(r"<title>\s*Watch\s+(.*?)\s*\|\s*HiAnime\s*</title>", html_txt, re.S)
+            if m_t:
+                out["title"] = _html.unescape(re.sub(r"<[^>]+>", "", m_t.group(1)).strip())
 
         # Poster
         m_post = re.search(r'class="film-poster-img"[^>]*src="([^"]+)"', html_txt)
@@ -534,8 +603,16 @@ def close_shared_client():
         _shared_client = None
 
 
-def _fetch(url, referer=None, timeout=12):
+def _fetch(url, referer=None, timeout=12, deadline=None):
     last_err = ""
+    # v55: bila deadline anggaran diberikan, KETIGA tahap (curl -> httpx ->
+    # desync) berbagi SATU batas waktu: nominal `timeout` detik, dipotong
+    # sisa anggaran global. Sebelumnya satu panggilan bisa menumpuk ~36 dtk
+    # (12+12+12) dan menghabiskan anggaran sebelum diagnosis tercapai.
+    # Tanpa deadline, perilaku persis seperti sebelumnya.
+    call_deadline = None
+    if deadline is not None:
+        call_deadline = min(float(deadline), _time.monotonic() + float(timeout))
     # 1. Coba via curl_cffi impersonate Chrome jika tersedia di lingkungan
     for px in _failover_proxies():
         try:
@@ -544,7 +621,7 @@ def _fetch(url, referer=None, timeout=12):
                 kw = dict(
                     headers={"User-Agent": HI_UA, "Accept": "text/html,application/json,*/*", **({"Referer": referer} if referer else {})},
                     impersonate="chrome124",
-                    timeout=timeout
+                    timeout=_cap_timeout(timeout, call_deadline)
                 )
                 if px:
                     kw["proxies"] = px
@@ -556,6 +633,8 @@ def _fetch(url, referer=None, timeout=12):
                     continue
                 last_err = f"HTTP {r.status_code} from {url}"
                 continue
+            except _ResolveBudgetExceeded:
+                raise
             except Exception as e:
                 last_err = str(e)
                 continue
@@ -567,7 +646,7 @@ def _fetch(url, referer=None, timeout=12):
     try:
         client = _get_shared_client()
         h = {"Referer": referer} if referer else {}
-        r = client.get(url, headers=h, timeout=timeout)
+        r = client.get(url, headers=h, timeout=_cap_timeout(timeout, call_deadline))
         if r.status_code == 200:
             if "Just a moment" in r.text or "cf-challenge" in r.text:
                 last_err = "Blocked by cloudflare (cf-challenge)."
@@ -575,6 +654,8 @@ def _fetch(url, referer=None, timeout=12):
                 return r.text
         else:
             last_err = f"HTTP {r.status_code} from {url}"
+    except _ResolveBudgetExceeded:
+        raise
     except Exception as e:
         last_err = str(e)
 
@@ -585,10 +666,18 @@ def _fetch(url, referer=None, timeout=12):
         try:
             from api.desync import tls_desync_request
             desync_to = min(float(timeout), 5.0) if is_timeout else float(timeout)
+            if call_deadline is not None:
+                # Jangan mulai desync bila sisa anggaran < 2 dtk — hampir
+                # pasti tidak sempat selesai; hemat waktu untuk failover.
+                if _budget_remaining(call_deadline) < 2.0:
+                    raise _ResolveBudgetExceeded("batas waktu resolve habis")
+                desync_to = min(desync_to, _budget_remaining(call_deadline))
             raw = tls_desync_request(url, headers={"Referer": referer} if referer else {}, timeout=desync_to)
             txt = raw.decode("utf-8", errors="replace")
             if txt and ("<html" in txt.lower() or "{" in txt or "#EXTM3U" in txt):
                 return txt
+        except _ResolveBudgetExceeded:
+            raise
         except Exception:
             pass
 
@@ -665,7 +754,7 @@ def hianime_search(query: str, limit: int = 15, page: int = 1):
 _EPISODES_MEM_CACHE = {}
 _EPISODES_MEM_TTL = 6 * 3600  # 6 jam
 
-def hianime_episodes(slug: str):
+def hianime_episodes(slug: str, deadline=None):
     if "hentai" in (slug or "").lower():
         raise RuntimeError("Anime ini diblokir (genre hentai)")
     # Double-checked locking: baca cache tanpa lock (fast path), lalu ambil
@@ -683,7 +772,10 @@ def hianime_episodes(slug: str):
             return cached[1]
 
         numeric = slug.rsplit("-", 1)[-1]
-        raw_page = _fetch(EPISODES_API.format(numeric))
+        try:
+            raw_page = _fetch(EPISODES_API.format(numeric), deadline=deadline)
+        except _ResolveBudgetExceeded:
+            raise _ResolveBudgetExceeded("batas waktu resolve habis (daftar episode)")
         page = raw_page
         if not page.startswith("{") and "{" in page:
             page = page[page.find("{"):]
@@ -1070,12 +1162,12 @@ def _label_to_lang(label):
     return ""
 
 
-def _try_megaplay(embed: str):
+def _try_megaplay(embed: str, deadline=None):
     """embed = https://megaplay.buzz/stream/s-2/{realid}/{sub|dub}.
     Flow (from newclient.min.js): GET embed page -> data-id -> GET
     /stream/getSourcesNew?id={data-id} (Referer=embed) -> {enc} ->
     AES-CBC decrypt -> {file: master.m3u8} + tracks[]."""
-    page = _fetch_embed_cached(embed)
+    page = _fetch_embed_cached(embed, deadline=deadline)
     m = re.search(r'data-id="(\d+)"', page)
     if not m:
         raise RuntimeError("megaplay data-id not found")
@@ -1083,9 +1175,17 @@ def _try_megaplay(embed: str):
     origin = re.sub(r"^(https?://[^/]*).*", r"\1", embed)
     api_url = origin + f"/stream/getSourcesNew?id={data_id}"
     try:
-        txt = _fetch(api_url, referer=embed)
-    except Exception:
-        txt = _fetch(origin + f"/stream/getSources?id={data_id}", referer=embed)
+        txt = _fetch(api_url, referer=embed, deadline=deadline)
+    except _ResolveBudgetExceeded:
+        raise
+    except Exception as e:
+        # v55 (hanya saat anggaran aktif): bila getSourcesNew gagal karena
+        # timeout, jangan ulangi ke URL legacy di origin yang sama — origin
+        # yang menggantung hampir pasti menggantung lagi (hemat ~1 panggilan
+        # penuh). Kegagalan non-timeout tetap memakai fallback legacy.
+        if deadline is not None and any(t in str(e).lower() for t in ("timeout", "timed out")):
+            raise
+        txt = _fetch(origin + f"/stream/getSources?id={data_id}", referer=embed, deadline=deadline)
     cfg = json.loads(txt)
     master = ""
     if isinstance(cfg.get("sources"), list) and cfg["sources"]:
@@ -1111,13 +1211,13 @@ def _try_megaplay(embed: str):
     default_track = next((s for s in subtitles if s.get("default")), subtitles[0] if subtitles else None)
     sub_url = default_track["url"] if default_track else None
     if sub_url:
-        sub_url = _validate_sub_url(sub_url, referer=origin + "/")
+        sub_url = _validate_sub_url(sub_url, referer=origin + "/", deadline=deadline)
     sub_lang = default_track["label"] if default_track else None
 
     variants = []
     text = ""
     try:
-        text = _fetch_media(master, referer=origin + "/", timeout=5.0)
+        text = _fetch_media(master, referer=origin + "/", timeout=5.0, deadline=deadline)
         base = master.rsplit("/", 1)[0] + "/"
         lines = text.splitlines()
         for i, ln in enumerate(lines):
@@ -1129,6 +1229,9 @@ def _try_megaplay(embed: str):
                     if not url.startswith("http"):
                         url = base + url
                     variants.append({"q": q, "url": url})
+    except _ResolveBudgetExceeded:
+        # v55: anggaran habis bukan bukti host mati — jangan tandai dead.
+        raise
     except Exception as e:
         if master_host:
             _mark_dead(master_host, ttl=600)
@@ -1165,32 +1268,38 @@ def _order_servers(servers):
     return sorted(servers, key=score)
 
 
-def _fetch_media(url: str, referer: str = None, timeout: int = 10) -> str:
+def _fetch_media(url: str, referer: str = None, timeout: int = 10, deadline=None) -> str:
     """Fetch teks/playlist/sub:
     - Host biasa: 100% direct.
-    - Host terblokir ISP: bypass via TLS desync tanpa VPN."""
+    - Host terblokir ISP: bypass via TLS desync tanpa VPN.
+    v55: bila deadline diberikan, setiap tahap memakai timeout efektif yang
+    tidak melebihi sisa anggaran; anggaran habis = _ResolveBudgetExceeded."""
     host = _host_from(url)
     headers = {"User-Agent": HI_UA, **({"Referer": referer} if referer else {})}
     if _is_blocked_dpi_host(host):
         try:
             from api.desync import tls_desync_request
-            b = tls_desync_request(url, headers=headers, timeout=timeout)
+            b = tls_desync_request(url, headers=headers, timeout=_cap_timeout(timeout, deadline))
             if b:
                 return b.decode("utf-8", errors="ignore")
+        except _ResolveBudgetExceeded:
+            raise
         except Exception:
             pass
     try:
         from curl_cffi import requests as creq
-        kw = dict(headers=headers, impersonate="chrome124", timeout=timeout)
+        kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(timeout, deadline))
         r = creq.get(url, **kw)
         if r.status_code == 200:
             return r.text
+    except _ResolveBudgetExceeded:
+        raise
     except Exception:
         pass
-    return _fetch(url, referer=referer, timeout=timeout)
+    return _fetch(url, referer=referer, timeout=timeout, deadline=deadline)
 
 
-def _validate_master_playlist(master_url: str, referer: str, variants: list, body_content=None):
+def _validate_master_playlist(master_url: str, referer: str, variants: list, body_content=None, deadline=None):
     """Validasi master playlist: harus (a) mulainya #EXTM3U, (b) minimal ada 1
     URL segment/variant pada body. Return list variants yang sudah tervalidasi:
     - Kalau caller sudah punya variants dan minimal 1 URL absolute → pakai itu.
@@ -1201,7 +1310,7 @@ def _validate_master_playlist(master_url: str, referer: str, variants: list, bod
     if body_content:
         body = body_content
     else:
-        body = _fetch_media(master_url, referer=referer, timeout=8.0)
+        body = _fetch_media(master_url, referer=referer, timeout=8.0, deadline=deadline)
     txt = body if isinstance(body, str) else body.decode("utf-8", errors="ignore")
     if "#EXTM3U" not in txt:
         raise RuntimeError("master playlist: not m3u8")
@@ -1254,11 +1363,13 @@ def _validate_master_playlist(master_url: str, referer: str, variants: list, bod
 
 
 
-def _validate_sub_url(sub_url: str, referer: str):
+def _validate_sub_url(sub_url: str, referer: str, deadline=None):
     """Soft-validasi subtitle URL:
     Untuk CDN terpercaya (megaplay, broforgotsave, stellarfrontier, megacloud, dsb),
     langsung return URL agar tidak menambah latency berlebih saat resolve.
-    Untuk host lainnya, lakukan validasi cepat."""
+    Untuk host lainnya, lakukan validasi cepat. v55: bila deadline diberikan,
+    timeout validasi dibatasi sisa anggaran; anggaran habis = fail-open
+    (return None, seperti kegagalan validasi lainnya)."""
     if not sub_url or not sub_url.startswith("http"):
         return None
     try:
@@ -1268,13 +1379,13 @@ def _validate_sub_url(sub_url: str, referer: str):
         headers = {"User-Agent": HI_UA, **({"Referer": referer} if referer else {})}
         if _is_blocked_dpi_host(host):
             from api.desync import tls_desync_request
-            b = tls_desync_request(sub_url, headers=headers, timeout=4.0)
+            b = tls_desync_request(sub_url, headers=headers, timeout=_cap_timeout(4.0, deadline))
             if b and len(b) >= 10:
                 return sub_url
             return None
         try:
             from curl_cffi import requests as creq
-            kw = dict(headers=headers, impersonate="chrome124", timeout=5)
+            kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(5, deadline))
             r = creq.get(sub_url, **kw)
             if r.status_code == 200 and r.content and len(r.content) >= 10:
                 return sub_url
@@ -1282,12 +1393,12 @@ def _validate_sub_url(sub_url: str, referer: str):
         except Exception:
             # Gunakan shared pooled client agar koneksi TCP/TLS dipakai ulang.
             client = _get_shared_client()
-            r = client.get(sub_url, headers=headers, timeout=5, follow_redirects=True)
+            r = client.get(sub_url, headers=headers, timeout=_cap_timeout(5, deadline), follow_redirects=True)
             if r.status_code == 200 and r.content and len(r.content) >= 10:
                 return sub_url
             if any(k in host for k in ("broforgotsave", "stellarfrontier", "megaplay")):
                 headers["Referer"] = "https://megaplay.buzz/"
-                r2 = client.get(sub_url, headers=headers, timeout=5, follow_redirects=True)
+                r2 = client.get(sub_url, headers=headers, timeout=_cap_timeout(5, deadline), follow_redirects=True)
                 if r2.status_code == 200 and r2.content and len(r2.content) >= 10:
                     return sub_url
             return None
@@ -1295,9 +1406,9 @@ def _validate_sub_url(sub_url: str, referer: str):
         return None
 
 
-def _try_embed_legacy(embed: str):
+def _try_embed_legacy(embed: str, deadline=None):
     referer = re.sub(r"^(https?://[^/]*).*", r"\1/", embed)
-    page = _fetch_embed_cached(embed)
+    page = _fetch_embed_cached(embed, deadline=deadline)
     # Deteksi halaman 404 ZokoAnime (server return HTML page, bukan markdown())
     # Page signature: ada "<title>Player</title>" + "Not" + "found." pada body.
     # Skip regex window.__P kalau 404 — raise sebagai "anime not on server"
@@ -1319,7 +1430,9 @@ def _try_embed_legacy(embed: str):
     # Probe master — kalau host mati, return None agar caller fall-through.
     probe_content = None
     try:
-        probe_content = _probe_master(master, referer=referer)
+        probe_content = _probe_master(master, referer=referer, deadline=deadline)
+    except _ResolveBudgetExceeded:
+        raise
     except Exception as e:
         raise RuntimeError(f"zokoanime probe: {e}")
     # Multi-subtitle: normalisasi seluruh tracks ZokoAnime untuk dropdown & pemilihan default
@@ -1328,11 +1441,13 @@ def _try_embed_legacy(embed: str):
     default_track = next((s for s in subtitles if s.get("default")), subtitles[0] if subtitles else None)
     sub_url = default_track["url"] if default_track else None
     if sub_url:
-        sub_url = _validate_sub_url(sub_url, referer=referer)
+        sub_url = _validate_sub_url(sub_url, referer=referer, deadline=deadline)
     sub_lang = default_track["label"] if default_track else None
 
     try:
-        variants = _validate_master_playlist(master, referer=referer, variants=[], body_content=probe_content)
+        variants = _validate_master_playlist(master, referer=referer, variants=[], body_content=probe_content, deadline=deadline)
+    except _ResolveBudgetExceeded:
+        raise
     except Exception as e:
         raise RuntimeError(f"zokoanime playlist: {e}")
     mal_id = ""
@@ -1353,7 +1468,7 @@ def _try_embed_legacy(embed: str):
 
 
 def _harvest_subtitles(servers, current_srv_name: str = "", slug: str = "", ep: int = 0,
-                       resolved: dict = None):
+                       resolved: dict = None, deadline=None):
     """Ambil track subtitle dari server alternatif jika server video utama tidak memiliki subtitle.
 
     Optimasi:
@@ -1363,8 +1478,13 @@ def _harvest_subtitles(servers, current_srv_name: str = "", slug: str = "", ep: 
         di-fetch 2x untuk server yang sama.
       - Memakai negative cache per-(host, slug, ep) sehingga server yang sudah
         diketahui "tidak punya subtitle / 404" tidak di-probe ulang.
+    v55: bila deadline diberikan, jangan mulai probe baru bila sisa anggaran
+    < 3 dtk (subtitle bersifat best-effort); anggaran habis di tengah probe
+    menghentikan harvest TANPA menandai host/pasangan mati.
     """
     for srv in servers:
+        if deadline is not None and _budget_remaining(deadline) < 3.0:
+            return None
         if srv.get("name") == current_srv_name:
             continue
         host = _host_from(srv.get("embed", ""))
@@ -1390,9 +1510,9 @@ def _harvest_subtitles(servers, current_srv_name: str = "", slug: str = "", ep: 
         try:
             embed_low = (srv.get("embed") or "").lower()
             if "zokoanime.video" in embed_low or "vidtube.site" in embed_low or "vidplay" in srv.get("name", "").lower():
-                alt_got = _try_embed_legacy(srv["embed"])
+                alt_got = _try_embed_legacy(srv["embed"], deadline=deadline)
             else:
-                alt_got = _try_megaplay(srv["embed"])
+                alt_got = _try_megaplay(srv["embed"], deadline=deadline)
             if alt_got and alt_got.get("subtitles"):
                 return {
                     "subtitles": alt_got["subtitles"],
@@ -1400,6 +1520,8 @@ def _harvest_subtitles(servers, current_srv_name: str = "", slug: str = "", ep: 
                     "sub_lang": alt_got.get("sub_lang"),
                     "referer": alt_got.get("referer"),
                 }
+        except _ResolveBudgetExceeded:
+            return None
         except Exception:
             # Tandai (host, slug, ep) supaya tidak di-probe ulang pada request berikutnya.
             if slug and ep:
@@ -1408,12 +1530,14 @@ def _harvest_subtitles(servers, current_srv_name: str = "", slug: str = "", ep: 
     return None
 
 
-def hianime_subtitles_for_episode(slug: str, ep_no: int) -> dict:
+def hianime_subtitles_for_episode(slug: str, ep_no: int, deadline=None) -> dict:
     """Ambil track subtitle softsub untuk episode tertentu tanpa perlu mengunduh master video m3u8.
     Berguna sebagai fallback untuk Otakudesu atau stream tanpa softsub.
+    v55: deadline diteruskan ke seluruh tahap; anggaran habis = fail-open
+    (subtitle kosong), ditangkap except di bawah seperti kegagalan lain.
     """
     try:
-        maps = hianime_episodes(slug)
+        maps = hianime_episodes(slug, deadline=deadline)
         ep_id = None
         for e in maps:
             if int(e.get("ep", -1)) == int(ep_no):
@@ -1421,18 +1545,18 @@ def hianime_subtitles_for_episode(slug: str, ep_no: int) -> dict:
                 break
         if not ep_id:
             return {"subtitles": [], "sub": None, "sub_lang": None}
-        servers_html = _fetch_servers(ep_id)
+        servers_html = _fetch_servers(ep_id, deadline=deadline)
         sub_servers = _order_servers(_parse_servers(servers_html, "sub"))
-        harvested = _harvest_subtitles(sub_servers, slug=slug, ep=ep_no)
+        harvested = _harvest_subtitles(sub_servers, slug=slug, ep=ep_no, deadline=deadline)
         if not harvested:
             dub_servers = _order_servers(_parse_servers(servers_html, "dub"))
-            harvested = _harvest_subtitles(dub_servers, slug=slug, ep=ep_no)
+            harvested = _harvest_subtitles(dub_servers, slug=slug, ep=ep_no, deadline=deadline)
         return harvested or {"subtitles": [], "sub": None, "sub_lang": None}
     except Exception:
         return {"subtitles": [], "sub": None, "sub_lang": None}
 
 
-def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
+def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = "", deadline=None):
     req_mode = "dub" if str(mode).lower() == "dub" else "sub"
     ep_id = None
     for e in episode_maps:
@@ -1441,7 +1565,13 @@ def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
             break
     if not ep_id:
         raise RuntimeError(f"Episode {ep_no} not released!")
-    servers_html = _fetch_servers(ep_id)
+    # v55: tahap daftar server dibatasi 6 dtk dari anggaran global — jangan
+    # biarkan satu fetch menggantung menghabiskan seluruh anggaran sebelum
+    # probe server sempat berjalan.
+    servers_deadline = None
+    if deadline is not None:
+        servers_deadline = min(float(deadline), _time.monotonic() + 6.0)
+    servers_html = _fetch_servers(ep_id, deadline=servers_deadline)
     servers = _order_servers(_parse_servers(servers_html, req_mode))
     actual_mode = req_mode
     if not servers:
@@ -1494,12 +1624,12 @@ def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
         try:
             embed_low = srv["embed"].lower()
             if "zokoanime.video" in embed_low:
-                got = _try_embed_legacy(srv["embed"])
+                got = _try_embed_legacy(srv["embed"], deadline=deadline)
             elif "vidtube.site" in embed_low or "vidplay" in srv["name"].lower():
                 # VidPlay-1 (vidtube.site) juga pakai pola window.__P.
-                got = _try_embed_legacy(srv["embed"])
+                got = _try_embed_legacy(srv["embed"], deadline=deadline)
             else:
-                got = _try_megaplay(srv["embed"])
+                got = _try_megaplay(srv["embed"], deadline=deadline)
             if got:
                 got["server"] = srv["name"]
                 got["mode"] = actual_mode
@@ -1534,9 +1664,23 @@ def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
             # Kumpulkan hasil. Karena tier-0 (megaplay) harus menang bila
             # berhasil, kita TETAP menunggu server tier-0 walaupun server
             # tier-rendah sudah selesai lebih dulu.
+            # v55: loop tunggu dibatasi deadline anggaran. Sebelumnya loop
+            # ini tanpa batas — satu probe yang menggantung (mis. blokir DPI
+            # yang termanifestasi sebagai hang) menahan seluruh resolve
+            # sampai probe terlambat itu selesai, melewati batas 30 dtk
+            # frontend. Server yang masih pending saat deadline dicatat
+            # sebagai gagal-anggaran (jujur) dan TIDAK ditandai host mati.
             _pending = set(_futures.keys())
             while _pending:
-                _done, _pending = _cf.wait(_pending, return_when=_cf.FIRST_COMPLETED)
+                _rem = _budget_remaining(deadline)
+                if _rem is not None and _rem <= 0:
+                    for _f in _pending:
+                        _idx = _futures.get(_f)
+                        _nm = servers_sorted[_idx]["name"] if _idx is not None else "server"
+                        errors.append(f"{_nm}: batas waktu resolve habis")
+                        _failed_servers.add(_nm)
+                    break
+                _done, _pending = _cf.wait(_pending, timeout=_rem, return_when=_cf.FIRST_COMPLETED)
                 for _f in _done:
                     _idx = _futures.get(_f)
                     try:
@@ -1590,15 +1734,15 @@ def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
         if not got.get("subtitles"):
             # 1. Coba server alternatif di mode yang sama (Cross-Server)
             alt_subs = _harvest_subtitles(servers_sorted, current_srv_name=got.get("server") or "",
-                                          slug=slug, ep=ep_no, resolved=_resolved_map)
+                                          slug=slug, ep=ep_no, resolved=_resolved_map, deadline=deadline)
             # 2. Jika masih kosong dan sedang mode DUB, pinjam dari mode SUB (Cross-Mode)
             if not alt_subs and actual_mode == "dub":
                 sub_servers = _order_servers(_parse_servers(servers_html, "sub"))
-                alt_subs = _harvest_subtitles(sub_servers, slug=slug, ep=ep_no, resolved=_resolved_map)
+                alt_subs = _harvest_subtitles(sub_servers, slug=slug, ep=ep_no, resolved=_resolved_map, deadline=deadline)
             # 3. Jika masih kosong dan sedang mode SUB, pinjam dari mode DUB sebagai cadangan
             if not alt_subs and actual_mode == "sub":
                 dub_servers = _order_servers(_parse_servers(servers_html, "dub"))
-                alt_subs = _harvest_subtitles(dub_servers, slug=slug, ep=ep_no, resolved=_resolved_map)
+                alt_subs = _harvest_subtitles(dub_servers, slug=slug, ep=ep_no, resolved=_resolved_map, deadline=deadline)
 
             if alt_subs:
                 got["subtitles"] = alt_subs["subtitles"]
@@ -1606,7 +1750,11 @@ def hianime_m3u8(episode_maps, ep_no: int, mode: str = "sub", slug: str = ""):
                 got["sub_lang"] = alt_subs.get("sub_lang")
 
         return got
-    if "dramahot.top" in last_err.lower() or "zokoanime" in last_err.lower():
+    # v55: jangan klaim blokir DPI bila SEMUA error adalah kehabisan anggaran
+    # (nama server "ZokoAnime" di pesan anggaran akan memicu cabang ini secara
+    # keliru). Kasus campuran (ada error probe asli) tetap memakai pesan DPI.
+    _all_budget = bool(errors) and all("batas waktu resolve habis" in e for e in errors)
+    if not _all_budget and ("dramahot.top" in last_err.lower() or "zokoanime" in last_err.lower()):
         # CATATAN: pesan ini dipotong 140 karakter oleh _note() di main.py —
         # tulis ringkas agar saran aksi (WARP/VPN) tidak terpotong.
         raise RuntimeError(
