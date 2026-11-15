@@ -1,9 +1,9 @@
 {
-  "version": 53,
-  "label": "VidRift statis + header player + pesan timeout",
-  "notes": "Resolver statis VidRift: shell embed ke hash orion ke manifest replayable, mirror .in bila fetch gagal atau 0 hash; percobaan statis pertama sebelum VidSrc. VidRift keluar dari loop hidden (kini 4 penyedia); bar embed 12 tidak berubah. Header player dua baris di HP sempit: judul terlihat, tombol X bulat. Pesan timeout manusiawi tanpa URL mentah. Diagnostik host dan jumlah subtitle di jalur statis. Tanpa APK baru; version.py tetap 2.30.0. Stream Orion memakai codec HEVC: pemutaran hanya terbukti di perangkat yang mendukung HEVC.",
+  "version": 54,
+  "label": "Fallback codec HEVC ke hidden loop + embed",
+  "notes": "Error codec fatal (HEVC tidak didukung perangkat) tidak lagi mentok di Memutar: jalur statis TMDB masuk rangkaian hidden (penyedia lain bisa memberi H.264) lalu tawaran embed bila habis; alasan codec dicatat jujur di ringkasan. Jalur hidden pindah penyedia langsung tanpa retry sia-sia. Jalur anime berhenti dengan pesan jujur. Tanpa APK baru; version.py tetap 2.30.0. Di perangkat dukung HEVC fallback tidak terpicu.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-53/lumio-payload.zip",
-  "sha256": "0b58c99f2b0ccef5f50efdd7dc28a425f6e400b5831c31d27f9862ab1bcb7df2",
-  "size": 1100092
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-54/lumio-payload.zip",
+  "sha256": "49de01f924c5a650ca861552090a9d964851672001651a318a76013275480095",
+  "size": 1101491
 }
