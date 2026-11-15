@@ -19,6 +19,7 @@ from api import manhwaindo as mimod
 from api import komiku as kmmod
 from api import tmdb as tmdbmod
 from api import vidsrc as vsmod
+from api import vidrift as vrmod
 from api import embed_providers as epmod
 from api import embed_subs as esmod
 import httpx
@@ -3915,19 +3916,24 @@ def _is_m3u8_url(url: str, ctype: str = "") -> bool:
 # token player VidSrc wajib segar tiap resolve — resolve segar tiap putar
 # adalah perilaku yang jujur + robust. Error per-provider jujur via
 # fail_reasons (pola v24) + dedupe prefix (v45, epmod.note_reason).
-# Failover di sini HANYA antar resolver statis (v45: baru VidSrc — provider
-# lain browser-only, jalurnya mode embed via /api/stream/embed_urls).
+# Failover di sini HANYA antar resolver statis (v53: VidRift dulu — modul
+# vidrift.py, shell embed -> hash orion -> manifest replayable — lalu
+# VidSrc; provider lain browser-only, jalurnya mode embed via
+# /api/stream/embed_urls atau loop hidden WebView di frontend).
 
 @app.get("/api/stream/resolve_movie")
 async def resolve_movie_ep(tmdb: int = Query(...)):
     try:
         fail_reasons = []
         got = None
+        got_source = ""
         loop = asyncio.get_running_loop()
-        for prov_name, fn in [("VidSrc", lambda: vsmod.resolve_movie(tmdb))]:
+        for prov_name, fn, src_key in [("VidRift", lambda: vrmod.resolve_movie(tmdb), "vidrift"),
+                                       ("VidSrc", lambda: vsmod.resolve_movie(tmdb), "vidsrc")]:
             try:
                 got = await loop.run_in_executor(None, fn)
                 if got:
+                    got_source = src_key
                     break
             except Exception as e:
                 fail_reasons.append((prov_name, epmod.note_reason(prov_name, e)))
@@ -3937,7 +3943,7 @@ async def resolve_movie_ep(tmdb: int = Query(...)):
         got["picked"] = hi.select_quality(got["variants"], "best")
         got["cached"] = False
         got["subtitles"] = got.get("subtitles") or []
-        got["source"] = "vidsrc"
+        got["source"] = got_source
         got["intro"] = got.get("intro") or {"start": 0, "end": 0}
         got["outro"] = got.get("outro") or {"start": 0, "end": 0}
         return ok(got)
@@ -3950,11 +3956,14 @@ async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), epis
     try:
         fail_reasons = []
         got = None
+        got_source = ""
         loop = asyncio.get_running_loop()
-        for prov_name, fn in [("VidSrc", lambda: vsmod.resolve_series(tmdb, season, episode))]:
+        for prov_name, fn, src_key in [("VidRift", lambda: vrmod.resolve_series(tmdb, season, episode), "vidrift"),
+                                       ("VidSrc", lambda: vsmod.resolve_series(tmdb, season, episode), "vidsrc")]:
             try:
                 got = await loop.run_in_executor(None, fn)
                 if got:
+                    got_source = src_key
                     break
             except Exception as e:
                 fail_reasons.append((prov_name, epmod.note_reason(prov_name, e)))
@@ -3964,7 +3973,7 @@ async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), epis
         got["picked"] = hi.select_quality(got["variants"], "best")
         got["cached"] = False
         got["subtitles"] = got.get("subtitles") or []
-        got["source"] = "vidsrc"
+        got["source"] = got_source
         got["intro"] = got.get("intro") or {"start": 0, "end": 0}
         got["outro"] = got.get("outro") or {"start": 0, "end": 0}
         return ok(got)

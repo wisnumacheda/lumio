@@ -24,7 +24,13 @@ publik; klaim inti VidRift terverifikasi mandiri):
 - VidRift: SATU-SATUNYA kandidat yang lolos uji replay — manifest
   /api/orion/<hash32>/master.m3u8 merespons 200 + #EXTM3U hanya dengan
   Referer URL embed, tanpa cookie (tanpa Referer -> 403); hash stabil;
-  kontrol negatif id palsu 0 stream. Masuk loop resolver PERTAMA.
+  kontrol negatif id palsu 0 stream. v52 memasukkannya ke loop resolver
+  PERTAMA, tetapi on-device 15 Nov 2026 percobaan hidden-nya GAGAL
+  ("waktu habis" — tidak ada manifest tertangkap; diduga fetch manifest
+  butuh interaksi play/ad gate). v53: VidRift di-resolve STATIS oleh
+  backend (modul vidrift.py: shell embed -> hash orion -> manifest)
+  dan KELUAR dari loop hidden — percobaan hidden-nya hanya membuang
+  anggaran. Bar embed tidak berubah (VidRift tetap #2).
 - EmbedWave / VidNest.fun / CineSrc / Vidly / Vidy / vidsrc.pk:
   embed KUAT (terdokumentasi, player in-page terbukti) tetapi TIDAK
   ADA bukti replay (sinyal session-bound: staged issue, decrypt berat,
@@ -48,13 +54,14 @@ TANPA circumvention DRM; TANPA ekstraksi kredensial/key.
 # 5 penyedia; embed-nya terbukti jalan + benar untuk Demon Slayer
 # 1311031). VidRift #2. Keenam penyedia baru #3-#8. Urutan lama
 # (VidLink/VidFast/VidRock/VidSrc) dipertahankan di belakang.
-# Field "resolver": True HANYA bila ada bukti replay (VidRift + 4 lama).
+# Field "resolver": True HANYA bila penyedia boleh masuk loop resolver
+# WebView tersembunyi (4 lama). VidRift False sejak v53: di-resolve
+# statis oleh backend (modul vidrift.py), bukan lewat hidden WebView.
 # Frontend membangun urutan loop resolver dari RESOLVER_ORDER (allowlist
 # eksplisit) — penyedia embed-only TIDAK PERNAH dipanggil resolver.
 # VidRift "mirror": domain cadangan embed.vidrift.in (perilaku identik
-# terverifikasi probe). Dipakai sebagai percobaan kedua OTOMATIS di dalam
-# satu attempt resolver VidRift bila URL utama gagal (kegagalan di sana
-# terdeteksi andal via hasil bridge); di mode embed TIDAK ada failover
+# terverifikasi probe). Dipakai modul statis vidrift.py sebagai cadangan
+# bila fetch .net gagal / 0 hash; di mode embed TIDAK ada failover
 # otomatis (deteksi gagal iframe lintas-origin tidak andal) dan TIDAK
 # ada entri bar terpisah — bila .net mati, registry dialihkan via
 # payload tanpa APK.
@@ -69,7 +76,8 @@ PROVIDERS = [
     {
         "id": "vidrift",
         "name": "VidRift",
-        "resolver": True,
+        # resolver False (v53): jalur statis backend, bukan hidden loop.
+        "resolver": False,
         # exit=1: player menampilkan tombol keluar yang mengirim
         # postMessage {type:'vidrift:exit'} (kode player terverifikasi
         # dari HTML embed); frontend menanganinya seperti tombol
@@ -160,11 +168,12 @@ PROVIDERS = [
 ]
 
 # Allowlist eksplisit loop resolver WebView tersembunyi, URUTAN RESOLVER
-# (berbeda dari urutan bar embed): VidRift pertama — bukti replay
-# Referer-only-nya terkuat dari semua penyedia yang pernah diteliti.
-# Menggantikan mekanisme denylist HIDDEN_RESOLVER_SKIP (v49-v51): hanya
-# id di daftar ini yang boleh dipanggil resolver, dalam urutan ini.
-RESOLVER_ORDER = ["vidrift", "viduki", "vidlink", "vidfast", "vidrock"]
+# (berbeda dari urutan bar embed). v53: 4 penyedia — VidRift KELUAR
+# (di-resolve statis backend; percobaan hidden-nya terbukti membuang
+# anggaran di perangkat). Menggantikan mekanisme denylist
+# HIDDEN_RESOLVER_SKIP (v49-v51): hanya id di daftar ini yang boleh
+# dipanggil resolver, dalam urutan ini.
+RESOLVER_ORDER = ["viduki", "vidlink", "vidfast", "vidrock"]
 
 
 def embed_urls(tmdb_id, media_type, season=1, episode=1):

@@ -266,9 +266,14 @@
 
   .player-box{max-width:1020px;position:relative;background:#000}
   .player-head{display:flex;align-items:center;gap:14px;padding:15px 20px;background:var(--bg2)}
-  .player-head h3{font-size:16px;font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* v53: min-width:0 agar ellipsis h3/select bekerja di dalam flex
+     (tanpanya item flex tidak mau menyusut di bawah ukuran kontennya
+     dan judul terdorong keluar baris); tombol X TIDAK BOLEH menyusut —
+     screenshot 15 Nov: X gepeng jadi elips saat kedua select tampil. */
+  .player-head h3{font-size:16px;font-weight:800;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .player-head select{background:var(--panel);color:var(--txt);border:1px solid var(--line);
-    border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;outline:none}
+    border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;outline:none;min-width:0}
+  .player-head .x{flex:0 0 auto}
   .video-wrap{position:relative;background:#000}
   .video-wrap video{width:100%;aspect-ratio:16/9;background:#000}
   /* Fullscreen: layar HP (~20:9) lebih lebar dari video 16:9. Tanpa aturan
@@ -404,6 +409,13 @@
     .ctl-btn{padding:6px 10px;font-size:12px}
     .ctl-center{width:52px;height:52px;font-size:20px}
     .ctl-mid{gap:18px}
+    /* v53: header player dua baris di layar sempit — judul SELALU
+       terlihat penuh di baris 1; baris 2 = kedua select (berbagi sisa
+       lebar) + X bulat 38px yang tidak menyusut. Tanpa ini, judul
+       terjepit hilang dan X gepeng (player anime, 2 select tampil). */
+    .player-head{flex-wrap:wrap;gap:8px 10px;padding:12px 14px}
+    .player-head h3{flex:1 1 100%;font-size:15px}
+    .player-head select{flex:1 1 0}
   }
   .next-ep{position:absolute;inset:0;z-index:7;display:grid;place-items:end center;padding:0 16px 96px;pointer-events:none}
   .next-ep.hidden{display:none}
@@ -1317,12 +1329,27 @@ async function api(path){
   const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
   try {
     const r = await fetch(path, {signal: ctrl.signal});
-    if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+    // v53: pesan error untuk USER tidak boleh memuat URL API mentah
+    // (screenshot 15 Nov: status + toast menampilkan URL resolve yang
+    // panjang). Detail teknis ke console saja; properti err.path
+    // tersedia untuk debug. Pesan backend (fail_reasons jujur) lewat
+    // jalur j.success === false di bawah TIDAK diubah.
+    if (!r.ok) {
+      const err = new Error("HTTP " + r.status + " — server mengembalikan error");
+      err.status = r.status; err.path = path;
+      console.warn("[api] HTTP error", r.status, path);
+      throw err;
+    }
     const j = await r.json();
     if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
     return j.data;
   } catch (e) {
-    if (e && e.name === "AbortError") throw new Error("Timeout " + (API_TIMEOUT_MS / 1000) + " dtk — " + path);
+    if (e && e.name === "AbortError") {
+      const err = new Error("Server tidak merespons dalam " + (API_TIMEOUT_MS / 1000) + " detik — coba lagi");
+      err.timeout = true; err.path = path;
+      console.warn("[api] timeout", path);
+      throw err;
+    }
     throw e;
   } finally { clearTimeout(timer); }
 }
@@ -1333,12 +1360,23 @@ async function apiSend(method, path, body){
   try {
     const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
       body: body ? JSON.stringify(body) : undefined, signal: ctrl.signal});
-    if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+    // v53: sama seperti api() — tanpa URL mentah di pesan user.
+    if (!r.ok) {
+      const err = new Error("HTTP " + r.status + " — server mengembalikan error");
+      err.status = r.status; err.path = path;
+      console.warn("[api] HTTP error", r.status, path);
+      throw err;
+    }
     const j = await r.json();
     if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
     return j.data;
   } catch (e) {
-    if (e && e.name === "AbortError") throw new Error("Timeout " + (API_TIMEOUT_MS / 1000) + " dtk — " + path);
+    if (e && e.name === "AbortError") {
+      const err = new Error("Server tidak merespons dalam " + (API_TIMEOUT_MS / 1000) + " detik — coba lagi");
+      err.timeout = true; err.path = path;
+      console.warn("[api] timeout", path);
+      throw err;
+    }
     throw e;
   } finally { clearTimeout(timer); }
 }
@@ -3136,13 +3174,16 @@ window.addEventListener("message", (ev) => {
    penuh, panel kualitas, subtitle). Tanpa bridge (APK lama / browser),
    perilaku lama persis: langsung tawaran embed.
    v52: urutan loop resolver BERBEDA dari urutan bar embed dan merupakan
-   ALLOWLIST eksplisit dari backend (RESOLVER_ORDER: VidRift, Viduki,
-   VidLink, VidFast, VidRock) — menggantikan denylist HIDDEN_RESOLVER_SKIP
-   v49-v51. Penyedia embed-only (EmbedWave, VidNest, CineSrc, Vidly,
-   Vidy, vidsrc.pk) dan VidSrc TIDAK PERNAH dipanggil resolver: tidak ada
-   bukti replay untuk mereka. Loop mengiterasi ctx.resolverProviders;
-   ctx.providers (daftar lengkap urutan embed) hanya dipakai untuk bar
-   embed / tawaran embed. */
+   ALLOWLIST eksplisit dari backend — menggantikan denylist
+   HIDDEN_RESOLVER_SKIP v49-v51. Penyedia embed-only (EmbedWave,
+   VidNest, CineSrc, Vidly, Vidy, vidsrc.pk) dan VidSrc TIDAK PERNAH
+   dipanggil resolver: tidak ada bukti replay untuk mereka. v53:
+   VidRift KELUAR dari allowlist (RESOLVER_ORDER kini Viduki, VidLink,
+   VidFast, VidRock) — di-resolve statis oleh backend, karena
+   percobaan hidden-nya terbukti membuang anggaran di perangkat
+   ("waktu habis", 15 Nov 2026). Loop mengiterasi
+   ctx.resolverProviders; ctx.providers (daftar lengkap urutan embed)
+   hanya dipakai untuk bar embed / tawaran embed. */
 const HIDDEN_ABORTED = {aborted: true};
 window.__lumioEmbedPending = window.__lumioEmbedPending || {};
 window.__lumioEmbedSeq = window.__lumioEmbedSeq || 0;
@@ -3233,8 +3274,9 @@ async function tryHiddenResolve(slug, ep, ctx){
      anggaran habis dicatat jujur, tidak pernah dihilangkan diam-diam.
      v52: loop mengiterasi ctx.resolverProviders (allowlist eksplisit
      backend) — BUKAN ctx.providers (daftar bar embed). Penyedia yang
-     punya mirror (VidRift) mendapat percobaan kedua ke mirror dalam
-     attempt yang sama bila URL utama gagal. */
+     punya mirror mendapat percobaan kedua ke mirror dalam attempt
+     yang sama bila URL utama gagal (v53: tidak ada penyedia loop yang
+     bermirror — mirror VidRift dipakai resolver statis backend). */
   const gen = window.__lumioEmbedGen;
   const list = ctx.resolverProviders || [];
   for (const p of list) {
@@ -3259,8 +3301,8 @@ async function tryHiddenResolve(slug, ep, ctx){
     let payload = await resolveOneHidden(p, share);
     /* v52: percobaan mirror dalam attempt yang sama — satu catatan
        attempts per penyedia; referer replay mengikuti URL yang sukses,
-       karena replay VidRift mensyaratkan Referer URL embed yang
-       menyajikan manifest. */
+       karena replay mensyaratkan Referer URL embed yang menyajikan
+       manifest. */
     if ((!payload || !payload.ok) && p.mirror && window.__lumioEmbedGen === gen) {
       const remain2 = ctx.deadline - Date.now();
       if (remain2 >= 5000) {
@@ -3641,9 +3683,14 @@ async function playTmdb(slug, ep, fromAuto){
     const opt = [...qSel.options].find(o => o.value && o.textContent.replace(/\D/g, "").includes(SETTINGS.quality));
     if (opt) { qSel.value = opt.value; window._pendingVariant = opt.value; }
   }
+  /* v53: diagnostik jalur statis sejajar jalur hidden (attachHiddenAttempt):
+     Server + Host manifest + jumlah subtitle — URL lengkap tidak pernah
+     ditampilkan. Hitungan subtitle memakai daftar hasil merge di atas. */
   const info = [];
   if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
-  if (data.source) info.push("Sumber: " + esc(data.source));
+  const diagHost = hiddenDiagHost(master);
+  if (diagHost) info.push("Host: " + esc(diagHost));
+  info.push("💬 " + (data.subtitles || []).length + " subtitle");
   setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
   skipRange = null;
   window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
