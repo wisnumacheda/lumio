@@ -1,9 +1,9 @@
 {
-  "version": 54,
-  "label": "Fallback codec HEVC ke hidden loop + embed",
-  "notes": "Error codec fatal (HEVC tidak didukung perangkat) tidak lagi mentok di Memutar: jalur statis TMDB masuk rangkaian hidden (penyedia lain bisa memberi H.264) lalu tawaran embed bila habis; alasan codec dicatat jujur di ringkasan. Jalur hidden pindah penyedia langsung tanpa retry sia-sia. Jalur anime berhenti dengan pesan jujur. Tanpa APK baru; version.py tetap 2.30.0. Di perangkat dukung HEVC fallback tidak terpicu.",
+  "version": 55,
+  "label": "Anggaran total resolve + judul player anime asli",
+  "notes": "Resolve anime kini menjawab dalam 25 detik worst-case dengan failover cepat antar server dan error jujur per-server bila jaringan menggantung; judul player anime selalu judul asli, tidak pernah slug mentah, dengan fallback Episode N bila judul belum didapat. Tanpa APK baru.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-54/lumio-payload.zip",
-  "sha256": "49de01f924c5a650ca861552090a9d964851672001651a318a76013275480095",
-  "size": 1101491
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-55/lumio-payload.zip",
+  "sha256": "fbb7176d4e6c23ee116be5ad7cc750621113732e3b7bc716989c893b1e3160e1",
+  "size": 1106458
 }
