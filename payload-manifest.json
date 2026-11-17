@@ -1,9 +1,9 @@
 {
-  "version": 55,
-  "label": "Anggaran total resolve + judul player anime asli",
-  "notes": "Resolve anime kini menjawab dalam 25 detik worst-case dengan failover cepat antar server dan error jujur per-server bila jaringan menggantung; judul player anime selalu judul asli, tidak pernah slug mentah, dengan fallback Episode N bila judul belum didapat. Tanpa APK baru.",
+  "version": 56,
+  "label": "Geser timing subtitle + semua varian trek per bahasa",
+  "notes": "Panel subtitle kini punya kontrol geser timing plus minus 0,5 dan 5 detik per judul, dan menampilkan semua varian trek tiap bahasa berkelompok agar varian yang sinkron bisa dipilih. Hitungan subtitle di status kini menghitung trek. Tanpa APK baru.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-55/lumio-payload.zip",
-  "sha256": "fbb7176d4e6c23ee116be5ad7cc750621113732e3b7bc716989c893b1e3160e1",
-  "size": 1106458
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-56/lumio-payload.zip",
+  "sha256": "b9365bcdaf50d0406d77b0297e5dab9b08e364d81ba3cd6cd2c4f70b21a00b19",
+  "size": 1108308
 }
