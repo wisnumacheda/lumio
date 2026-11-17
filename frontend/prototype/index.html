@@ -2799,7 +2799,28 @@ function ctlPanelShow(kind){
       + [["size:s", "Ukuran: Kecil"], ["size:m", "Ukuran: Sedang"], ["size:l", "Ukuran: Besar"], ["size:xl", "Ukuran: Jumbo"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("")
       + [["bg:box", "Latar: Kotak Gelap"], ["bg:thin", "Latar: Tipis"], ["bg:none", "Latar: Tanpa Kotak"]].map(([v, l]) => opt(v, l, (SETTINGS.subBg || "box") === v.slice(3))).join("")
       + [["color:putih", "Warna: Putih"], ["color:kuning", "Warna: Kuning"], ["color:cyan", "Warna: Cyan"], ["color:hijau", "Warna: Hijau"]].map(([v, l]) => opt(v, l, (SETTINGS.subColor || "putih") === v.slice(6))).join("")
-      + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
+      /* v56: geser timing — tombol nyata agar terjangkau D-pad TV; nilai
+         diperbarui di tempat oleh setSubOffset, panel tidak ditutup. */
+      + `<div class="ph">⏱️ Geser Timing (+ = subtitle lebih lambat): <span id="subOffVal">${fmtSubOffset(window._subOffset || 0)}</span></div>`
+      + [["off:-5", "−5 dtk"], ["off:-0.5", "−0,5 dtk"], ["off:+0.5", "+0,5 dtk"], ["off:+5", "+5 dtk"], ["off:reset", "Reset ke 0"]].map(([v, l]) => opt(v, l, false)).join("")
+      + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur);
+    /* v56: trek asli dikelompokkan per bahasa lengkap dengan jumlahnya
+       (pola FlyStream) bila ada kelompok bervarian; tier terjemahan
+       tetap di atas tanpa kelompok. Tanpa varian, tampilan persis
+       seperti sebelumnya (tanpa header kelompok). */
+    const tiers = subOpts.filter(o => !o.id.startsWith("raw-"));
+    const raws = subOpts.filter(o => o.id.startsWith("raw-"));
+    html += tiers.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    const groups = [];
+    raws.forEach(o => {
+      const g = groups.find(g => g.name === (o.group || o.label));
+      if (g) g.items.push(o); else groups.push({name: o.group || o.label, items: [o]});
+    });
+    const grouped = groups.some(g => g.items.length > 1);
+    groups.forEach(g => {
+      if (grouped) html += `<div class="ph">${esc(g.name)}${g.items.length > 1 ? " (" + g.items.length + ")" : ""}</div>`;
+      html += g.items.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    });
     if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
     if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
   }
@@ -2820,7 +2841,12 @@ function ctlPanelShow(kind){
     }
     else if (kind === "speed") { SETTINGS.speed = Number(v); saveSettings(); try { video.playbackRate = SETTINGS.speed; } catch (e) {} syncCtlPlay(); toast("⏩ Kecepatan: " + v + "×"); }
     else if (kind === "sub") {
-      if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
+      /* v56: geser timing — panel TETAP TERBUKA agar ketukan beruntun
+         bisa dilakukan; nilai diperbarui di tempat oleh setSubOffset.
+         showCtl() menjaga control bar tetap tampil (timer mengulang
+         selama panel terbuka). */
+      if (v.startsWith("off:")) { const arg = v.slice(4); setSubOffset(arg === "reset" ? 0 : (window._subOffset || 0) + Number(arg)); showCtl(); return; }
+      else if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
       else if (v.startsWith("bg:")) { SETTINGS.subBg = v.slice(3); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Latar subtitle diubah"); }
       else if (v.startsWith("color:")) { SETTINGS.subColor = v.slice(6); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Warna subtitle diubah"); }
       else if (v === "off") selectSubtitle(null);
@@ -2974,6 +3000,7 @@ async function playEpisode(slug, ep, fromAuto){
   if (String(slug).startsWith("tmdb:")) return playTmdb(slug, ep, fromAuto);
   const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
+  loadSubOffset(); /* v56: offset timing subtitle per judul+episode */
   histTouch(slug, ep);
   const savedHist = histGet(slug);
   window._resumePos = (savedHist && savedHist.ep === ep && savedHist.pos > 15 && (!savedHist.dur || savedHist.pos < savedHist.dur - 20)) ? savedHist.pos : 0;
@@ -3772,6 +3799,7 @@ async function playTmdb(slug, ep, fromAuto){
   const t = parseTmdbSlug(slug);
   if (!t) return;
   window._curSlug = slug; window._curEp = ep;
+  loadSubOffset(); /* v56: offset timing subtitle per judul+episode */
   histTouch(slug, ep);
   const savedHist = histGet(slug);
   window._resumePos = (savedHist && savedHist.ep === ep && savedHist.pos > 15 && (!savedHist.dur || savedHist.pos < savedHist.dur - 20)) ? savedHist.pos : 0;
@@ -4024,13 +4052,48 @@ function parseVttCues(vtt){
   }
   return out;
 }
+/* v56: geser timing subtitle per judul+episode. KONVENSI TANDA: offset
+   +X dtk berarti subtitle muncul X detik LEBIH LAMBAT (untuk subtitle
+   yang kecepetan); offset −X dtk berarti lebih cepat (untuk yang telat).
+   Diterapkan pada WAKTU BANDING di renderSubOverlay, BUKAN dengan
+   mengubah cue — sehingga bertahan saat cue diganti mesin progresif,
+   saat ganti trek, seek, dan pause. Cap ±30 dtk. Disimpan per
+   judul+episode (kunci slug#ep, pola yang sama dengan _resumeKey) —
+   tidak pernah global, tidak bocor antar judul. */
+const SUB_OFFSET_KEY = "lumio_suboffset_v1";
+const SUB_OFFSET_CAP = 30;
+window._subOffset = 0;
+function subOffsetKey(slug, ep){ return (slug || "") + "#" + (ep || 0); }
+function loadSubOffset(){
+  try {
+    const m = JSON.parse(localStorage.getItem(SUB_OFFSET_KEY) || "{}");
+    const v = Number(m[subOffsetKey(window._curSlug, window._curEp)] || 0);
+    window._subOffset = Math.max(-SUB_OFFSET_CAP, Math.min(SUB_OFFSET_CAP, v || 0));
+  } catch (e) { window._subOffset = 0; }
+}
+function saveSubOffset(){
+  try {
+    const m = JSON.parse(localStorage.getItem(SUB_OFFSET_KEY) || "{}");
+    const k = subOffsetKey(window._curSlug, window._curEp);
+    if (!window._subOffset) delete m[k]; else m[k] = window._subOffset;
+    localStorage.setItem(SUB_OFFSET_KEY, JSON.stringify(m));
+  } catch (e) {}
+}
+function fmtSubOffset(v){ return ((v > 0 ? "+" : "") + String(v).replace(".", ",")) + " dtk"; }
+function setSubOffset(v){
+  window._subOffset = Math.max(-SUB_OFFSET_CAP, Math.min(SUB_OFFSET_CAP, Math.round(v * 2) / 2));
+  saveSubOffset();
+  window._subCueText = "__init__"; renderSubOverlay();
+  const el = $("#subOffVal"); if (el) el.textContent = fmtSubOffset(window._subOffset);
+}
 function setSubCues(vtt){ window._subCues = parseVttCues(vtt); window._subCueText = "__init__"; renderSubOverlay(); }
 function clearSubCues(){ window._subCues = null; window._subCueText = "__init__"; const ov = $("#subOverlay"); if (ov) ov.classList.add("hidden"); }
 function renderSubOverlay(){
   const ov = $("#subOverlay"); if (!ov) return;
   const cues = window._subCues;
   if (!cues || !cues.length) { ov.classList.add("hidden"); window._subCueText = ""; return; }
-  const t = video.currentTime || 0;
+  /* v56: waktu efektif = waktu video − offset (offset + = subtitle lebih lambat). */
+  const t = (video.currentTime || 0) - (window._subOffset || 0);
   let lo = 0, hi = cues.length - 1, cur = null;
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (cues[mid].start <= t) { cur = cues[mid]; lo = mid + 1; } else hi = mid - 1; }
   const txt = (cur && t <= cur.end) ? cur.text : "";
@@ -4123,9 +4186,17 @@ async function attachSubtitle(data, referer){
     opts.push({id: "id-gtxplus", label: "Indonesia (GTX+ — Smart Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx+"), srcTrack.referer)});
     opts.push({id: "id-ai", label: "Indonesia (AI Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("ai"), srcTrack.referer)});
   }
+  /* v56: semua varian per bahasa terdaftar (backend tidak lagi mendupe).
+     Label varian dari nomor varian backend (berasal dari nama berkas
+     respons rezesubs, BUKAN nama rilis): varian 1 tanpa akhiran, varian
+     N>1 berakhiran " (N)". `group` = label dasar untuk pengelompokan
+     panel. Trek tanpa nomor varian (jalur anime) berperilaku seperti
+     sebelumnya: varian 1, tanpa akhiran. */
   subs.forEach((s, i) => {
     const isId = (s.lang || "").startsWith("id");
-    opts.push({id: "raw-" + i, label: isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1))), srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url, "", s.referer)});
+    const variant = Number(s.variant || 1);
+    const base = isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1)));
+    opts.push({id: "raw-" + i, label: variant > 1 ? base + " (" + variant + ")" : base, group: base, variant, srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url, "", s.referer)});
   });
   window._subOptions = opts;
   let def = null;

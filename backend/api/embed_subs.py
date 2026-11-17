@@ -28,6 +28,7 @@ tidak pernah melempar.
 """
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -175,12 +176,28 @@ def _viduki_referer(tmdb_id, media_type, season, episode):
     return ""
 
 
-def fetch_embed_subtitles(tmdb_id, media_type, season=1, episode=1):
-    """Kembalikan [{label, lang, url, referer}] atau [] (gagal apa pun).
+def _variant_no(file_name):
+    """Nomor varian dari nama berkas respons rezesubs (v56).
 
-    Dedupe: trek pertama per kode bahasa (berkas dasar "{lang}.vtt" selalu
-    terdaftar sebelum varian "{lang}_N.vtt") agar panel subtitle tidak
-    dibanjiri puluhan varian bahasa yang sama.
+    Berkas dasar "{lang}.vtt" adalah varian 1; "{lang}_N.vtt" adalah varian
+    N+1. Angka ini berasal dari data respons semata — BUKAN nama rilis
+    (rezesubs tidak menyertakan nama rilis). Berkas tanpa pola "_N" di
+    ujung dianggap varian 1.
+    """
+    m = re.search(r"_(\d+)\.vtt$", (file_name or "").strip())
+    return int(m.group(1)) + 1 if m else 1
+
+
+def fetch_embed_subtitles(tmdb_id, media_type, season=1, episode=1):
+    """Kembalikan [{label, lang, url, referer, variant, file}] atau [].
+
+    v56: SEMUA trek dikembalikan (dedupe per bahasa v50 dihapus) — trek
+    rezesubs dicocokkan per judul, bukan per rilis file video, sehingga
+    timing tiap varian bisa berbeda dan pengguna butuh pilihan varian
+    lain bila satu varian tidak sinkron. `variant` dinomori per nama
+    bahasa mentah dari respons (lihat _variant_no); bila dua entri
+    berbahasa sama menghasilkan nomor varian yang sama, nomor berikutnya
+    yang bebas dipakai agar label panel tetap unik. Gagal apa pun -> [].
     """
     try:
         tmdb_id = int(tmdb_id)
@@ -214,7 +231,7 @@ def fetch_embed_subtitles(tmdb_id, media_type, season=1, episode=1):
         if not isinstance(subs, list):
             _CACHE[key] = (now, [])
             return []
-        seen = set()
+        used_variants = {}
         for s in subs:
             if not isinstance(s, dict):
                 continue
@@ -225,11 +242,14 @@ def fetch_embed_subtitles(tmdb_id, media_type, season=1, episode=1):
             if not url.startswith("http"):
                 url = _REZE_BASE + url
             code, label = _map_lang(lang_raw)
-            if code in seen:
-                continue
-            seen.add(code)
+            variant = _variant_no(s.get("file"))
+            taken = used_variants.setdefault(lang_raw.lower(), set())
+            while variant in taken:
+                variant += 1
+            taken.add(variant)
             out.append({"label": label, "lang": code, "url": url,
-                        "referer": referer})
+                        "referer": referer, "variant": variant,
+                        "file": (s.get("file") or "").strip()})
     except Exception:
         return []
     _CACHE[key] = (now, [dict(s) for s in out])
