@@ -1,9 +1,9 @@
 {
-  "version": 56,
-  "label": "Geser timing subtitle + semua varian trek per bahasa",
-  "notes": "Panel subtitle kini punya kontrol geser timing plus minus 0,5 dan 5 detik per judul, dan menampilkan semua varian trek tiap bahasa berkelompok agar varian yang sinkron bisa dipilih. Hitungan subtitle di status kini menghitung trek. Tanpa APK baru.",
+  "version": 57,
+  "label": "Status jujur resolve + autoEligible per penyedia",
+  "notes": "Resolve TMDB kini jujur soal sebagian dan sibuk: status partial tampil saat sebagian penyedia gagal, dan saat server sibuk tampil countdown lalu tombol Coba lagi. Penyedia yang dua kali gagal sesi ini dilewati otomatis di loop hidden, tapi tombol Server lain tetap bisa mencobanya. Tanpa APK baru.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-56/lumio-payload.zip",
-  "sha256": "b9365bcdaf50d0406d77b0297e5dab9b08e364d81ba3cd6cd2c4f70b21a00b19",
-  "size": 1108308
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-57/lumio-payload.zip",
+  "sha256": "ddcd1a86f5344410ac29eecc7bf2e7c64642c2e0d9f91868adec4603d48e0e05",
+  "size": 1111408
 }
