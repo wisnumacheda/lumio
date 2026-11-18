@@ -3978,6 +3978,50 @@ def _is_m3u8_url(url: str, ctype: str = "") -> bool:
 # VidSrc; provider lain browser-only, jalurnya mode embed via
 # /api/stream/embed_urls atau loop hidden WebView di frontend).
 
+# --- Status jujur resolve TMDB (payload v57, pola FlyStream) ---
+# Sukses: partial=true bila stream didapat setelah >=1 provider gagal
+# (fail_reasons ikut disertakan); sukses bersih = partial=false.
+# Semua-gagal: busy=true + retry_after_ms=15000 bila >=1 kegagalan
+# bersignature transient (timeout / 5xx / error koneksi, dikenali dari
+# string error yang sudah ada — tanpa panggilan provider baru); bila
+# tidak ada signature transient, busy=false + retry_after_ms=0. Pesan
+# per-provider yang sudah ada dipertahankan apa adanya.
+_TRANSIENT_SIGNS = (
+    "timeout", "timed out", "waktu habis", "connection", "connect error",
+    "connecterror", "service unavailable", "bad gateway",
+    "gateway timeout", "temporarily", "unavailable", "reset by peer",
+    "refused", "network", "dns", "eof", "remote end closed",
+    "max retries", "temporary failure", "ssl error", "read error",
+)
+_TRANSIENT_HTTP = ("http 500", "http 502", "http 503", "http 504",
+                   " 500 ", " 502 ", " 503 ", " 504 ",
+                   "status 500", "status 502", "status 503", "status 504")
+
+
+def _is_transient_reason(reason):
+    low = " " + str(reason or "").lower() + " "
+    if any(sign in low for sign in _TRANSIENT_SIGNS):
+        return True
+    return any(code in low for code in _TRANSIENT_HTTP)
+
+
+def _tmdb_fail_payload(fail_reasons):
+    return [{"provider": p, "reason": r} for p, r in fail_reasons]
+
+
+def _tmdb_all_failed(fail_reasons):
+    parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
+    msg = "Semua sumber gagal — " + "; ".join(parts)
+    busy = any(_is_transient_reason(alasan) for _, alasan in fail_reasons)
+    return JSONResponse({
+        "success": False,
+        "error": msg,
+        "busy": busy,
+        "retry_after_ms": 15000 if busy else 0,
+        "fail_reasons": _tmdb_fail_payload(fail_reasons),
+    }, status_code=200)
+
+
 @app.get("/api/stream/resolve_movie")
 async def resolve_movie_ep(tmdb: int = Query(...)):
     try:
@@ -3995,12 +4039,13 @@ async def resolve_movie_ep(tmdb: int = Query(...)):
             except Exception as e:
                 fail_reasons.append((prov_name, epmod.note_reason(prov_name, e)))
         if not got:
-            parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
-            raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
+            return _tmdb_all_failed(fail_reasons)
         got["picked"] = hi.select_quality(got["variants"], "best")
         got["cached"] = False
         got["subtitles"] = got.get("subtitles") or []
         got["source"] = got_source
+        got["partial"] = bool(fail_reasons)
+        got["fail_reasons"] = _tmdb_fail_payload(fail_reasons)
         got["intro"] = got.get("intro") or {"start": 0, "end": 0}
         got["outro"] = got.get("outro") or {"start": 0, "end": 0}
         return ok(got)
@@ -4025,12 +4070,13 @@ async def resolve_series_ep(tmdb: int = Query(...), season: int = Query(1), epis
             except Exception as e:
                 fail_reasons.append((prov_name, epmod.note_reason(prov_name, e)))
         if not got:
-            parts = [f"{prov}: {alasan}" for prov, alasan in fail_reasons]
-            raise RuntimeError("Semua sumber gagal — " + "; ".join(parts))
+            return _tmdb_all_failed(fail_reasons)
         got["picked"] = hi.select_quality(got["variants"], "best")
         got["cached"] = False
         got["subtitles"] = got.get("subtitles") or []
         got["source"] = got_source
+        got["partial"] = bool(fail_reasons)
+        got["fail_reasons"] = _tmdb_fail_payload(fail_reasons)
         got["intro"] = got.get("intro") or {"start": 0, "end": 0}
         got["outro"] = got.get("outro") or {"start": 0, "end": 0}
         return ok(got)

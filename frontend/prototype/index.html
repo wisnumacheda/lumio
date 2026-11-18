@@ -1341,7 +1341,16 @@ async function api(path){
       throw err;
     }
     const j = await r.json();
-    if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
+    /* v57: teruskan field status jujur resolve TMDB (busy / retry_after_ms /
+       fail_reasons) sebagai properti Error — hanya dibaca jalur playTmdb;
+       endpoint lain tidak mengirim field ini sehingga perilaku lama utuh. */
+    if (j && j.success === false) {
+      const err = new Error(j.message || j.error || "API mengembalikan error");
+      if (typeof j.busy === "boolean") err.busy = j.busy;
+      if (typeof j.retry_after_ms === "number") err.retryAfterMs = j.retry_after_ms;
+      if (Array.isArray(j.fail_reasons)) err.failReasons = j.fail_reasons;
+      throw err;
+    }
     return j.data;
   } catch (e) {
     if (e && e.name === "AbortError") {
@@ -2579,6 +2588,9 @@ function setServerCtlVisible(show){
   ["#serverSel", "#ctlServerBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
 }
 function stopPlayer(){
+  /* v57: hentikan countdown retry sibuk (bila ada) — tawaran embed yang
+     lahir setelah stopPlayer memulai countdown-nya sendiri. */
+  if (typeof clearBusyRetry === "function") clearBusyRetry();
   cancelHiddenResolve();
   /* v50: lucuti guard hidden-resolver + konteks rangkaian. */
   clearHiddenGuard();
@@ -2881,7 +2893,7 @@ $("#ctlCycleBtn").addEventListener("click", () => {
   const ctx = window._hiddenCtx;
   if (!ctx || ctx.advancing) return;
   toast("🔄 Mencoba penyedia berikutnya…");
-  hiddenAdvance(ctx, "diganti manual");
+  hiddenAdvance(ctx, "diganti manual", {manual: true}); /* v57: manual boleh mencoba penyedia auto-ineligible */
 });
 $("#ctlQualityBtn").addEventListener("click", () => ctlPanelShow("quality"));
 $("#ctlSubBtn").addEventListener("click", () => ctlPanelShow("sub"));
@@ -3197,20 +3209,61 @@ function exitEmbedMode(){
      mem-pause dan trailing syncAwake-nya menutup ke false. */
   syncAwake();
 }
+/* ---- Status sibuk + retry (payload v57, pola FlyStream) ----
+   Bila kegagalan bersignature transient (busy), tawaran embed tetap
+   tampil seperti biasa DITAMBAH baris countdown: tombol "Coba lagi"
+   aktif setelah retry_after_ms dan menjalankan resolve YANG SAMA
+   (playTmdb untuk slug/episode yang sama, bukan judul baru).
+   Countdown TIDAK PERNAH menjadi gate bagi tawaran embed. */
+window._busyRetryTimer = window._busyRetryTimer || null;
+function clearBusyRetry(){
+  if (window._busyRetryTimer) { clearInterval(window._busyRetryTimer); window._busyRetryTimer = null; }
+}
+function startBusyCountdown(totalMs, slug, ep){
+  clearBusyRetry();
+  const endAt = Date.now() + Math.max(0, totalMs);
+  const tick = () => {
+    const btn = $("#btnBusyRetry"), cnt = $("#busyCount");
+    if (!btn || !cnt) { clearBusyRetry(); return; }
+    const remain = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+    if (remain <= 0) {
+      cnt.textContent = "0 detik";
+      btn.disabled = false;
+      const lbl = $("#busyLabel");
+      if (lbl) lbl.textContent = "Server sibuk — bisa coba lagi sekarang: ";
+      clearBusyRetry();
+      return;
+    }
+    cnt.textContent = remain + " detik";
+  };
+  tick();
+  window._busyRetryTimer = setInterval(tick, 500);
+}
 function renderEmbedOffer(){
   const o = window._embedOffer; if (!o) return;
-  setPlayerStatus(`❌ Gagal menyelesaikan stream: ${esc(o.errMsg)}<br><span class="embed-offer">Jalan lain: <button class="btn btn-play" id="btnEmbedMode" type="button">▶ Putar via embed</button> <span class="embed-note">subtitle & kualitas Lumio tidak berlaku di mode embed</span></span>`);
+  clearBusyRetry();
+  let html = `❌ Gagal menyelesaikan stream: ${esc(o.errMsg)}<br><span class="embed-offer">Jalan lain: <button class="btn btn-play" id="btnEmbedMode" type="button">▶ Putar via embed</button> <span class="embed-note">subtitle & kualitas Lumio tidak berlaku di mode embed</span></span>`;
+  if (o.busy && o.retryAfterMs > 0) {
+    html += `<br><span class="busy-retry"><span id="busyLabel">Server sibuk — coba lagi dalam </span><b id="busyCount"></b> <button class="btn btn-play" id="btnBusyRetry" type="button" disabled>🔄 Coba lagi</button></span>`;
+  }
+  setPlayerStatus(html);
   const b = $("#btnEmbedMode");
   if (b) {
     b.addEventListener("click", () => enterEmbedMode(o.slug, o.ep, o.providers));
     if (typeof IS_TV !== "undefined" && IS_TV && typeof tvSetFocus === "function") tvSetFocus(b);
   }
+  const rb = $("#btnBusyRetry");
+  if (rb) {
+    rb.addEventListener("click", () => { clearBusyRetry(); playTmdb(o.slug, o.ep, true); });
+    startBusyCountdown(o.retryAfterMs, o.slug, o.ep);
+  }
 }
-async function offerEmbedMode(slug, ep, errMsg, knownProviders){
+async function offerEmbedMode(slug, ep, errMsg, knownProviders, busyInfo){
   /* v51: pakai daftar penyedia yang SUDAH diketahui bila ada — fetch ulang
      di sini bisa gagal (tawaran embed lalu hilang dan toast menampilkan
      ringkasan panjang yang terpotong), padahal rangkaian hidden sudah
-     memegang daftarnya. */
+     memegang daftarnya. v57: busyInfo opsional {busy, retryAfterMs} untuk
+     baris countdown retry — tanpa itu, tawaran tampil persis seperti dulu. */
   const providers = (knownProviders && knownProviders.length)
     ? knownProviders
     : (await fetchEmbedProviders(slug, ep)).providers;
@@ -3220,7 +3273,9 @@ async function offerEmbedMode(slug, ep, errMsg, knownProviders){
     toast("Stream gagal dimuat — tidak ada penyedia embed", true);
     return;
   }
-  window._embedOffer = {slug, ep, providers, errMsg};
+  window._embedOffer = {slug, ep, providers, errMsg,
+    busy: !!(busyInfo && busyInfo.busy),
+    retryAfterMs: (busyInfo && busyInfo.retryAfterMs) || 0};
   renderEmbedOffer();
   toast("Stream gagal dimuat — mode embed tersedia", true);
 }
@@ -3346,6 +3401,34 @@ function buildResolverProviders(fetched){
   });
   return out;
 }
+/* ---- Kesehatan penyedia per-SESI (payload v57, pola autoEligible) ----
+   In-memory saja (window, TANPA localStorage): penyedia yang gagal
+   dengan replay-timeout ("waktu habis") atau stall ("macet") DUA KALI
+   dalam sesi menjadi auto-ineligible — loop otomatis melewatinya
+   (dicatat jujur di attempts), tapi tombol manual "Server lain" tetap
+   bisa mencobanya satu kali (flag allowIneligibleOnce per rangkaian).
+   Sukses parse menghapus hitungan gagalnya. Bila SEMUA penyedia tersisa
+   auto-ineligible, loop tetap mencoba semuanya (fail-open) dan mencatatnya. */
+window._providerHealth = window._providerHealth || {};
+function providerFailCount(id){ return (window._providerHealth && window._providerHealth[id]) || 0; }
+function isAutoIneligible(id){ return providerFailCount(id) >= 2; }
+function recordProviderFailure(id, label){
+  if (!id) return;
+  const l = String(label || "");
+  if (l.indexOf("waktu habis") === -1 && l.indexOf("macet") === -1) return;
+  window._providerHealth[id] = providerFailCount(id) + 1;
+}
+function clearProviderFailures(id){ if (id && window._providerHealth) delete window._providerHealth[id]; }
+/* v57: info sibuk untuk tawaran embed dari sebuah ctx hidden — gabungan
+   sinyal busy resolve statis (bila ada) dan >=1 attempt timeout. */
+function busyInfoForCtx(ctx){
+  const attempts = (ctx && ctx.attempts) || [];
+  const hasTimeout = attempts.some(a => String((a && a.label) || "").indexOf("waktu habis") !== -1);
+  const sb = ctx && ctx.staticBusy;
+  if (sb && sb.busy) return {busy: true, retryAfterMs: sb.retryAfterMs || 15000};
+  if (hasTimeout) return {busy: true, retryAfterMs: 15000};
+  return null;
+}
 async function tryHiddenResolve(slug, ep, ctx){
   /* v50: satu rangkaian resolve dengan ctx bersama {resolverProviders,
      skip, deadline, attempts}. Mengembalikan data sintetis siap jalur
@@ -3364,17 +3447,44 @@ async function tryHiddenResolve(slug, ep, ctx){
      bermirror — mirror VidRift dipakai resolver statis backend). */
   const gen = window.__lumioEmbedGen;
   const list = ctx.resolverProviders || [];
+  /* v57 fail-open: bila SEMUA penyedia tersisa auto-ineligible, loop tetap
+     mencoba semuanya berurutan (seperti sebelum v57) dan mencatatnya
+     sekali per rangkaian — jangan sampai kesehatan sesi membuat loop
+     kosong total. */
+  const _untriedEntry = list.filter(q => !ctx.skip.has(q.id) && !(ctx.autoSkipped && ctx.autoSkipped.has(q.id)));
+  const failOpen = _untriedEntry.length > 0 && _untriedEntry.every(q => isAutoIneligible(q.id));
+  if (failOpen && !ctx.failOpenNoted) {
+    ctx.failOpenNoted = true;
+    ctx.attempts.push({name: "Fail-open", label: "semua penyedia auto-ineligible — tetap dicoba berurutan"});
+  }
   for (const p of list) {
     if (ctx.skip.has(p.id)) continue;
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    /* v57 auto-skip: penyedia auto-ineligible dilewati loop otomatis dan
+       dicatat di ctx.autoSkipped (BUKAN ctx.skip) agar tombol manual
+       "Server lain" tetap bisa mencobanya lewat allowIneligibleOnce. */
+    if (ctx.autoSkipped && ctx.autoSkipped.has(p.id)) {
+      if (ctx.allowIneligibleOnce) { ctx.autoSkipped.delete(p.id); ctx.allowIneligibleOnce = false; }
+      else continue;
+    } else if (!failOpen && isAutoIneligible(p.id)) {
+      if (ctx.allowIneligibleOnce) { ctx.allowIneligibleOnce = false; }
+      else {
+        if (!ctx.autoSkipped) ctx.autoSkipped = new Set();
+        ctx.autoSkipped.add(p.id);
+        ctx.attempts.push({name: p.name || p.id, label: "dilewati otomatis (2x gagal sesi ini)"});
+        continue;
+      }
+    }
     const untried = list.filter(q => !ctx.skip.has(q.id)).length;
     const remain = ctx.deadline - Date.now();
     if (remain < 5000) {
       /* Anggaran resolve habis: catat SEMUA penyedia tersisa secara jujur
          agar ringkasan menyebut mereka (bug v50: VidRock tidak pernah
-         disebut di ringkasan GoT S4E5 padahal belum dicoba). */
+         disebut di ringkasan GoT S4E5 padahal belum dicoba). Yang sudah
+         dicatat sebagai auto-skip tidak dicatat dua kali. */
+      ctx.allowIneligibleOnce = false;
       for (const q of list) {
-        if (ctx.skip.has(q.id)) continue;
+        if (ctx.skip.has(q.id) || (ctx.autoSkipped && ctx.autoSkipped.has(q.id))) continue;
         ctx.skip.add(q.id);
         ctx.attempts.push({name: q.name || q.id, label: "terlewat (waktu habis)"});
       }
@@ -3412,8 +3522,9 @@ async function tryHiddenResolve(slug, ep, ctx){
       };
     }
     const err = (payload && payload.error) || "tidak menemukan stream";
-    ctx.attempts.push({name: p.name || p.id,
-      label: err === "timeout" ? "waktu habis" : "tidak menemukan stream"});
+    const failLabel = err === "timeout" ? "waktu habis" : "tidak menemukan stream";
+    ctx.attempts.push({name: p.name || p.id, label: failLabel});
+    recordProviderFailure(p.id, failLabel); /* v57: hanya "waktu habis" yang dihitung */
   }
   return null;
 }
@@ -3521,6 +3632,7 @@ function attachHiddenAttempt(data, ctx, t, ep){
     const failAttempt = (label) => {
       if (settled) return;
       ctx.attempts.push({name: data._hiddenProvider || "penyedia", label});
+      recordProviderFailure(data._hiddenProviderId, label); /* v57: hanya "waktu habis" yang dihitung */
       done({outcome: "failed"});
     };
     guard.timer = setInterval(() => {
@@ -3623,6 +3735,7 @@ async function runHiddenLoop(ctx){
       }
     }
     ctx.lastProvider = data._hiddenProvider || "";
+    ctx.lastProviderId = data._hiddenProviderId || ""; /* v57: id untuk kesehatan sesi */
     /* v51: waktu guard replay (grace 20 dtk / stall) BUKAN waktu resolve —
        kembalikan ke anggaran supaya tidak memakan giliran penyedia
        tersisa (akar bug v50: deadline 60 dtk habis dimakan 2× guard
@@ -3631,20 +3744,29 @@ async function runHiddenLoop(ctx){
     const res = await attachHiddenAttempt(data, ctx, ctx.t, ctx.ep);
     ctx.deadline += Math.max(0, Date.now() - guardT0);
     if (res.outcome === "aborted") return HIDDEN_ABORTED;
-    if (res.outcome === "parsed") { updateCycleBtn(); return true; }
+    if (res.outcome === "parsed") {
+      clearProviderFailures(data._hiddenProviderId); /* v57: sukses menghapus hitungan gagal */
+      updateCycleBtn();
+      return true;
+    }
     clearHiddenGuard();
     teardownHiddenAttempt();
     updateCycleBtn();
   }
 }
-async function hiddenAdvance(ctx, label){
+async function hiddenAdvance(ctx, label, opts){
   /* Guard latar (stall/error-limit) atau tombol "Server lain": catat
      penyedia berjalan, teardown, jalankan rangkaian berikutnya; bila habis,
-     tawarkan embed dengan ringkasan diagnostik. Single-flight. */
+     tawarkan embed dengan ringkasan diagnostik. Single-flight.
+     v57: opts.manual (hanya dari tombol) mengizinkan SATU percobaan ke
+     penyedia auto-ineligible; advance dari guard selalu membersihkan flag
+     itu. Kegagalan stall dicatat ke kesehatan sesi. */
   if (!ctx || window._hiddenCtx !== ctx || ctx.advancing) return;
   ctx.advancing = true;
+  ctx.allowIneligibleOnce = !!(opts && opts.manual);
   try {
     if (ctx.lastProvider) ctx.attempts.push({name: ctx.lastProvider, label});
+    recordProviderFailure(ctx.lastProviderId, label); /* v57: hanya "macet"/"waktu habis" yang dihitung */
     const gen = window.__lumioEmbedGen;
     clearHiddenGuard();
     teardownHiddenAttempt();
@@ -3656,7 +3778,7 @@ async function hiddenAdvance(ctx, label){
     if (!started) {
       const msg = hiddenSummary(ctx);
       stopPlayer();
-      await offerEmbedMode(ctx.slug, ctx.ep, msg, ctx.providers);
+      await offerEmbedMode(ctx.slug, ctx.ep, msg, ctx.providers, busyInfoForCtx(ctx));
     }
   } finally {
     ctx.advancing = false;
@@ -3766,19 +3888,24 @@ async function upgradeAnimePlayerTitle(slug, ep){
    dibatalkan, true bila sebuah stream berhasil parse (guard latar
    mengambil alih), false bila semua habis (tawaran embed sudah
    ditampilkan). */
-async function startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, preAttempts){
+async function startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, preAttempts, staticBusy){
   const fetched = await fetchEmbedProviders(slug, ep);
   const ctx = {
     slug, ep, t,
     providers: fetched.providers,
     resolverProviders: buildResolverProviders(fetched),
     skip: new Set(),
+    autoSkipped: new Set(), /* v57: auto-skip kesehatan sesi (terpisah dari skip) */
+    allowIneligibleOnce: false, /* v57: sekali pakai, hanya dari tombol manual */
+    failOpenNoted: false, /* v57: catatan fail-open sekali per rangkaian */
+    staticBusy: staticBusy || null, /* v57: sinyal busy resolve statis */
     deadline: Date.now() + 60000,
     attempts: (preAttempts || []).slice(),
     lookedUpSubs: subsLookedUp || [],
     subsAttached: false,
     advancing: false,
-    lastProvider: ""
+    lastProvider: "",
+    lastProviderId: ""
   };
   window._hiddenCtx = ctx;
   const started = await runHiddenLoop(ctx);
@@ -3786,7 +3913,7 @@ async function startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, preAttempts){
   if (!started) {
     const msg = hiddenSummary(ctx);
     stopPlayer();
-    await offerEmbedMode(slug, ep, msg, ctx.providers);
+    await offerEmbedMode(slug, ep, msg, ctx.providers, busyInfoForCtx(ctx));
     return false;
   }
   return true;
@@ -3821,6 +3948,7 @@ async function playTmdb(slug, ep, fromAuto){
     : `/api/stream/resolve_series?tmdb=${t.id}&season=${window._tmdbSeason || 1}&episode=${ep}`;
   let data = null;
   let staticErr = "";
+  let staticBusy = null; /* v57: sinyal busy resolve statis (R1) */
   try {
     data = await Promise.race([
       api(resolveUrl),
@@ -3828,17 +3956,18 @@ async function playTmdb(slug, ep, fromAuto){
     ]);
   } catch (e) {
     staticErr = (e && e.message) || String(e);
+    if (e && e.busy) staticBusy = {busy: true, retryAfterMs: e.retryAfterMs || 15000};
   }
   let master = (data && (data.master || (data.picked && data.picked.url))) || "";
   const subsLookedUp = await subsPromise;
   /* v49/v50: resolve statis gagal -> rangkaian hidden WebView (bila bridge
      ada). Loop + guard latar mengambil alih sampai putar atau habis. */
   if (!master && hiddenResolverAvailable()) {
-    await startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, null);
+    await startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, null, staticBusy);
     return;
   }
   if (!master) {
-    await offerEmbedMode(slug, ep, staticErr || "Server tidak mengembalikan URL stream untuk judul ini.");
+    await offerEmbedMode(slug, ep, staticErr || "Server tidak mengembalikan URL stream untuk judul ini.", undefined, staticBusy);
     return;
   }
   /* Jalur statis: gabungkan subtitle hasil lookup (dedupe per URL). */
@@ -3872,6 +4001,13 @@ async function playTmdb(slug, ep, fromAuto){
   const diagHost = hiddenDiagHost(master);
   if (diagHost) info.push("Host: " + esc(diagHost));
   info.push("💬 " + (data.subtitles || []).length + " subtitle");
+  /* v57: partial — stream didapat setelah >=1 penyedia statis gagal;
+     tampilkan nama yang gagal saja (dari fail_reasons), tanpa alasan
+     mentah (bisa memuat URL) dan tanpa URL apa pun. */
+  if (data.partial) {
+    const failedNames = (data.fail_reasons || []).map(f => f && f.provider).filter(Boolean);
+    info.push("⚠ Sebagian penyedia gagal" + (failedNames.length ? ": " + esc(failedNames.join(", ")) : ""));
+  }
   setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
   skipRange = null;
   window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
