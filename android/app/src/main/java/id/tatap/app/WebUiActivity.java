@@ -204,6 +204,10 @@ public class WebUiActivity extends Activity {
     }
 
     /** Jembatan JS -> native: unduh & pasang APK update (dari banner UI web). */
+    /** Spike Fase 0 — request code untuk PlayerActivity yang diluncurkan
+     * dari WebView (bridge playNative). */
+    private static final int REQ_NATIVE_PLAYER = 9001;
+
     public class UpdateBridge {
         /** Mode TV: dipakai layer web (?tv=1 sudah disetel saat load) sebagai
          * sinyal kedua bila query hilang (mis. navigasi internal). */
@@ -306,6 +310,38 @@ public class WebUiActivity extends Activity {
         public void cancelEmbedResolve(final String requestId) {
             handler.post(() -> {
                 if (embedResolver != null) embedResolver.cancel(requestId);
+            });
+        }
+
+        /** Spike Fase 0 — player native: buka PlayerActivity dengan session
+         * JSON {master, referer, title, slug, episode, speed, resumePosSec}.
+         * Hasil kembali lewat onActivityResult →
+         * window.__lumioNativePlayerResult(result). Asinkron: metode ini
+         * langsung kembali; hasilnya datang lewat callback. */
+        @JavascriptInterface
+        public void playNative(final String sessionJson) {
+            handler.post(() -> {
+                try {
+                    if (sessionJson == null || sessionJson.isEmpty()) return;
+                    JSONObject s = new JSONObject(sessionJson);
+                    if (!s.has("master") || s.optString("master").isEmpty()) return;
+                    Intent it = new Intent(WebUiActivity.this, PlayerActivity.class);
+                    it.putExtra("sessionJson", sessionJson);
+                    startActivityForResult(it, REQ_NATIVE_PLAYER);
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
+        /** Spike Fase 0 — tutup PlayerActivity yang diluncurkan playNative
+         * (menguji U-5: finishActivity(requestCode)). */
+        @JavascriptInterface
+        public void cancelNativePlay() {
+            handler.post(() -> {
+                try {
+                    finishActivity(REQ_NATIVE_PLAYER);
+                } catch (Exception ignored) {
+                }
             });
         }
     }
@@ -701,6 +737,22 @@ public class WebUiActivity extends Activity {
                     });
         } else {
             finish();
+        }
+    }
+
+    /** Spike Fase 0 — hasil dari PlayerActivity (bridge playNative) diteruskan
+     * ke UI web sebagai window.__lumioNativePlayerResult(resultJson). */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_NATIVE_PLAYER && web != null && !isFinishing() && !isDestroyed()) {
+            try {
+                String rj = (data != null) ? data.getStringExtra("resultJson") : null;
+                if (rj == null || rj.isEmpty()) rj = "{\"action\":\"closed\"}";
+                String js = "window.__lumioNativePlayerResult && window.__lumioNativePlayerResult(" + rj + ")";
+                web.evaluateJavascript(js, null);
+            } catch (Exception ignored) {
+            }
         }
     }
 

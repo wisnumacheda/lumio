@@ -1201,6 +1201,13 @@
 
     <div class="set-sec">
       <h4>🧰 Lainnya</h4>
+      <div class="set-row flex">
+        <div class="grow">
+          <div class="lbl">Spike: Player Native (uji)</div>
+          <div class="desc">Uji Fase 0 — bila aktif, pemutaran dialihkan ke player native (ExoPlayer) lewat bridge baru. Matikan untuk kembali ke player web biasa. Hanya berfungsi di APK spike.</div>
+        </div>
+        <div class="switch" id="setSpikeNative" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
       <div class="set-row">
         <button class="btn-reset" id="btnResetSettings">↺ Reset semua pengaturan</button>
       </div>
@@ -3007,6 +3014,28 @@ const CODEC_FATAL_DETAILS = ["manifestIncompatibleCodecsError", "bufferIncompati
 function isCodecError(d){
   return !!(d && d.fatal && CODEC_FATAL_DETAILS.indexOf(d.details) !== -1);
 }
+/* Spike Fase 0 — coba lempar sesi putar ke PlayerActivity native.
+   Mengembalikan true bila bridge dipanggil (pemutar web dilewati);
+   false bila toggle mati / bridge tidak ada / gagal → jalur web biasa. */
+function tryNativePlay(sess){
+  if (!SETTINGS.spikeNative) return false;
+  try {
+    if (typeof LumioNative === "undefined" || typeof LumioNative.playNative !== "function") return false;
+    LumioNative.playNative(JSON.stringify(sess));
+    return true;
+  } catch (e) { return false; }
+}
+/* Spike Fase 0 — callback hasil dari PlayerActivity native (via
+   WebUiActivity.onActivityResult). Hanya toast + simpan untuk inspeksi;
+   sinkronisasi history/posisi penuh adalah Fase 1. */
+window.__lumioNativePlayerResult = function(r){
+  try { window._nativeLastResult = r || null; } catch (e) {}
+  const a = (r && r.action) || "closed";
+  const pos = (r && r.posSec) ? " · posisi " + Math.round(r.posSec) + " dtk" : "";
+  const err = (r && r.error) ? " — " + r.error : "";
+  toast("🎬 Player native: " + a + pos + err);
+};
+
 async function playEpisode(slug, ep, fromAuto){
   /* Judul TMDB memakai jalur putar sendiri (v44) — resolve berbeda, player sama. */
   if (String(slug).startsWith("tmdb:")) return playTmdb(slug, ep, fromAuto);
@@ -3060,6 +3089,11 @@ async function playEpisode(slug, ep, fromAuto){
     exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk episode ini."); return;
   }
   const referer = data.referer || "";
+  /* Spike Fase 0 — bila toggle aktif + bridge ada, lempar sesi ke
+     PlayerActivity native; player web dilewati sepenuhnya. */
+  if (tryNativePlay({kind: "anime", slug, episode: ep, title: animePlayerTitle(slug, it) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0})) {
+    closeModal("playerModal"); return;
+  }
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
 
   // Pilihan kualitas dari variants resolver.
@@ -3979,6 +4013,11 @@ async function playTmdb(slug, ep, fromAuto){
     }
   }
   const referer = data.referer || "";
+  /* Spike Fase 0 — jalur statis saja (hidden loop tetap memakai player web
+     di spike); bila toggle aktif + bridge ada, lempar sesi ke native. */
+  if (tryNativePlay({kind: t.type, slug, episode: ep, title: tmdbPlayerTitle(slug, itemStore.get(slug) || currentItem) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, tmdb: t.id, mediaType: t.type, season: window._tmdbSeason || 1})) {
+    closeModal("playerModal"); return;
+  }
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
   const qSel = $("#qualitySel");
   qSel.dataset.referer = referer;
@@ -4348,7 +4387,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer", mangaDataSaver: false, mangaReaderMode: "webtoon"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer", mangaDataSaver: false, mangaReaderMode: "webtoon", spikeNative: false};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
@@ -4372,6 +4411,11 @@ function syncSettingsUI(){
   if (ms) {
     ms.classList.toggle("on", !!SETTINGS.mangaDataSaver);
     ms.setAttribute("aria-checked", SETTINGS.mangaDataSaver ? "true" : "false");
+  }
+  const sn = $("#setSpikeNative");
+  if (sn) {
+    sn.classList.toggle("on", !!SETTINGS.spikeNative);
+    sn.setAttribute("aria-checked", SETTINGS.spikeNative ? "true" : "false");
   }
 }
 function applySettings(){
@@ -4416,6 +4460,13 @@ function toggleMangaDataSaver(){
 }
 $("#setMangaDataSaver").addEventListener("click", toggleMangaDataSaver);
 $("#setMangaDataSaver").addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleMangaDataSaver(); } });
+/* Spike Fase 0 — toggle pemutar native (ExoPlayer) untuk uji perangkat. */
+function toggleSpikeNative(){
+  SETTINGS.spikeNative = !SETTINGS.spikeNative; applySettings();
+  toast(SETTINGS.spikeNative ? "🧪 Spike Player Native AKTIF — putaran berikutnya memakai ExoPlayer." : "🧪 Spike Player Native nonaktif — kembali ke player web.");
+}
+$("#setSpikeNative").addEventListener("click", toggleSpikeNative);
+$("#setSpikeNative").addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleSpikeNative(); } });
 $("#btnResetSettings").addEventListener("click", () => {
   SETTINGS = {...SETTINGS_DEFAULTS}; applySettings(); loadHome();
   toast("↺ Pengaturan dikembalikan ke awal");

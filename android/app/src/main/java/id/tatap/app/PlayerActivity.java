@@ -240,6 +240,13 @@ public class PlayerActivity extends Activity {
 
     private String rawStreamUrl = "";
     private String streamReferer = "";
+
+    /* Spike Fase 0 — sesi putar dari WebView (bridge playNative): manifest
+     * sudah di-resolve JS; native HANYA memutar + melaporkan kembali.
+     * Mode klasik (Intent slug/mode/ep) tidak tersentuh. */
+    private boolean isWebViewSession = false;
+    private JSONObject webViewSession = null;
+    private boolean nativeResultSent = false;
     private String masterStreamUrl = "";
     private int currentResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT;
     private final List<JSONObject> streamVariants = new ArrayList<>();
@@ -459,6 +466,23 @@ public class PlayerActivity extends Activity {
         ArrayList<Integer> passedList = getIntent().getIntegerArrayListExtra("episode_list");
         if (passedList != null) {
             episodeList.addAll(passedList);
+        }
+
+        /* Spike Fase 0 — mode sesi WebView: Intent membawa "sessionJson"
+         * {master, referer, title, slug, episode, speed, resumePosSec}.
+         * Judul/episode diambil dari sesi (judul bersih dari JS, bukan slug). */
+        String sessionJson = getIntent().getStringExtra("sessionJson");
+        if (sessionJson != null && !sessionJson.isEmpty()) {
+            try {
+                JSONObject s = new JSONObject(sessionJson);
+                if (s.has("master") && !s.optString("master").isEmpty()) {
+                    isWebViewSession = true;
+                    webViewSession = s;
+                    if (s.has("slug")) slug = s.optString("slug");
+                    if (s.has("title")) title = s.optString("title");
+                    if (s.has("episode")) ep = s.optInt("episode", ep);
+                }
+            } catch (Exception ignored) {}
         }
 
         flPlayerWrapper = findViewById(R.id.fl_player_wrapper);
@@ -710,8 +734,12 @@ public class PlayerActivity extends Activity {
         setupExoNativeControls();
         setupGestureControls();
         registerPipReceiver();
-        checkAndPromptResume();
-        resolveAndPlayStream();
+        if (isWebViewSession) {
+            playWebViewSession();
+        } else {
+            checkAndPromptResume();
+            resolveAndPlayStream();
+        }
     }
 
     private void cycleAspectRatio() {
@@ -886,6 +914,7 @@ public class PlayerActivity extends Activity {
             exitLandscapeFullscreen();
             return;
         }
+        if (isWebViewSession) sendNativeResult("closed");
         finish();
     }
 
@@ -1119,6 +1148,12 @@ public class PlayerActivity extends Activity {
                         Toast.makeText(PlayerActivity.this, "Episode selesai. Memutar Episode " + getNextEpisodeNumber() + "...", Toast.LENGTH_SHORT).show();
                         playNextEpisode();
                     }
+                    /* Spike Fase 0: sesi WebView tidak punya episode_list —
+                     * selesai = kembali ke UI web dengan laporan. */
+                    if (isWebViewSession) {
+                        sendNativeResult("ended");
+                        finish();
+                    }
                 }
             }
 
@@ -1161,6 +1196,23 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onPlayerError(PlaybackException error) {
+                /* Spike Fase 0: sesi WebView tidak punya jalur resolve ulang —
+                 * laporkan kode error media3 apa adanya (berguna untuk U-4)
+                 * lalu kembali ke UI web. */
+                if (isWebViewSession) {
+                    if (layoutBuffering != null) {
+                        layoutBuffering.setVisibility(View.GONE);
+                    }
+                    String msg = error.getMessage();
+                    Throwable cause = error.getCause();
+                    if (cause != null && cause.getMessage() != null) {
+                        msg += " (" + cause.getMessage() + ")";
+                    }
+                    sendNativeResult("error", "code=" + error.errorCode + " " + msg);
+                    Toast.makeText(PlayerActivity.this, "Player native gagal: " + msg, Toast.LENGTH_LONG).show();
+                    finish();
+                    return;
+                }
                 if (!hasFallbackAttempted && player != null && rawStreamUrl != null && !rawStreamUrl.isEmpty()) {
                     hasFallbackAttempted = true;
                     isHlsMode = !isHlsMode;
@@ -2591,6 +2643,58 @@ public class PlayerActivity extends Activity {
         }).start();
     }
 
+    /** Spike Fase 0: putar manifest yang sudah di-resolve JS (tanpa resolve
+     * internal, tanpa dialog resume klasik). applyCurrentStream() yang
+     * mem-proxy URL lewat /api/player/video dipakai apa adanya. */
+    private void playWebViewSession() {
+        try {
+            JSONObject s = webViewSession;
+            rawStreamUrl = s.optString("master", "");
+            streamReferer = s.optString("referer", "");
+            isHlsMode = true;
+            double sp = s.optDouble("speed", 1.0);
+            if (sp > 0) currentPlaybackSpeed = (float) sp;
+            applyCurrentStream();
+            double resume = s.optDouble("resumePosSec", 0);
+            if (resume > 0 && player != null) {
+                try { player.seekTo((long) (resume * 1000)); } catch (Throwable ignored) {}
+            }
+        } catch (Throwable t) {
+            Toast.makeText(this, "Gagal memutar (spike): " + t.getMessage(), Toast.LENGTH_LONG).show();
+            sendNativeResult("error", t.getMessage());
+            finish();
+        }
+    }
+
+    /** Spike Fase 0: laporkan hasil kembali ke WebUiActivity (onActivityResult
+     * → window.__lumioNativePlayerResult). Sekali kirim saja. */
+    private void sendNativeResult(String action) { sendNativeResult(action, null); }
+
+    private void sendNativeResult(String action, String detail) {
+        if (nativeResultSent) return;
+        nativeResultSent = true;
+        try {
+            JSONObject r = new JSONObject();
+            r.put("action", action);
+            r.put("slug", slug != null ? slug : "");
+            r.put("episode", ep);
+            r.put("title", title != null ? title : "");
+            long pos = 0, dur = 0;
+            try {
+                if (player != null) {
+                    pos = player.getCurrentPosition();
+                    dur = player.getDuration();
+                }
+            } catch (Throwable ignored) {}
+            r.put("posSec", pos > 0 ? pos / 1000.0 : 0);
+            r.put("durSec", (dur > 0 && dur != androidx.media3.common.C.TIME_UNSET) ? dur / 1000.0 : 0);
+            if (detail != null) r.put("error", detail);
+            Intent data = new Intent();
+            data.putExtra("resultJson", r.toString());
+            setResult(RESULT_OK, data);
+        } catch (Throwable ignored) {}
+    }
+
     private void applyCurrentStream() {
         if (rawStreamUrl.isEmpty()) return;
 
@@ -3932,6 +4036,9 @@ public class PlayerActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        /* Spike Fase 0: jaring pengaman — bila activity berakhir tanpa
+         * Back/error/ended (mis. sistem), tetap laporkan posisi terakhir. */
+        if (isWebViewSession) sendNativeResult("closed");
         isVideoPlaying = false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backInvokedCallback != null) {
             try {
