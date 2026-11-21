@@ -3027,13 +3027,38 @@ function tryNativePlay(sess){
 }
 /* Spike Fase 0 — callback hasil dari PlayerActivity native (via
    WebUiActivity.onActivityResult). Hanya toast + simpan untuk inspeksi;
-   sinkronisasi history/posisi penuh adalah Fase 1. */
+   sinkronisasi history/posisi penuh adalah Fase 1.
+   Fase 1 — sinkronisasi balik dari player native (satu sumber kebenaran
+   tetap localStorage web): posisi akhir → histProgress (Lanjut Nonton);
+   offset subtitle akhir → lumio_suboffset_v1 per slug#ep; bahasa + gaya
+   subtitle → SETTINGS. Nilai dari native divalidasi ke daftar yang dikenal
+   (subLang "custom" dsb. dari dialog native diabaikan). */
 window.__lumioNativePlayerResult = function(r){
   try { window._nativeLastResult = r || null; } catch (e) {}
   const a = (r && r.action) || "closed";
   const pos = (r && r.posSec) ? " · posisi " + Math.round(r.posSec) + " dtk" : "";
   const err = (r && r.error) ? " — " + r.error : "";
   toast("🎬 Player native: " + a + pos + err);
+  try {
+    if (!r || !r.slug || !r.episode) return;
+    if (typeof r.posSec === "number" && typeof histProgress === "function") histProgress(r.slug, r.episode, r.posSec, r.durSec || 0);
+    if (typeof r.subOffsetSec === "number") {
+      const v = Math.max(-SUB_OFFSET_CAP, Math.min(SUB_OFFSET_CAP, Math.round(r.subOffsetSec * 2) / 2));
+      const m = JSON.parse(localStorage.getItem(SUB_OFFSET_KEY) || "{}");
+      const k = r.slug + "#" + r.episode;
+      if (!v) delete m[k]; else m[k] = v;
+      localStorage.setItem(SUB_OFFSET_KEY, JSON.stringify(m));
+      if (window._curSlug === r.slug && window._curEp === r.episode) {
+        window._subOffset = v;
+        const el = $("#subOffVal"); if (el) el.textContent = fmtSubOffset(v);
+      }
+    }
+    if (typeof r.subLang === "string" && ["id", "en", "off"].indexOf(r.subLang) !== -1) SETTINGS.subLang = r.subLang;
+    if (typeof r.subSize === "string" && ["s", "m", "l", "xl"].indexOf(r.subSize) !== -1) SETTINGS.subSize = r.subSize;
+    if (typeof r.subBg === "string" && ["box", "thin", "none"].indexOf(r.subBg) !== -1) SETTINGS.subBg = r.subBg;
+    if (typeof r.subColor === "string" && ["putih", "kuning", "cyan", "hijau"].indexOf(r.subColor) !== -1) SETTINGS.subColor = r.subColor;
+    saveSettings(); syncSettingsUI();
+  } catch (e) {}
 };
 
 async function playEpisode(slug, ep, fromAuto){
@@ -3090,8 +3115,11 @@ async function playEpisode(slug, ep, fromAuto){
   }
   const referer = data.referer || "";
   /* Spike Fase 0 — bila toggle aktif + bridge ada, lempar sesi ke
-     PlayerActivity native; player web dilewati sepenuhnya. */
-  if (tryNativePlay({kind: "anime", slug, episode: ep, title: animePlayerTitle(slug, it) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0})) {
+     PlayerActivity native; player web dilewati sepenuhnya.
+     Fase 1 — sesi membawa subtitle (trek mentah + tier, Bab 6) + bahasa,
+     offset, dan gaya subtitle dari SETTINGS. Bila subLang "off", daftar
+     trek tidak dikirim (native menampilkan "Subtitle: mati."). */
+  if (tryNativePlay({kind: "anime", slug, episode: ep, title: animePlayerTitle(slug, it) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, subtitles: SETTINGS.subLang === "off" ? [] : buildNativeSubtitles(data, referer), subLang: SETTINGS.subLang, subOffsetSec: window._subOffset || 0, subSize: SETTINGS.subSize, subBg: SETTINGS.subBg, subColor: SETTINGS.subColor})) {
     closeModal("playerModal"); return;
   }
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
@@ -4341,6 +4369,32 @@ async function selectSubtitle(opt, refresh){
     updateSubInfo("Subtitle gagal dimuat (" + e.message + ") — video tetap diputar.");
     toast("💬 Subtitle gagal dimuat: " + opt.label, true);
   }
+}
+/* Fase 1 — bangun daftar trek subtitle untuk sesi native (PlayerActivity).
+   Cerminan murni dari konstruksi opsi di attachSubtitle: trek mentah (label +
+   varian (N) dari backend) + tiga tier turunan id-gtx/id-gtxplus/id-ai dari
+   trek EN. Tier membawa `mode` + `id`; trek mentah tidak. Referer per trek
+   dipertahankan (rezesubs wajib Referer Viduki). Tidak ada efek samping:
+   tidak memanggil selectSubtitle, tidak memanaskan tier. */
+function buildNativeSubtitles(data, referer){
+  let subs = (data.subtitles || []).filter(s => s && s.url);
+  if (!subs.length && data.sub) subs = [{label: data.sub_lang || "Subtitle", lang: "en", url: data.sub}];
+  if (!subs.length) return [];
+  const out = subs.map((s, i) => {
+    const isId = (s.lang || "").startsWith("id");
+    const variant = Number(s.variant || 1);
+    const base = isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1)));
+    return {url: s.url, lang: (s.lang || "en").slice(0, 2), label: variant > 1 ? base + " (" + variant + ")" : base, referer: s.referer || referer || "", variant};
+  });
+  const srcTrack = subs.find(s => (s.lang || "").startsWith("en")) || subs.find(s => !(s.lang || "").startsWith("id"));
+  if (srcTrack) {
+    const sl = (srcTrack.lang || "en").slice(0, 2);
+    const tref = srcTrack.referer || referer || "";
+    out.push({id: "id-gtx", mode: "gtx", url: srcTrack.url, lang: "id", label: "Indonesia (GTX — Cepat)", referer: tref, variant: 1, srclang: sl});
+    out.push({id: "id-gtxplus", mode: "gtx+", url: srcTrack.url, lang: "id", label: "Indonesia (GTX+ — Smart Fansub)", referer: tref, variant: 1, srclang: sl});
+    out.push({id: "id-ai", mode: "ai", url: srcTrack.url, lang: "id", label: "Indonesia (AI Fansub)", referer: tref, variant: 1, srclang: sl});
+  }
+  return out;
 }
 async function attachSubtitle(data, referer){
   window._subToken = (window._subToken || 0) + 1;

@@ -258,6 +258,20 @@ public class PlayerActivity extends Activity {
     private String activeSubLang = "id"; // Default Indonesian
     private String activeEngine = "gtx"; // "gtx" | "gtx+" | "aigtx" | "ai" | "raw"
     private boolean subEnabled = true;
+
+    /* Fase 1 — subtitle sesi WebView (dari session JSON). Daftar trek mentah +
+     * tier turunan dikirim JS; offset/gaya dari SETTINGS web. Satu sumber
+     * kebenaran tetap localStorage web — perubahan di panel native dilaporkan
+     * lewat result (sendNativeResult), bukan ditulis ke pref native. */
+    private double sessionSubOffsetSec = 0;      // offset v56, cap ±30, langkah 0,5
+    private String sessionSubLang = "id";        // subLang sesi ("off" = subtitle mati)
+    private String sessionSubColor = "putih";    // warna web: putih/kuning/cyan/hijau
+    private int sessionSubColorArgb = 0xFFFFFFFF;
+    private String activeSubReferer = "";        // referer per trek (P-E5); "" = pakai streamReferer
+    private String enSourceSubReferer = "";      // referer trek EN sumber tier
+    private String idNativeSubReferer = "";      // referer trek Indonesia mentah pertama
+    private int liveSubLoadId = 0;               // generasi polling sub_live (cermin _subToken web)
+    private static final double SUB_OFFSET_CAP_SEC = 30.0;
     private String activeStreamMode = "sub"; // "sub" | "dub"
     private String requestMode = "sub";
     private String customSubtitleName = "";
@@ -292,7 +306,12 @@ public class PlayerActivity extends Activity {
         public void run() {
             if (player != null && subEnabled) {
                 long pos = player.getCurrentPosition();
-                SubtitleCue active = findActiveCue(pos);
+                /* Fase 1 — offset v56 diterapkan pada WAKTU BANDING
+                 * (t = currentTime − offset; +offset = subtitle lebih lambat),
+                 * sama seperti renderSubOverlay web; bukan dengan menulis ulang cue.
+                 * Mode klasik tidak pernah mengisi sessionSubOffsetSec (= 0). */
+                long effPos = pos - (long) (sessionSubOffsetSec * 1000.0);
+                SubtitleCue active = findActiveCue(effPos);
                 if (active != null) {
                     if (tvSubtitles.getVisibility() != View.VISIBLE || !active.text.equals(lastSubtitleText)) {
                         lastSubtitleText = active.text;
@@ -2643,6 +2662,132 @@ public class PlayerActivity extends Activity {
         }).start();
     }
 
+    /** Fase 1 — isi subtitle dari session JSON WebView (spek Bab 6): daftar trek
+     * mentah + tier turunan (tier dikenali dari field `mode`, bukan trek mentah),
+     * bahasa/offset/gaya dari SETTINGS web. Default mengikuti web: subLang=id
+     * → tier id-gtx bila ada trek EN; subLang lain → trek mentah berbahasa itu,
+     * else trek pertama; subLang=off → subtitle mati. Gaya web ditulis ke pref
+     * native agar applySubtitleStyle + dialog gaya bekerja apa adanya (pref ini
+     * hanya dipakai PlayerActivity). Dipanggil SEBELUM applyCurrentStream. */
+    private void applySessionSubtitles(JSONObject s) {
+        sessionSubOffsetSec = clampSubOffset(s.optDouble("subOffsetSec", 0));
+        sessionSubLang = s.optString("subLang", "id");
+        if (sessionSubLang == null || sessionSubLang.isEmpty()) sessionSubLang = "id";
+        sessionSubColor = s.optString("subColor", "putih");
+        sessionSubColorArgb = subColorArgb(sessionSubColor);
+        try {
+            getSharedPreferences("tatap_player_prefs", MODE_PRIVATE).edit()
+                    .putString("sub_size", mapWebSubSize(s.optString("subSize", "m")))
+                    .putString("sub_bg", mapWebSubBg(s.optString("subBg", "box")))
+                    .apply();
+        } catch (Throwable ignored) {}
+        applySubtitleStyle();
+
+        subtitleTracks.clear();
+        enSourceSubUrl = ""; enSourceSubReferer = "";
+        idNativeSubUrl = ""; idNativeSubReferer = "";
+        activeSubReferer = "";
+        String foundEn = "", foundEnRef = "", foundId = "", foundIdRef = "";
+        JSONObject firstNonId = null;
+        JSONArray arr = s.optJSONArray("subtitles");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.optJSONObject(i);
+                if (t == null) continue;
+                String url = t.optString("url", "");
+                if (url.isEmpty()) continue;
+                if (!t.optString("mode", "").isEmpty()) continue; // tier turunan — bukan trek mentah
+                subtitleTracks.add(t);
+                String lang = t.optString("lang", "en").toLowerCase();
+                if (foundEn.isEmpty() && lang.startsWith("en")) { foundEn = url; foundEnRef = t.optString("referer", ""); }
+                if (foundId.isEmpty() && lang.startsWith("id")) { foundId = url; foundIdRef = t.optString("referer", ""); }
+                if (firstNonId == null && !lang.startsWith("id")) firstNonId = t;
+            }
+            // Aturan web: sumber tier = trek EN, else trek non-ID pertama.
+            if (foundEn.isEmpty() && firstNonId != null) {
+                foundEn = firstNonId.optString("url", "");
+                foundEnRef = firstNonId.optString("referer", "");
+            }
+        }
+        enSourceSubUrl = foundEn; enSourceSubReferer = foundEnRef;
+        idNativeSubUrl = foundId; idNativeSubReferer = foundIdRef;
+
+        if ("off".equals(sessionSubLang)) {
+            subEnabled = false;
+            activeSubUrl = ""; activeSubLang = "off"; activeEngine = "gtx"; activeSubReferer = "";
+            return;
+        }
+        if ("id".equals(sessionSubLang) && !foundEn.isEmpty()) {
+            subEnabled = true; activeSubLang = "id"; activeEngine = "gtx";
+            activeSubUrl = foundEn; activeSubReferer = foundEnRef;
+            return;
+        }
+        if ("id".equals(sessionSubLang) && !foundId.isEmpty()) {
+            subEnabled = true; activeSubLang = "id"; activeEngine = "raw";
+            activeSubUrl = foundId; activeSubReferer = foundIdRef;
+            return;
+        }
+        // subLang lain (mis. en): trek mentah berbahasa itu, else trek pertama.
+        JSONObject pick = null;
+        for (int i = 0; i < subtitleTracks.size(); i++) {
+            if (sessionSubLang.equals(subtitleTracks.get(i).optString("lang", ""))) { pick = subtitleTracks.get(i); break; }
+        }
+        if (pick == null && !subtitleTracks.isEmpty()) pick = subtitleTracks.get(0);
+        if (pick != null) {
+            subEnabled = true; activeSubLang = pick.optString("lang", "en"); activeEngine = "raw";
+            activeSubUrl = pick.optString("url", ""); activeSubReferer = pick.optString("referer", "");
+        } else {
+            subEnabled = true; activeSubLang = sessionSubLang; activeEngine = "gtx";
+            activeSubUrl = ""; activeSubReferer = "";
+        }
+    }
+
+    private static double clampSubOffset(double v) {
+        double r = Math.round(v * 2.0) / 2.0;
+        if (r > SUB_OFFSET_CAP_SEC) r = SUB_OFFSET_CAP_SEC;
+        if (r < -SUB_OFFSET_CAP_SEC) r = -SUB_OFFSET_CAP_SEC;
+        return r;
+    }
+
+    /* Cerminan fmtSubOffset web: "+2,5 dtk" / "-0,5 dtk" / "0 dtk". */
+    private static String fmtSubOffset(double v) {
+        String num = (v == Math.rint(v)) ? String.valueOf((long) v) : String.valueOf(v);
+        return (v > 0 ? "+" : "") + num.replace(".", ",") + " dtk";
+    }
+
+    private static int subColorArgb(String name) {
+        if ("kuning".equals(name)) return 0xFFFFE14D;
+        if ("cyan".equals(name)) return 0xFF5EE7FF;
+        if ("hijau".equals(name)) return 0xFF8DFF6A;
+        return 0xFFFFFFFF; // putih (default)
+    }
+
+    /* Pemetaan gaya web (SETTINGS) ↔ pref native. Web s/m/l/xl = 14/18/23/29px;
+     * native memakai nama small/medium/large/xlarge (sp adaptif HP/TV). */
+    private static String mapWebSubSize(String web) {
+        if ("s".equals(web)) return "small";
+        if ("l".equals(web)) return "large";
+        if ("xl".equals(web)) return "xlarge";
+        return "medium"; // "m" + default
+    }
+    private static String mapNativeSubSizeToWeb(String nat) {
+        if ("small".equals(nat)) return "s";
+        if ("large".equals(nat)) return "l";
+        if ("xlarge".equals(nat) || "xxlarge".equals(nat) || "jumbo".equals(nat) || "max".equals(nat)) return "xl";
+        return "m";
+    }
+    /* Web box (.62) ≈ medium (55%), thin (.28) ≈ subtle (30%), none = transparan. */
+    private static String mapWebSubBg(String web) {
+        if ("thin".equals(web)) return "subtle";
+        if ("none".equals(web)) return "transparent";
+        return "medium"; // "box" + default
+    }
+    private static String mapNativeSubBgToWeb(String nat) {
+        if ("subtle".equals(nat)) return "thin";
+        if ("transparent".equals(nat)) return "none";
+        return "box"; // medium + dark
+    }
+
     /** Spike Fase 0: putar manifest yang sudah di-resolve JS (tanpa resolve
      * internal, tanpa dialog resume klasik). applyCurrentStream() yang
      * mem-proxy URL lewat /api/player/video dipakai apa adanya. */
@@ -2654,6 +2799,7 @@ public class PlayerActivity extends Activity {
             isHlsMode = true;
             double sp = s.optDouble("speed", 1.0);
             if (sp > 0) currentPlaybackSpeed = (float) sp;
+            applySessionSubtitles(s); /* Fase 1 — isi trek + gaya subtitle SEBELUM applyCurrentStream */
             applyCurrentStream();
             double resume = s.optDouble("resumePosSec", 0);
             if (resume > 0 && player != null) {
@@ -2688,6 +2834,18 @@ public class PlayerActivity extends Activity {
             } catch (Throwable ignored) {}
             r.put("posSec", pos > 0 ? pos / 1000.0 : 0);
             r.put("durSec", (dur > 0 && dur != androidx.media3.common.C.TIME_UNSET) ? dur / 1000.0 : 0);
+            /* Fase 1 — keadaan subtitle akhir (satu sumber kebenaran tetap
+             * localStorage web; JS menulisnya kembali saat callback). Ukuran/
+             * latar dibaca dari pref native (ditulis nilai sesi saat mulai,
+             * bisa diubah lewat dialog gaya selama memutar). */
+            r.put("subOffsetSec", sessionSubOffsetSec);
+            r.put("subLang", activeSubLang != null ? activeSubLang : "");
+            try {
+                SharedPreferences sp = getSharedPreferences("tatap_player_prefs", MODE_PRIVATE);
+                r.put("subSize", mapNativeSubSizeToWeb(sp.getString("sub_size", "medium")));
+                r.put("subBg", mapNativeSubBgToWeb(sp.getString("sub_bg", "medium")));
+            } catch (Throwable ignored) {}
+            r.put("subColor", sessionSubColor != null ? sessionSubColor : "putih");
             if (detail != null) r.put("error", detail);
             Intent data = new Intent();
             data.putExtra("resultJson", r.toString());
@@ -2792,7 +2950,12 @@ public class PlayerActivity extends Activity {
             String subModeParam = activeEngine.equals("raw") ? "" : activeEngine;
             String srcParam = activeEngine.equals("raw") ? activeSubLang : "en";
 
-            String effectiveRef = streamReferer != null ? streamReferer : "";
+            /* Fase 1 (P-E5) — referer PER TREK: trek rezesubs wajib Referer
+             * Viduki walau videonya dari penyedia lain. activeSubReferer diisi
+             * dari trek sesi yang dipilih; kosong → fallback ke streamReferer
+             * (perilaku klasik tidak berubah). */
+            String effectiveRef = (activeSubReferer != null && !activeSubReferer.isEmpty())
+                    ? activeSubReferer : (streamReferer != null ? streamReferer : "");
             if (effectiveRef.isEmpty() && activeSubUrl != null) {
                 String subLower = activeSubUrl.toLowerCase();
                 if (subLower.contains("broforgotsave") || subLower.contains("stellarfrontier") || subLower.contains("megaplay") || subLower.contains("megacloud")) {
@@ -2831,7 +2994,15 @@ public class PlayerActivity extends Activity {
                         + (forceRefresh ? "&refresh=true" : "");
             }
 
-            loadSubtitlesAsync(proxiedSub, false);
+            /* Fase 1 — tier terjemahan di sesi WebView memakai polling progresif
+             * /api/player/sub_live (port runLiveSubtitle web); trek mentah dan
+             * mode klasik tetap memakai unduhan blokir tunggal. */
+            if (isWebViewSession && !subModeParam.isEmpty() && proxiedSub.contains("/api/player/sub?")) {
+                String liveSub = proxiedSub.replace("/api/player/sub?", "/api/player/sub_live?");
+                loadSubtitlesLiveAsync(liveSub, forceRefresh);
+            } else {
+                loadSubtitlesAsync(proxiedSub, false);
+            }
         } catch (Exception e) {
             updateSubStatusText(false);
             if (tvSubStatus != null) {
@@ -2915,8 +3086,105 @@ public class PlayerActivity extends Activity {
         }).start();
     }
 
+    /* Fase 1 — port runLiveSubtitle web: poll /api/player/sub_live ~1200 ms,
+     * maks 110 poll; cue diganti atomik saat VTT parsial tiba; header
+     * X-Translate-Done / X-Translate-Progress. Trek mentah EN sudah tampil
+     * duluan via prefetch applySubtitleSelection. Cue iklan TIDAK di-strip
+     * (P-E8, sama seperti web). */
+    private void loadSubtitlesLiveAsync(String liveUrl, boolean forceRefresh) {
+        final int loadId = ++currentSubLoadId;
+        final int genId = ++liveSubLoadId;
+        new Thread(() -> {
+            boolean announced = false;
+            int errStreak = 0;
+            for (int i = 0; i < 110; i++) {
+                if (loadId != currentSubLoadId || genId != liveSubLoadId) return;
+                HttpURLConnection conn = null;
+                try {
+                    String url = liveUrl + ((forceRefresh && i == 0) ? "&refresh=1" : "");
+                    conn = (HttpURLConnection) new URL(url).openConnection();
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(30000);
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0");
+                    conn.setInstanceFollowRedirects(true);
+                    int code = conn.getResponseCode();
+                    if (code >= 400) {
+                        errStreak++;
+                        if (errStreak <= 6) {
+                            final int n = errStreak;
+                            runOnUiThread(() -> { if (tvSubStatus != null) tvSubStatus.setText("Subtitle: " + subEngineLabel() + " — server sibuk, mencoba lagi (" + n + ")…"); });
+                            sleepQuietly(2000);
+                            continue;
+                        }
+                        runOnUiThread(() -> { if (tvSubStatus != null) tvSubStatus.setText("Subtitle gagal dimuat (HTTP " + code + ") — video tetap diputar."); });
+                        return;
+                    }
+                    errStreak = 0;
+                    boolean done = "1".equals(conn.getHeaderField("X-Translate-Done"));
+                    int pct = 0;
+                    try { pct = Integer.parseInt(conn.getHeaderField("X-Translate-Progress")); } catch (Throwable ignored) {}
+                    StringBuilder sb = new StringBuilder();
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line).append("\n");
+                    reader.close();
+                    if (loadId != currentSubLoadId || genId != liveSubLoadId) return;
+                    List<SubtitleCue> cues = parseVtt(sb.toString());
+                    if (!cues.isEmpty()) {
+                        currentCues = cues;
+                        runOnUiThread(() -> subtitleSyncRunnable.run());
+                    }
+                    if (done) {
+                        final boolean wasAnnounced = announced;
+                        runOnUiThread(() -> {
+                            if (wasAnnounced) Toast.makeText(this, "💬 Subtitle selesai diterjemahkan ✓", Toast.LENGTH_SHORT).show();
+                            updateSubStatusText(true);
+                        });
+                        return;
+                    }
+                    if (!announced) {
+                        announced = true;
+                        runOnUiThread(() -> Toast.makeText(this, "💬 Subtitle sedang diterjemahkan — bagian awal tampil duluan", Toast.LENGTH_SHORT).show());
+                    }
+                    setSubProgressText(pct);
+                    sleepQuietly(1200);
+                } catch (Exception e) {
+                    // Gagal jaringan pada satu poll: tunggu lalu coba lagi (cermin web).
+                    sleepQuietly(1200);
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+            }
+            // 110 poll habis tanpa selesai — biarkan cue parsial tampil.
+            runOnUiThread(() -> { if (tvSubStatus != null) tvSubStatus.setText("Sub: " + (activeSubLang != null ? activeSubLang.toUpperCase() : "ID") + " • " + subEngineLabel() + " (sebagian — server masih menerjemahkan)"); });
+        }).start();
+    }
+
+    private static void sleepQuietly(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+    }
+
+    /* Label mesin terjemahan aktif (dipakai status + teks progres). */
+    private String subEngineLabel() {
+        if ("gtx+".equals(activeEngine) || "aigtx".equals(activeEngine)) return "GTX+ (Smart Fansub & Scene Detection)";
+        if ("ai".equals(activeEngine)) return "AI Fansub (" + configuredAiModel + ")";
+        if ("raw".equals(activeEngine)) {
+            if ("en".equals(activeSubLang)) return "Source English";
+            if ("id".equals(activeSubLang)) return "Asli / Resmi";
+            return "Source Asli";
+        }
+        return "Google GTX (Cepat)";
+    }
+
     private void updateSubStatusText(boolean isLoaded) {
         if (tvSubStatus == null) return;
+        /* Fase 1 — sesi WebView memakai string yang sama seperti web:
+         * 0 trek → "Subtitle: tidak tersedia untuk episode ini.";
+         * mati → "Subtitle: mati." */
+        if (isWebViewSession) {
+            if (!subEnabled) { tvSubStatus.setText("Subtitle: mati."); return; }
+            if (activeSubUrl == null || activeSubUrl.isEmpty()) { tvSubStatus.setText("Subtitle: tidak tersedia untuk episode ini."); return; }
+        }
         if (!subEnabled || activeSubUrl == null || activeSubUrl.isEmpty()) {
             if ("dub".equalsIgnoreCase(activeStreamMode) || (activeSubUrl == null || activeSubUrl.isEmpty())) {
                 tvSubStatus.setText("Audio: English Dub (Tanpa Subtitle)");
@@ -2925,17 +3193,17 @@ public class PlayerActivity extends Activity {
             }
             return;
         }
-        String engineLabel = "Google GTX (Cepat)";
-        if ("gtx+".equals(activeEngine) || "aigtx".equals(activeEngine)) engineLabel = "GTX+ (Smart Fansub & Scene Detection)";
-        else if ("ai".equals(activeEngine)) engineLabel = "AI Fansub (" + configuredAiModel + ")";
-        else if ("raw".equals(activeEngine)) {
-            if ("en".equals(activeSubLang)) engineLabel = "Source English";
-            else if ("id".equals(activeSubLang)) engineLabel = "Asli / Resmi";
-            else engineLabel = "Source Asli";
-        }
-
         String suffix = isLoaded ? "" : " [Memuat...]";
-        tvSubStatus.setText("Sub: " + activeSubLang.toUpperCase() + " • " + engineLabel + suffix);
+        tvSubStatus.setText("Sub: " + activeSubLang.toUpperCase() + " • " + subEngineLabel() + suffix);
+    }
+
+    /* Fase 1 — teks progres terjemahan (cermin updateSubInfo web):
+     * "Sub: ID • Google GTX (Cepat) — menerjemahkan 42%…" */
+    private void setSubProgressText(int pct) {
+        if (tvSubStatus == null) return;
+        final String txt = "Sub: " + (activeSubLang != null ? activeSubLang.toUpperCase() : "ID")
+                + " • " + subEngineLabel() + " — menerjemahkan " + pct + "%…";
+        runOnUiThread(() -> tvSubStatus.setText(txt));
     }
 
     private static long parseTimestamp(String token) {
@@ -3319,6 +3587,22 @@ public class PlayerActivity extends Activity {
         }
     }
 
+    /* Fase 1 — ubah offset subtitle sesi (cermin setSubOffset web: langkah 0,5,
+     * cap ±30). Offset berlaku langsung di waktu banding; dialog ditampilkan
+     * ulang agar nilai baru terlihat. Nilai akhir dilaporkan lewat result. */
+    private void adjustSessionSubOffset(double delta) {
+        setSessionSubOffset(sessionSubOffsetSec + delta);
+    }
+
+    private void setSessionSubOffset(double v) {
+        sessionSubOffsetSec = clampSubOffset(v);
+        runOnUiThread(() -> {
+            subtitleSyncRunnable.run();
+            Toast.makeText(this, "Offset subtitle: " + fmtSubOffset(sessionSubOffsetSec), Toast.LENGTH_SHORT).show();
+        });
+        handler.post(this::showSubtitleSelectorDialog);
+    }
+
     private void showSubtitleSelectorDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
         builder.setTitle("Pengaturan Subtitle & Mesin Terjemahan");
@@ -3327,7 +3611,11 @@ public class PlayerActivity extends Activity {
         List<Runnable> actions = new ArrayList<>();
 
         if (enSourceSubUrl.isEmpty() && subtitleTracks.isEmpty() && customSubtitleName.isEmpty()) {
-            String msg = "dub".equalsIgnoreCase(activeStreamMode) ? "Audio: English Dub (Tidak ada file subtitle bawaan)" : "Tidak ada file subtitle bawaan untuk video ini";
+            /* Fase 1 — sesi WebView memakai string yang sama seperti web. */
+            String msg;
+            if (isWebViewSession && "off".equals(sessionSubLang)) msg = "Subtitle: mati.";
+            else if (isWebViewSession) msg = "Subtitle: tidak tersedia untuk episode ini.";
+            else msg = "dub".equalsIgnoreCase(activeStreamMode) ? "Audio: English Dub (Tidak ada file subtitle bawaan)" : "Tidak ada file subtitle bawaan untuk video ini";
             options.add("[Info] " + msg);
             actions.add(() -> {});
         } else {
@@ -3339,6 +3627,7 @@ public class PlayerActivity extends Activity {
                     subEnabled = true;
                     activeSubLang = "custom";
                     activeEngine = "raw";
+                    activeSubReferer = "";
                     if (!customSubtitleUrl.isEmpty()) {
                         activeSubUrl = customSubtitleUrl;
                     }
@@ -3354,6 +3643,7 @@ public class PlayerActivity extends Activity {
                     activeSubLang = "id";
                     activeEngine = "gtx";
                     activeSubUrl = enSourceSubUrl;
+                    activeSubReferer = enSourceSubReferer;
                 });
 
                 // 2. GTX+ (Prioritas Kedua / GTX + Smart Fansub & Scene Detection)
@@ -3364,6 +3654,7 @@ public class PlayerActivity extends Activity {
                     activeSubLang = "id";
                     activeEngine = "gtx+";
                     activeSubUrl = enSourceSubUrl;
+                    activeSubReferer = enSourceSubReferer;
                 });
 
                 // 3. AI Fansub (Prioritas Ketiga / LLM Translate)
@@ -3377,6 +3668,7 @@ public class PlayerActivity extends Activity {
                     activeSubLang = "id";
                     activeEngine = "ai";
                     activeSubUrl = enSourceSubUrl;
+                    activeSubReferer = enSourceSubReferer;
                     if (!hasAiKey) {
                         Toast.makeText(this, "Perhatian: API Key AI belum disetel (:apikey <key> di home). Menggunakan GTX sebagai fallback otomatis.", Toast.LENGTH_LONG).show();
                     }
@@ -3392,6 +3684,7 @@ public class PlayerActivity extends Activity {
                     activeSubLang = "id";
                     activeEngine = "raw";
                     activeSubUrl = idNativeSubUrl;
+                    activeSubReferer = idNativeSubReferer;
                 });
             }
 
@@ -3404,6 +3697,7 @@ public class PlayerActivity extends Activity {
                     activeSubLang = "en";
                     activeEngine = "raw";
                     activeSubUrl = enSourceSubUrl;
+                    activeSubReferer = enSourceSubReferer;
                 });
             }
 
@@ -3418,15 +3712,33 @@ public class PlayerActivity extends Activity {
                     continue;
                 }
                 boolean isThisSelected = subEnabled && "raw".equals(activeEngine) && url.equals(activeSubUrl);
+                final String tref = s.optString("referer", "");
                 options.add(lbl + (isThisSelected ? " [Aktif]" : ""));
                 actions.add(() -> {
                     subEnabled = true;
                     activeSubLang = lang.isEmpty() ? "en" : lang;
                     activeEngine = "raw";
                     activeSubUrl = url;
+                    activeSubReferer = tref;
                 });
             }
         }
+
+        // Fase 1 — offset timing subtitle (cermin panel web v56): nilai tampil
+        // + stepper ±0,5 / lompat ±5 / reset. Offset diterapkan di waktu banding,
+        // jadi tidak perlu reload trek saat diubah.
+        options.add("[Info] Offset subtitle: " + fmtSubOffset(sessionSubOffsetSec) + " (cap ±30 dtk)");
+        actions.add(() -> {});
+        options.add("[Offset] Geser −5 dtk");
+        actions.add(() -> adjustSessionSubOffset(-5));
+        options.add("[Offset] Geser −0,5 dtk");
+        actions.add(() -> adjustSessionSubOffset(-0.5));
+        options.add("[Offset] Geser +0,5 dtk");
+        actions.add(() -> adjustSessionSubOffset(0.5));
+        options.add("[Offset] Geser +5 dtk");
+        actions.add(() -> adjustSessionSubOffset(5));
+        options.add("[Offset] Reset ke 0 dtk");
+        actions.add(() -> setSessionSubOffset(0));
 
         // Opsi Muat Ulang / Terjemahkan Ulang Subtitle (Hapus Cache)
         if (subEnabled && !"raw".equals(activeEngine)) {
@@ -3458,7 +3770,12 @@ public class PlayerActivity extends Activity {
             if (which >= 0 && which < actions.size()) {
                 String chosen = options.get(which);
                 actions.get(which).run();
-                if (!chosen.contains("[Refresh]") && !chosen.contains("[+]")) {
+                if (chosen.contains("[Offset]")) {
+                    // Aksi offset sudah mengatur nilai + menampilkan ulang dialog;
+                    // tanpa simpan pref / reload trek (offset berlaku di waktu banding).
+                } else if (chosen.startsWith("[Info]")) {
+                    // Baris info — tanpa aksi lanjutan.
+                } else if (!chosen.contains("[Refresh]") && !chosen.contains("[+]")) {
                     getSharedPreferences("tatap_player_prefs", MODE_PRIVATE).edit()
                             .putString("pref_sub_engine", activeEngine)
                             .putString("pref_sub_lang", activeSubLang)
@@ -3761,6 +4078,13 @@ public class PlayerActivity extends Activity {
             gd.setColor(bgColor);
             tvSubtitles.setBackground(gd);
             tvSubtitles.setShadowLayer(isTv ? 6f : 4f, 1.5f, 1.5f, 0xFF000000);
+        }
+
+        // Fase 1 — warna teks dari sesi WebView (dialog gaya native tidak punya
+        // pemilih warna; nilai sesi diterapkan di sini agar tidak hilang saat
+        // gaya diubah lewat dialog). Mode klasik tidak tersentuh (putih).
+        if (isWebViewSession) {
+            tvSubtitles.setTextColor(sessionSubColorArgb);
         }
     }
 
