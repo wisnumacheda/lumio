@@ -1,1 +1,9 @@
-{"label":"Fase 1: subtitle player native (uji)","min_app":"2.30.0","notes":"Fase 1 player native: subtitle kini jalan di player native jalur anime. Trek mentah + tier id-gtx/id-gtxplus/id-ai dikirim ke ExoPlayer, offset timing cap 30 dtk ikut tersimpan, varian trek tampil. Toggle Spike tetap OFF secara default. Uji: Ao Ashi ep 1, cek subtitle Indonesia aktif, geser offset, ganti varian, Back lalu cek offset tersimpan.","sha256":"5ad7f2a39f6265a6c47ebc357aeb1daa52e8f570946d4b9d7aa693aaa608d25b","size":1113395,"url":"https://github.com/wisnumacheda/lumio/releases/download/payload-59/lumio-payload.zip","version":59}
+{
+  "version": 60,
+  "label": "Fase 2: subtitle film + hidden di player native (uji)",
+  "notes": "Fase 2 player native: TMDB statis + hidden resolver di ExoPlayer dengan subtitle rezesubs. Toggle Spike tetap OFF secara default. Uji: film via VidRift statis, film via hidden, tombol Server lain native, GoT S4E5 ringkasan gagal.",
+  "min_app": "2.30.0",
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-60/lumio-payload.zip",
+  "sha256": "051b234576a068fa49bdffd40d5327e6be92e7dcedd085b5cfee4d1e174785da",
+  "size": 1115187
+}
