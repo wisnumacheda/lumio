@@ -266,9 +266,14 @@
 
   .player-box{max-width:1020px;position:relative;background:#000}
   .player-head{display:flex;align-items:center;gap:14px;padding:15px 20px;background:var(--bg2)}
-  .player-head h3{font-size:16px;font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* v53: min-width:0 agar ellipsis h3/select bekerja di dalam flex
+     (tanpanya item flex tidak mau menyusut di bawah ukuran kontennya
+     dan judul terdorong keluar baris); tombol X TIDAK BOLEH menyusut —
+     screenshot 15 Nov: X gepeng jadi elips saat kedua select tampil. */
+  .player-head h3{font-size:16px;font-weight:800;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .player-head select{background:var(--panel);color:var(--txt);border:1px solid var(--line);
-    border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;outline:none}
+    border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;outline:none;min-width:0}
+  .player-head .x{flex:0 0 auto}
   .video-wrap{position:relative;background:#000}
   .video-wrap video{width:100%;aspect-ratio:16/9;background:#000}
   /* Fullscreen: layar HP (~20:9) lebih lebar dari video 16:9. Tanpa aturan
@@ -315,7 +320,10 @@
   .ctl-time{color:#fff;font-size:12.5px;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.8);margin-left:2px}
   .ctl-spin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:6}
   .player-status{padding:12px 20px;background:var(--bg2);color:var(--muted);font-size:13px;
-    display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+    display:flex;gap:16px;flex-wrap:wrap;align-items:center;overflow-wrap:anywhere}
+  /* v51: segmen status boleh menyusut agar ringkasan panjang membungkus rapi
+     di barisnya sendiri, tidak meluber atau terpotong. */
+  .player-status>*{min-width:0}
   .player-status .spin{width:15px;height:15px;border-radius:50%;flex:0 0 auto;
     border:2px solid rgba(255,255,255,.18);border-top-color:var(--amber);
     animation:rot .7s linear infinite;display:inline-block;vertical-align:-3px;margin-right:7px}
@@ -324,7 +332,13 @@
   .embed-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;z-index:8}
   .embed-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 20px;background:var(--bg2);border-top:1px solid var(--line)}
   .embed-bar .embed-lbl{font-size:13px;color:var(--muted);font-weight:600}
-  .embed-btn{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  /* v52: bar menampung 12 penyedia — tombol dalam satu baris
+     scroll-horizontal (HP: geser; TV: tvSetFocus scrollIntoView
+     membawa tombol terfokus ke dalam pandangan, semua tetap
+     terjangkau D-pad). */
+  #embedBtns{display:flex;flex:1 1 auto;min-width:120px;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #embedBtns::-webkit-scrollbar{display:none}
+  .embed-btn{flex-shrink:0;white-space:nowrap;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--txt);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
   .embed-btn.cur{border-color:var(--acc);background:rgba(139,92,246,.25)}
   .embed-offer{display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center}
   .embed-note{font-size:12px;color:var(--faint)}
@@ -384,6 +398,25 @@
   .ctl-mid-btn{background:rgba(10,8,20,.66);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:99px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;backdrop-filter:blur(4px)}
   .ctl-mid-btn:active{background:var(--acc)}
   .ctl-row{flex-wrap:wrap}
+  /* v51: di layar sempit, baris tombol kontrol JANGAN melipat — lipatan
+     membuat .ctl (absolute setinggi video 16:9) meluber ke bawah dan
+     menutupi blok status (bug: ringkasan gagal tertutup tombol Subtitle).
+     Geser horizontal menjaga semua tombol terjangkau; TV/desktop tidak
+     berubah (video cukup tinggi untuk baris terlipat). */
+  @media (max-width:640px){
+    .ctl-row{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+    .ctl-row::-webkit-scrollbar{display:none}
+    .ctl-btn{padding:6px 10px;font-size:12px}
+    .ctl-center{width:52px;height:52px;font-size:20px}
+    .ctl-mid{gap:18px}
+    /* v53: header player dua baris di layar sempit — judul SELALU
+       terlihat penuh di baris 1; baris 2 = kedua select (berbagi sisa
+       lebar) + X bulat 38px yang tidak menyusut. Tanpa ini, judul
+       terjepit hilang dan X gepeng (player anime, 2 select tampil). */
+    .player-head{flex-wrap:wrap;gap:8px 10px;padding:12px 14px}
+    .player-head h3{flex:1 1 100%;font-size:15px}
+    .player-head select{flex:1 1 0}
+  }
   .next-ep{position:absolute;inset:0;z-index:7;display:grid;place-items:end center;padding:0 16px 96px;pointer-events:none}
   .next-ep.hidden{display:none}
   .next-ep-card{pointer-events:auto;background:rgba(12,10,24,.94);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 18px;text-align:center;max-width:340px;width:100%}
@@ -1019,6 +1052,7 @@
             <button class="ctl-btn" id="ctlNextBtn" type="button">⏭ Berikutnya</button>
             <button class="ctl-btn" id="ctlSpeedBtn" type="button">⏩ 1×</button>
             <button class="ctl-btn" id="ctlServerBtn" type="button">🌐 Server</button>
+            <button class="ctl-btn hidden" id="ctlCycleBtn" type="button">🔄 Server lain</button>
             <button class="ctl-btn" id="ctlQualityBtn" type="button">🎚️ Kualitas</button>
             <button class="ctl-btn" id="ctlSubBtn" type="button">💬 Subtitle</button>
           </div>
@@ -1167,6 +1201,13 @@
 
     <div class="set-sec">
       <h4>🧰 Lainnya</h4>
+      <div class="set-row flex">
+        <div class="grow">
+          <div class="lbl">Spike: Player Native (uji)</div>
+          <div class="desc">Uji Fase 0 — bila aktif, pemutaran dialihkan ke player native (ExoPlayer) lewat bridge baru. Matikan untuk kembali ke player web biasa. Hanya berfungsi di APK spike.</div>
+        </div>
+        <div class="switch" id="setSpikeNative" role="switch" aria-checked="false" tabindex="0"></div>
+      </div>
       <div class="set-row">
         <button class="btn-reset" id="btnResetSettings">↺ Reset semua pengaturan</button>
       </div>
@@ -1295,12 +1336,36 @@ async function api(path){
   const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
   try {
     const r = await fetch(path, {signal: ctrl.signal});
-    if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+    // v53: pesan error untuk USER tidak boleh memuat URL API mentah
+    // (screenshot 15 Nov: status + toast menampilkan URL resolve yang
+    // panjang). Detail teknis ke console saja; properti err.path
+    // tersedia untuk debug. Pesan backend (fail_reasons jujur) lewat
+    // jalur j.success === false di bawah TIDAK diubah.
+    if (!r.ok) {
+      const err = new Error("HTTP " + r.status + " — server mengembalikan error");
+      err.status = r.status; err.path = path;
+      console.warn("[api] HTTP error", r.status, path);
+      throw err;
+    }
     const j = await r.json();
-    if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
+    /* v57: teruskan field status jujur resolve TMDB (busy / retry_after_ms /
+       fail_reasons) sebagai properti Error — hanya dibaca jalur playTmdb;
+       endpoint lain tidak mengirim field ini sehingga perilaku lama utuh. */
+    if (j && j.success === false) {
+      const err = new Error(j.message || j.error || "API mengembalikan error");
+      if (typeof j.busy === "boolean") err.busy = j.busy;
+      if (typeof j.retry_after_ms === "number") err.retryAfterMs = j.retry_after_ms;
+      if (Array.isArray(j.fail_reasons)) err.failReasons = j.fail_reasons;
+      throw err;
+    }
     return j.data;
   } catch (e) {
-    if (e && e.name === "AbortError") throw new Error("Timeout " + (API_TIMEOUT_MS / 1000) + " dtk — " + path);
+    if (e && e.name === "AbortError") {
+      const err = new Error("Server tidak merespons dalam " + (API_TIMEOUT_MS / 1000) + " detik — coba lagi");
+      err.timeout = true; err.path = path;
+      console.warn("[api] timeout", path);
+      throw err;
+    }
     throw e;
   } finally { clearTimeout(timer); }
 }
@@ -1311,12 +1376,23 @@ async function apiSend(method, path, body){
   try {
     const r = await fetch(path, {method, headers: {"Content-Type": "application/json"},
       body: body ? JSON.stringify(body) : undefined, signal: ctrl.signal});
-    if (!r.ok) throw new Error("HTTP " + r.status + " — " + path);
+    // v53: sama seperti api() — tanpa URL mentah di pesan user.
+    if (!r.ok) {
+      const err = new Error("HTTP " + r.status + " — server mengembalikan error");
+      err.status = r.status; err.path = path;
+      console.warn("[api] HTTP error", r.status, path);
+      throw err;
+    }
     const j = await r.json();
     if (j && j.success === false) throw new Error(j.message || j.error || "API mengembalikan error");
     return j.data;
   } catch (e) {
-    if (e && e.name === "AbortError") throw new Error("Timeout " + (API_TIMEOUT_MS / 1000) + " dtk — " + path);
+    if (e && e.name === "AbortError") {
+      const err = new Error("Server tidak merespons dalam " + (API_TIMEOUT_MS / 1000) + " detik — coba lagi");
+      err.timeout = true; err.path = path;
+      console.warn("[api] timeout", path);
+      throw err;
+    }
     throw e;
   } finally { clearTimeout(timer); }
 }
@@ -2017,7 +2093,12 @@ function histDisplayTitle(h){
   return "Tanpa judul";
 }
 function histTouch(slug, ep){
-  const it = itemStore.get(slug) || currentItem || {};
+  /* v55: currentItem global hanya dipakai bila memang item untuk slug ini
+     (id/slug cocok, atau tanpa id/slug); currentItem milik judul LAIN
+     tidak boleh meracuni entri riwayat judul ini dengan judul yang salah
+     (cacat yang sama dengan yang diperbaiki animePlayerTitle). */
+  const _cur = currentItem;
+  const it = itemStore.get(slug) || ((_cur && (_cur.id === slug || _cur.slug === slug || (!_cur.id && !_cur.slug))) ? _cur : {}) || {};
   const prev = histGet(slug);
   const rest = loadHist().filter(x => x.slug !== slug);
   /* Series TMDB: season disimpan supaya Lanjut Nonton kembali ke season
@@ -2076,7 +2157,7 @@ function renderHistRail(){
   renderGridHistRail();
   /* Entri legacy berjudul mentah "tmdb:*" dari SEMUA seksi: selesaikan judul
      asli via detail TMDB (asinkron); kartu diperbarui begitu judul tiba. */
-  loadHist().forEach(x => { if (String(x.title || "").startsWith("tmdb:")) resolveHistTitle(x); });
+  loadHist().forEach(x => { if (String(x.title || "").startsWith("tmdb:") || isRawSlugTitle(x.title, x.slug)) resolveHistTitle(x); });
 }
 /* Rail Lanjut Nonton di atas grid seksi Movie/Series/Donghua (v47). */
 function gridHistKind(){
@@ -2106,22 +2187,36 @@ function renderGridHistRail(){
 const _histTitleRetry = new Map();
 async function resolveHistTitle(h){
   const t = parseTmdbSlug(h.slug);
-  if (!t) return;
   const now = Date.now();
   if (now - (_histTitleRetry.get(h.slug) || 0) < 60000) return;
   _histTitleRetry.set(h.slug, now);
   try {
-    const d = await api(`/api/tmdb/${t.type}/${t.id}/detail`);
-    const title = String(d.title || "").trim();
-    if (!title || title.startsWith("tmdb:")) return;
+    let title = "", poster = "";
+    if (t){
+      const d = await api(`/api/tmdb/${t.type}/${t.id}/detail`);
+      title = String(d.title || "").trim();
+      poster = d.poster || "";
+      if (!title || title.startsWith("tmdb:")) return;
+    } else {
+      /* v55: entri anime yang menyimpan slug mentah sebagai judul —
+         selesaikan via endpoint detail anime (mengembalikan "title"
+         sejak v55). Entri yang judulnya sudah bersih tidak sampai ke
+         sini (disaring pemanggil). */
+      if (String(h.slug || "").startsWith("tmdb:")) return;
+      if (!isRawSlugTitle(h.title, h.slug)) return;
+      const d = await api(`/api/anime/${encodeURIComponent(h.slug)}/detail`);
+      title = String(d.title || "").trim();
+      poster = d.poster || "";
+      if (!title || isRawSlugTitle(title, h.slug)) return;
+    }
     const all = loadHist();
     const e = all.find(x => x.slug === h.slug);
     if (e && e.title !== title) {
       e.title = title;
-      if (d.poster) e.poster = d.poster;
+      if (poster) e.poster = poster;
       saveHist(all);
       const prev = itemStore.get(h.slug) || {};
-      itemStore.set(h.slug, {...prev, id: h.slug, title, poster: d.poster || prev.poster || e.poster || ""});
+      itemStore.set(h.slug, {...prev, id: h.slug, title, poster: poster || prev.poster || e.poster || ""});
       renderHistRail();
     }
   } catch (_) { /* label bersih tetap tampil; coba lagi lain waktu */ }
@@ -2210,6 +2305,21 @@ async function openDetail(slug, autoplayEp, kindHint){
   // Detail & episode dimuat paralel; kegagalan salah satu tidak memblokir yang lain.
   api(`/api/anime/${encodeURIComponent(slug)}/detail`).then(d => {
     if (currentSlug !== slug) return;
+    /* v55: benih judul asli (endpoint detail mengembalikan "title" sejak
+       v55) — hanya mengisi kekosongan, tidak pernah menimpa judul bersih
+       dari kartu. Tanpa ini, pemutaran dari jalur tanpa judul (riwayat)
+       menampilkan slug mentah di header player. Pola yang sama dengan
+       cabang TMDB (v47). */
+    if (d.title && !isRawSlugTitle(d.title, slug)) {
+      const clean = String(d.title).trim();
+      if (isRawSlugTitle($("#dTitle").textContent, slug)) $("#dTitle").textContent = clean;
+      const prev = itemStore.get(slug) || {};
+      if (isRawSlugTitle(prev.title, slug)) itemStore.set(slug, {...prev, id: slug, title: clean, poster: d.poster || prev.poster || it.poster || ""});
+      if (!it.title || isRawSlugTitle(it.title, slug)) it.title = clean;
+      /* Bila player sudah kebuka untuk judul ini (autoplay balapan dengan
+         fetch detail), perbarui header player ke judul asli. */
+      if (window._curSlug === slug && !$("#playerModal").classList.contains("hidden")) setAnimePlayerTitle(slug, window._curEp || 1);
+    }
     $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
     setupSynClamp();
     if (d.poster) { const dp2 = $("#dPoster"); dp2.dataset.direct = d.poster; dp2.dataset.proxy = posterSrc(d.poster); dp2.dataset.fb = 0; dp2.style.visibility = ""; dp2.src = posterSrc(d.poster); }
@@ -2381,6 +2491,9 @@ async function openTmdbDetail(slug, autoplayEp){
       $("#dTitle").textContent = d.title;
       const prev = itemStore.get(slug) || {};
       itemStore.set(slug, {...prev, id: slug, title: d.title, poster: d.poster || prev.poster || it.poster || ""});
+      /* v51: bila player sudah kebuka untuk judul ini (jalur resume balapan
+         dengan fetch detail), perbarui header player ke judul asli. */
+      if (window._curSlug === slug && !$("#playerModal").classList.contains("hidden")) setTmdbPlayerTitle(slug, window._curEp || 1);
     }
     if (d.poster) it.poster = d.poster;
     $("#dSyn").textContent = d.synopsis || it.synopsis || "Sinopsis belum tersedia.";
@@ -2475,8 +2588,21 @@ function setPlayerStatus(html){ $("#playerStatus").innerHTML = html; }
 function setEpCtlVisible(show){
   ["#ctlEpsBtn", "#ctlNextBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
 }
+function setServerCtlVisible(show){
+  /* v51: pemilih Server anime (HiAnime/Otakudesu/AniChan) tidak bermakna
+     untuk Movie/Series — sembunyikan selama pemutaran TMDB. Padanan TMDB
+     untuk ganti penyedia adalah tombol 🔄 Server lain, bukan panel ini. */
+  ["#serverSel", "#ctlServerBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
+}
 function stopPlayer(){
+  /* v57: hentikan countdown retry sibuk (bila ada) — tawaran embed yang
+     lahir setelah stopPlayer memulai countdown-nya sendiri. */
+  if (typeof clearBusyRetry === "function") clearBusyRetry();
   cancelHiddenResolve();
+  /* v50: lucuti guard hidden-resolver + konteks rangkaian. */
+  clearHiddenGuard();
+  window._hiddenCtx = null;
+  const cyb = $("#ctlCycleBtn"); if (cyb) cyb.classList.add("hidden");
   exitEmbedMode();
   cancelNextEp();
   const epk = $("#epPicker"); if (epk) epk.classList.add("hidden");
@@ -2524,7 +2650,9 @@ function startNextEpCountdown(){
   if (!window._curSlug || !(window._epsNums || []).includes(nxt)) return;
   cancelNextEp();
   const it = itemStore.get(window._curSlug) || currentItem || {};
-  const t = $("#nextEpTitle"); if (t) t.textContent = `${it.title || window._curSlug} — Episode ${nxt}`;
+  /* v55: jangan pernah tampilkan slug mentah — fallback "Episode N" saja. */
+  const _nxTitle = animePlayerTitle(window._curSlug, it);
+  const t = $("#nextEpTitle"); if (t) t.textContent = _nxTitle ? `${_nxTitle} — Episode ${nxt}` : `Episode ${nxt}`;
   nextEpLeft = 10;
   const c = $("#nextEpCount"); if (c) c.textContent = nextEpLeft;
   const ov = $("#nextEpOverlay"); if (ov) ov.classList.remove("hidden");
@@ -2606,6 +2734,9 @@ video.addEventListener("ended", () => {
 });
 $("#serverSel").addEventListener("change", e => {
   if (!window._curSlug || !window._curEp) return;
+  /* v51: pertahanan — pemilih server anime tidak boleh memicu pemutaran
+     ulang dari player TMDB (kontrolnya disembunyikan; ini pengaman). */
+  if (String(window._curSlug).startsWith("tmdb:")) return;
   window._sourceOnce = e.target.value;
   toast("🔁 Mengganti server…");
   playEpisode(window._curSlug, window._curEp);
@@ -2667,6 +2798,8 @@ function syncCtlPlay(){
 function togglePlay(){ if (video.paused) video.play().catch(() => {}); else video.pause(); showCtl(); }
 function ctlPanelShow(kind){
   const panel = $("#ctlPanel"); if (!panel) return;
+  /* v51: panel Server anime tidak boleh tampil saat pemutaran TMDB. */
+  if (kind === "server" && String(window._curSlug || "").startsWith("tmdb:")) return;
   if (!panel.classList.contains("hidden") && panel.dataset.kind === kind) { panel.classList.add("hidden"); showCtl(); return; }
   panel.dataset.kind = kind;
   const opt = (val, label, on) => `<button data-v="${esc(val)}" class="${on ? "on" : ""}"><span>${esc(label)}</span>${on ? "<span>✓</span>" : ""}</button>`;
@@ -2685,7 +2818,28 @@ function ctlPanelShow(kind){
       + [["size:s", "Ukuran: Kecil"], ["size:m", "Ukuran: Sedang"], ["size:l", "Ukuran: Besar"], ["size:xl", "Ukuran: Jumbo"]].map(([v, l]) => opt(v, l, SETTINGS.subSize === v.slice(5))).join("")
       + [["bg:box", "Latar: Kotak Gelap"], ["bg:thin", "Latar: Tipis"], ["bg:none", "Latar: Tanpa Kotak"]].map(([v, l]) => opt(v, l, (SETTINGS.subBg || "box") === v.slice(3))).join("")
       + [["color:putih", "Warna: Putih"], ["color:kuning", "Warna: Kuning"], ["color:cyan", "Warna: Cyan"], ["color:hijau", "Warna: Hijau"]].map(([v, l]) => opt(v, l, (SETTINGS.subColor || "putih") === v.slice(6))).join("")
-      + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur) + subOpts.map(o => opt(o.id, o.label, o.id === cur)).join("");
+      /* v56: geser timing — tombol nyata agar terjangkau D-pad TV; nilai
+         diperbarui di tempat oleh setSubOffset, panel tidak ditutup. */
+      + `<div class="ph">⏱️ Geser Timing (+ = subtitle lebih lambat): <span id="subOffVal">${fmtSubOffset(window._subOffset || 0)}</span></div>`
+      + [["off:-5", "−5 dtk"], ["off:-0.5", "−0,5 dtk"], ["off:+0.5", "+0,5 dtk"], ["off:+5", "+5 dtk"], ["off:reset", "Reset ke 0"]].map(([v, l]) => opt(v, l, false)).join("")
+      + `<div class="ph">💬 Teks Subtitle</div>` + opt("off", "Mati", !cur);
+    /* v56: trek asli dikelompokkan per bahasa lengkap dengan jumlahnya
+       (pola FlyStream) bila ada kelompok bervarian; tier terjemahan
+       tetap di atas tanpa kelompok. Tanpa varian, tampilan persis
+       seperti sebelumnya (tanpa header kelompok). */
+    const tiers = subOpts.filter(o => !o.id.startsWith("raw-"));
+    const raws = subOpts.filter(o => o.id.startsWith("raw-"));
+    html += tiers.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    const groups = [];
+    raws.forEach(o => {
+      const g = groups.find(g => g.name === (o.group || o.label));
+      if (g) g.items.push(o); else groups.push({name: o.group || o.label, items: [o]});
+    });
+    const grouped = groups.some(g => g.items.length > 1);
+    groups.forEach(g => {
+      if (grouped) html += `<div class="ph">${esc(g.name)}${g.items.length > 1 ? " (" + g.items.length + ")" : ""}</div>`;
+      html += g.items.map(o => opt(o.id, o.label, o.id === cur)).join("");
+    });
     if (cur && cur.startsWith("id-")) html += opt("refresh", "🔄 Terjemahkan Ulang (hapus cache)", false);
     if (!subOpts.length) html += `<div class="ph">Tidak tersedia untuk episode ini</div>`;
   }
@@ -2706,7 +2860,12 @@ function ctlPanelShow(kind){
     }
     else if (kind === "speed") { SETTINGS.speed = Number(v); saveSettings(); try { video.playbackRate = SETTINGS.speed; } catch (e) {} syncCtlPlay(); toast("⏩ Kecepatan: " + v + "×"); }
     else if (kind === "sub") {
-      if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
+      /* v56: geser timing — panel TETAP TERBUKA agar ketukan beruntun
+         bisa dilakukan; nilai diperbarui di tempat oleh setSubOffset.
+         showCtl() menjaga control bar tetap tampil (timer mengulang
+         selama panel terbuka). */
+      if (v.startsWith("off:")) { const arg = v.slice(4); setSubOffset(arg === "reset" ? 0 : (window._subOffset || 0) + Number(arg)); showCtl(); return; }
+      else if (v.startsWith("size:")) { SETTINGS.subSize = v.slice(5); saveSettings(); applySettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("💬 Ukuran subtitle diubah"); }
       else if (v.startsWith("bg:")) { SETTINGS.subBg = v.slice(3); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Latar subtitle diubah"); }
       else if (v.startsWith("color:")) { SETTINGS.subColor = v.slice(6); saveSettings(); window._subCueText = "__init__"; renderSubOverlay(); toast("🎨 Warna subtitle diubah"); }
       else if (v === "off") selectSubtitle(null);
@@ -2735,6 +2894,14 @@ $("#ctlBack10").addEventListener("click", () => { try { video.currentTime = Math
 $("#ctlFwd10").addEventListener("click", () => { try { video.currentTime = Math.min(video.duration || 1e18, video.currentTime + 10); } catch (e) {} showCtl(); });
 $("#ctlFsBtn").addEventListener("click", () => { if (document.fullscreenElement) exitFs(); else tryFullscreen(); });
 $("#ctlServerBtn").addEventListener("click", () => ctlPanelShow("server"));
+/* v50: siklus manual ke penyedia hidden berikutnya (stream jalan tapi
+   kualitasnya buruk — mis. watermark). Hanya tampil saat relevan. */
+$("#ctlCycleBtn").addEventListener("click", () => {
+  const ctx = window._hiddenCtx;
+  if (!ctx || ctx.advancing) return;
+  toast("🔄 Mencoba penyedia berikutnya…");
+  hiddenAdvance(ctx, "diganti manual", {manual: true}); /* v57: manual boleh mencoba penyedia auto-ineligible */
+});
 $("#ctlQualityBtn").addEventListener("click", () => ctlPanelShow("quality"));
 $("#ctlSubBtn").addEventListener("click", () => ctlPanelShow("sub"));
 $("#ctlSpeedBtn").addEventListener("click", () => ctlPanelShow("speed"));
@@ -2831,11 +2998,50 @@ function tryFullscreen(){
 }
 function exitFs(){ try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {} }
 $("#ctlBackBtn").addEventListener("click", (e) => { e.stopPropagation(); closeModal("playerModal"); });
+/* v54: detail error FATAL hls.js yang menandakan codec stream tidak
+   didukung perangkat — diverifikasi dari hls.min.js 1.5.13 yang
+   dikapalkan (frontend/js/vendor/hls.min.js):
+   - manifestIncompatibleCodecsError (MEDIA_ERROR, fatal): tidak ada
+     level dengan codec kompatibel di manifest. Kasus nyata: stream
+     Orion/VidRift yang semuanya HEVC (hvc1) di perangkat tanpa HEVC.
+   - bufferIncompatibleCodecsError (MEDIA_ERROR, fatal): source buffer
+     tidak bisa dibuat untuk codec media.
+   bufferAddCodecError SENGAJA tidak masuk set ini: non-fatal dan
+   ditangani internal hls.js via ganti level; bila semua level gagal,
+   hls.js mengeskalasi ke bufferIncompatibleCodecsError. Error
+   non-codec TIDAK PERNAH masuk jalur ini. */
+const CODEC_FATAL_DETAILS = ["manifestIncompatibleCodecsError", "bufferIncompatibleCodecsError"];
+function isCodecError(d){
+  return !!(d && d.fatal && CODEC_FATAL_DETAILS.indexOf(d.details) !== -1);
+}
+/* Spike Fase 0 — coba lempar sesi putar ke PlayerActivity native.
+   Mengembalikan true bila bridge dipanggil (pemutar web dilewati);
+   false bila toggle mati / bridge tidak ada / gagal → jalur web biasa. */
+function tryNativePlay(sess){
+  if (!SETTINGS.spikeNative) return false;
+  try {
+    if (typeof LumioNative === "undefined" || typeof LumioNative.playNative !== "function") return false;
+    LumioNative.playNative(JSON.stringify(sess));
+    return true;
+  } catch (e) { return false; }
+}
+/* Spike Fase 0 — callback hasil dari PlayerActivity native (via
+   WebUiActivity.onActivityResult). Hanya toast + simpan untuk inspeksi;
+   sinkronisasi history/posisi penuh adalah Fase 1. */
+window.__lumioNativePlayerResult = function(r){
+  try { window._nativeLastResult = r || null; } catch (e) {}
+  const a = (r && r.action) || "closed";
+  const pos = (r && r.posSec) ? " · posisi " + Math.round(r.posSec) + " dtk" : "";
+  const err = (r && r.error) ? " — " + r.error : "";
+  toast("🎬 Player native: " + a + pos + err);
+};
+
 async function playEpisode(slug, ep, fromAuto){
   /* Judul TMDB memakai jalur putar sendiri (v44) — resolve berbeda, player sama. */
   if (String(slug).startsWith("tmdb:")) return playTmdb(slug, ep, fromAuto);
   const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
+  loadSubOffset(); /* v56: offset timing subtitle per judul+episode */
   histTouch(slug, ep);
   const savedHist = histGet(slug);
   window._resumePos = (savedHist && savedHist.ep === ep && savedHist.pos > 15 && (!savedHist.dur || savedHist.pos < savedHist.dur - 20)) ? savedHist.pos : 0;
@@ -2845,9 +3051,11 @@ async function playEpisode(slug, ep, fromAuto){
   stopPlayer();
   video.controls = false; ctlOn = true; showCtl();
   setEpCtlVisible(true);
+  setServerCtlVisible(true);
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
-  $("#pTitle").textContent = `${it.title || slug} — Episode ${ep}`;
-  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  /* v55: judul header via helper — slug mentah tidak boleh tampil; bila
+     judul belum diketahui, tampil "Episode N" lalu ditingkatkan async. */
+  setAnimePlayerTitle(slug, ep);
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
   const effSource = window._sourceOnce || SETTINGS.source;
   window._sourceOnce = "";
@@ -2881,6 +3089,11 @@ async function playEpisode(slug, ep, fromAuto){
     exitFs(); setPlayerStatus("❌ Server tidak mengembalikan URL stream untuk episode ini."); return;
   }
   const referer = data.referer || "";
+  /* Spike Fase 0 — bila toggle aktif + bridge ada, lempar sesi ke
+     PlayerActivity native; player web dilewati sepenuhnya. */
+  if (tryNativePlay({kind: "anime", slug, episode: ep, title: animePlayerTitle(slug, it) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0})) {
+    closeModal("playerModal"); return;
+  }
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
 
   // Pilihan kualitas dari variants resolver.
@@ -2946,6 +3159,11 @@ async function playEpisode(slug, ep, fromAuto){
     hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
+      /* v54: codec tidak didukung bersifat deterministik — retry
+         (startLoad/recoverMediaError) atas manifest yang sama sia-sia
+         dan bisa mengulang tanpa batas. Hentikan dengan pesan jujur;
+         perilaku sukses dan error non-codec tidak berubah. */
+      if (isCodecError(d)) { setPlayerStatus("❌ Codec stream tidak didukung perangkat ini. Coba episode/server lain."); return; }
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); hls.startLoad(); }
       else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { hls.recoverMediaError(); }
       else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
@@ -2986,11 +3204,22 @@ function renderEmbedBar(){
     if (cur) tvSetFocus(cur);
   }
 }
+function embedPlayUrl(p){
+  /* v52: param khusus per penyedia yang hanya frontend yang tahu
+     konteksnya. VidRift di TV: uiScale=1.5 (ukuran kontrol TV,
+     terdokumentasi di vidrift.net). exit=1 sudah dibakar di template
+     backend (semua perangkat). */
+  if (p && p.id === "vidrift" && typeof IS_TV !== "undefined" && IS_TV) {
+    const sep = p.url.indexOf("?") === -1 ? "?" : "&";
+    return p.url + sep + "uiScale=1.5";
+  }
+  return p ? p.url : "";
+}
 function loadEmbedProvider(i){
   const st = window._embed; if (!st || !st.list.length) return;
   st.idx = ((i % st.list.length) + st.list.length) % st.list.length;
   const p = st.list[st.idx];
-  const fr = $("#embedFrame"); if (fr) fr.src = p.url;
+  const fr = $("#embedFrame"); if (fr) fr.src = embedPlayUrl(p);
   renderEmbedBar();
   setPlayerStatus(embedStatusHtml(p));
 }
@@ -3014,40 +3243,102 @@ function exitEmbedMode(){
      mem-pause dan trailing syncAwake-nya menutup ke false. */
   syncAwake();
 }
+/* ---- Status sibuk + retry (payload v57, pola FlyStream) ----
+   Bila kegagalan bersignature transient (busy), tawaran embed tetap
+   tampil seperti biasa DITAMBAH baris countdown: tombol "Coba lagi"
+   aktif setelah retry_after_ms dan menjalankan resolve YANG SAMA
+   (playTmdb untuk slug/episode yang sama, bukan judul baru).
+   Countdown TIDAK PERNAH menjadi gate bagi tawaran embed. */
+window._busyRetryTimer = window._busyRetryTimer || null;
+function clearBusyRetry(){
+  if (window._busyRetryTimer) { clearInterval(window._busyRetryTimer); window._busyRetryTimer = null; }
+}
+function startBusyCountdown(totalMs, slug, ep){
+  clearBusyRetry();
+  const endAt = Date.now() + Math.max(0, totalMs);
+  const tick = () => {
+    const btn = $("#btnBusyRetry"), cnt = $("#busyCount");
+    if (!btn || !cnt) { clearBusyRetry(); return; }
+    const remain = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+    if (remain <= 0) {
+      cnt.textContent = "0 detik";
+      btn.disabled = false;
+      const lbl = $("#busyLabel");
+      if (lbl) lbl.textContent = "Server sibuk — bisa coba lagi sekarang: ";
+      clearBusyRetry();
+      return;
+    }
+    cnt.textContent = remain + " detik";
+  };
+  tick();
+  window._busyRetryTimer = setInterval(tick, 500);
+}
 function renderEmbedOffer(){
   const o = window._embedOffer; if (!o) return;
-  setPlayerStatus(`❌ Gagal menyelesaikan stream: ${esc(o.errMsg)}<br><span class="embed-offer">Jalan lain: <button class="btn btn-play" id="btnEmbedMode" type="button">▶ Putar via embed</button> <span class="embed-note">subtitle & kualitas Lumio tidak berlaku di mode embed</span></span>`);
+  clearBusyRetry();
+  let html = `❌ Gagal menyelesaikan stream: ${esc(o.errMsg)}<br><span class="embed-offer">Jalan lain: <button class="btn btn-play" id="btnEmbedMode" type="button">▶ Putar via embed</button> <span class="embed-note">subtitle & kualitas Lumio tidak berlaku di mode embed</span></span>`;
+  if (o.busy && o.retryAfterMs > 0) {
+    html += `<br><span class="busy-retry"><span id="busyLabel">Server sibuk — coba lagi dalam </span><b id="busyCount"></b> <button class="btn btn-play" id="btnBusyRetry" type="button" disabled>🔄 Coba lagi</button></span>`;
+  }
+  setPlayerStatus(html);
   const b = $("#btnEmbedMode");
   if (b) {
     b.addEventListener("click", () => enterEmbedMode(o.slug, o.ep, o.providers));
     if (typeof IS_TV !== "undefined" && IS_TV && typeof tvSetFocus === "function") tvSetFocus(b);
   }
+  const rb = $("#btnBusyRetry");
+  if (rb) {
+    rb.addEventListener("click", () => { clearBusyRetry(); playTmdb(o.slug, o.ep, true); });
+    startBusyCountdown(o.retryAfterMs, o.slug, o.ep);
+  }
 }
-async function offerEmbedMode(slug, ep, errMsg){
-  const providers = await fetchEmbedProviders(slug, ep);
+async function offerEmbedMode(slug, ep, errMsg, knownProviders, busyInfo){
+  /* v51: pakai daftar penyedia yang SUDAH diketahui bila ada — fetch ulang
+     di sini bisa gagal (tawaran embed lalu hilang dan toast menampilkan
+     ringkasan panjang yang terpotong), padahal rangkaian hidden sudah
+     memegang daftarnya. v57: busyInfo opsional {busy, retryAfterMs} untuk
+     baris countdown retry — tanpa itu, tawaran tampil persis seperti dulu. */
+  const providers = (knownProviders && knownProviders.length)
+    ? knownProviders
+    : (await fetchEmbedProviders(slug, ep)).providers;
   exitFs();
   if (!providers.length) {
     setPlayerStatus("❌ Gagal menyelesaikan stream: " + esc(errMsg));
-    toast("Stream gagal dimuat: " + errMsg, true);
+    toast("Stream gagal dimuat — tidak ada penyedia embed", true);
     return;
   }
-  window._embedOffer = {slug, ep, providers, errMsg};
+  window._embedOffer = {slug, ep, providers, errMsg,
+    busy: !!(busyInfo && busyInfo.busy),
+    retryAfterMs: (busyInfo && busyInfo.retryAfterMs) || 0};
   renderEmbedOffer();
   toast("Stream gagal dimuat — mode embed tersedia", true);
 }
 const _embClose = $("#embedCloseBtn");
 if (_embClose) _embClose.addEventListener("click", () => { exitEmbedMode(); renderEmbedOffer(); });
-/* Viduki mengabarkan kegagalan semua server via postMessage (dokumentasi
-   resmi): ganti otomatis ke penyedia embed berikutnya. Origin dibatasi
-   ketat ke viduki; hanya aktif saat mode embed berjalan di Viduki. */
+/* Pesan postMessage dari player embed (origin dibatasi ketat per
+   penyedia; hanya aktif saat mode embed berjalan di penyedia itu):
+   - Viduki mengabarkan kegagalan semua server (dokumentasi resmi):
+     ganti otomatis ke penyedia embed berikutnya.
+   - VidRift (v52, param exit=1): tombol keluar player mengirim
+     {type:'vidrift:exit'} (format terverifikasi dari kode player di
+     HTML embed) — perlakukan seperti tombol "Tutup embed". Pesan lain
+     VidRift (progress/quality/subtitle) sengaja tidak ditangani di
+     v52: tidak ada UX Lumio yang memakainya. */
 window.addEventListener("message", (ev) => {
   try {
     const st = window._embed; if (!st) return;
-    const cur = st.list[st.idx]; if (!cur || cur.id !== "viduki") return;
-    if (ev.origin !== "https://www.viduki.net" && ev.origin !== "https://viduki.net") return;
-    if (ev.data && ev.data.type === "viduki:all-servers-failed") {
-      toast("Viduki gagal semua server — pindah penyedia embed…", true);
-      loadEmbedProvider(st.idx + 1);
+    const cur = st.list[st.idx]; if (!cur) return;
+    if (cur.id === "viduki") {
+      if (ev.origin !== "https://www.viduki.net" && ev.origin !== "https://viduki.net") return;
+      if (ev.data && ev.data.type === "viduki:all-servers-failed") {
+        toast("Viduki gagal semua server — pindah penyedia embed…", true);
+        loadEmbedProvider(st.idx + 1);
+      }
+    } else if (cur.id === "vidrift") {
+      if (ev.origin !== "https://embed.vidrift.net" && ev.origin !== "https://embed.vidrift.in") return;
+      if (ev.data && ev.data.type === "vidrift:exit") {
+        exitEmbedMode(); renderEmbedOffer();
+      }
     }
   } catch (e) {}
 });
@@ -3055,10 +3346,18 @@ window.addEventListener("message", (ev) => {
    native ada, kegagalan resolve statis dicoba dulu lewat hidden WebView —
    manifest .m3u8 yang diintersepsi diputar di player HLS Lumio (D-pad TV
    penuh, panel kualitas, subtitle). Tanpa bridge (APK lama / browser),
-   perilaku lama persis: langsung tawaran embed. VidSrc dilewati di loop
-   ini: bukti probe 14 Nov NONE (iframe nested token-gated, 403 terbukti) —
-   tetap tersedia sebagai tombol iframe di mode embed. */
-const HIDDEN_RESOLVER_SKIP = ["vidsrc"];
+   perilaku lama persis: langsung tawaran embed.
+   v52: urutan loop resolver BERBEDA dari urutan bar embed dan merupakan
+   ALLOWLIST eksplisit dari backend — menggantikan denylist
+   HIDDEN_RESOLVER_SKIP v49-v51. Penyedia embed-only (EmbedWave,
+   VidNest, CineSrc, Vidly, Vidy, vidsrc.pk) dan VidSrc TIDAK PERNAH
+   dipanggil resolver: tidak ada bukti replay untuk mereka. v53:
+   VidRift KELUAR dari allowlist (RESOLVER_ORDER kini Viduki, VidLink,
+   VidFast, VidRock) — di-resolve statis oleh backend, karena
+   percobaan hidden-nya terbukti membuang anggaran di perangkat
+   ("waktu habis", 15 Nov 2026). Loop mengiterasi
+   ctx.resolverProviders; ctx.providers (daftar lengkap urutan embed)
+   hanya dipakai untuk bar embed / tawaran embed. */
 const HIDDEN_ABORTED = {aborted: true};
 window.__lumioEmbedPending = window.__lumioEmbedPending || {};
 window.__lumioEmbedSeq = window.__lumioEmbedSeq || 0;
@@ -3106,45 +3405,552 @@ function resolveOneHidden(provider, budgetMs){
   });
 }
 async function fetchEmbedProviders(slug, ep){
+  /* v52: mengembalikan {providers, resolverOrder} — providers dalam
+     urutan BAR EMBED (lengkap), resolverOrder adalah allowlist + urutan
+     loop resolver dari backend. Gagal apa pun -> daftar kosong jujur. */
   const t = parseTmdbSlug(slug);
-  if (!t) return [];
+  if (!t) return {providers: [], resolverOrder: []};
   try {
     const q = t.type === "movie"
       ? `tmdb=${t.id}&type=movie`
       : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
     const d = await api(`/api/stream/embed_urls?${q}`);
-    return (d && d.providers) || [];
-  } catch (e) { return []; }
+    return {
+      providers: (d && d.providers) || [],
+      resolverOrder: (d && d.resolver_order) || []
+    };
+  } catch (e) { return {providers: [], resolverOrder: []}; }
 }
-async function tryHiddenResolve(slug, ep){
-  /* Data sintetis siap jalur HLS, null (semua gagal — lanjut tawaran
-     embed), atau HIDDEN_ABORTED (player ditutup di tengah jalan — jangan
-     tampilkan apa pun). Anggaran total 60 dtk, per penyedia maks 18 dtk
-     (native timeout 15 dtk + margin callback). */
-  const providers = await fetchEmbedProviders(slug, ep);
+function buildResolverProviders(fetched){
+  /* Daftar loop resolver: allowlist eksplisit backend (resolver_order),
+     dipetakan ke objek penyedia; entri tanpa objek / tanpa flag resolver
+     dibuang. TIDAK PERNAH fallback ke daftar lengkap — penyedia
+     embed-only tidak boleh masuk loop dalam kondisi apa pun. */
+  const byId = {};
+  (fetched.providers || []).forEach(p => { if (p && p.id) byId[p.id] = p; });
+  const out = [];
+  (fetched.resolverOrder || []).forEach(id => {
+    const p = byId[id];
+    if (p && p.resolver && !out.includes(p)) out.push(p);
+  });
+  return out;
+}
+/* ---- Kesehatan penyedia per-SESI (payload v57, pola autoEligible) ----
+   In-memory saja (window, TANPA localStorage): penyedia yang gagal
+   dengan replay-timeout ("waktu habis") atau stall ("macet") DUA KALI
+   dalam sesi menjadi auto-ineligible — loop otomatis melewatinya
+   (dicatat jujur di attempts), tapi tombol manual "Server lain" tetap
+   bisa mencobanya satu kali (flag allowIneligibleOnce per rangkaian).
+   Sukses parse menghapus hitungan gagalnya. Bila SEMUA penyedia tersisa
+   auto-ineligible, loop tetap mencoba semuanya (fail-open) dan mencatatnya. */
+window._providerHealth = window._providerHealth || {};
+function providerFailCount(id){ return (window._providerHealth && window._providerHealth[id]) || 0; }
+function isAutoIneligible(id){ return providerFailCount(id) >= 2; }
+function recordProviderFailure(id, label){
+  if (!id) return;
+  const l = String(label || "");
+  if (l.indexOf("waktu habis") === -1 && l.indexOf("macet") === -1) return;
+  window._providerHealth[id] = providerFailCount(id) + 1;
+}
+function clearProviderFailures(id){ if (id && window._providerHealth) delete window._providerHealth[id]; }
+/* v57: info sibuk untuk tawaran embed dari sebuah ctx hidden — gabungan
+   sinyal busy resolve statis (bila ada) dan >=1 attempt timeout. */
+function busyInfoForCtx(ctx){
+  const attempts = (ctx && ctx.attempts) || [];
+  const hasTimeout = attempts.some(a => String((a && a.label) || "").indexOf("waktu habis") !== -1);
+  const sb = ctx && ctx.staticBusy;
+  if (sb && sb.busy) return {busy: true, retryAfterMs: sb.retryAfterMs || 15000};
+  if (hasTimeout) return {busy: true, retryAfterMs: 15000};
+  return null;
+}
+async function tryHiddenResolve(slug, ep, ctx){
+  /* v50: satu rangkaian resolve dengan ctx bersama {resolverProviders,
+     skip, deadline, attempts}. Mengembalikan data sintetis siap jalur
+     HLS, null (semua penyedia habis), atau HIDDEN_ABORTED (player
+     ditutup di tengah jalan — jangan tampilkan apa pun). v51: tenggat
+     rangkaian (ctx.deadline) HANYA mengukur waktu resolve — waktu guard
+     replay dikembalikan oleh runHiddenLoop — dan sisa anggaran dibagi
+     adil antar penyedia tersisa (per penyedia maks 18 dtk: native
+     timeout 15 dtk + margin callback). Setiap kegagalan resolve dicatat
+     ke ctx.attempts untuk diagnostik; penyedia yang terlewat karena
+     anggaran habis dicatat jujur, tidak pernah dihilangkan diam-diam.
+     v52: loop mengiterasi ctx.resolverProviders (allowlist eksplisit
+     backend) — BUKAN ctx.providers (daftar bar embed). Penyedia yang
+     punya mirror mendapat percobaan kedua ke mirror dalam attempt
+     yang sama bila URL utama gagal (v53: tidak ada penyedia loop yang
+     bermirror — mirror VidRift dipakai resolver statis backend). */
   const gen = window.__lumioEmbedGen;
-  const deadline = Date.now() + 60000;
-  for (const p of providers) {
-    if (HIDDEN_RESOLVER_SKIP.includes(p.id)) continue;
+  const list = ctx.resolverProviders || [];
+  /* v57 fail-open: bila SEMUA penyedia tersisa auto-ineligible, loop tetap
+     mencoba semuanya berurutan (seperti sebelum v57) dan mencatatnya
+     sekali per rangkaian — jangan sampai kesehatan sesi membuat loop
+     kosong total. */
+  const _untriedEntry = list.filter(q => !ctx.skip.has(q.id) && !(ctx.autoSkipped && ctx.autoSkipped.has(q.id)));
+  const failOpen = _untriedEntry.length > 0 && _untriedEntry.every(q => isAutoIneligible(q.id));
+  if (failOpen && !ctx.failOpenNoted) {
+    ctx.failOpenNoted = true;
+    ctx.attempts.push({name: "Fail-open", label: "semua penyedia auto-ineligible — tetap dicoba berurutan"});
+  }
+  for (const p of list) {
+    if (ctx.skip.has(p.id)) continue;
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
-    const remain = deadline - Date.now();
-    if (remain < 5000) break;
+    /* v57 auto-skip: penyedia auto-ineligible dilewati loop otomatis dan
+       dicatat di ctx.autoSkipped (BUKAN ctx.skip) agar tombol manual
+       "Server lain" tetap bisa mencobanya lewat allowIneligibleOnce. */
+    if (ctx.autoSkipped && ctx.autoSkipped.has(p.id)) {
+      if (ctx.allowIneligibleOnce) { ctx.autoSkipped.delete(p.id); ctx.allowIneligibleOnce = false; }
+      else continue;
+    } else if (!failOpen && isAutoIneligible(p.id)) {
+      if (ctx.allowIneligibleOnce) { ctx.allowIneligibleOnce = false; }
+      else {
+        if (!ctx.autoSkipped) ctx.autoSkipped = new Set();
+        ctx.autoSkipped.add(p.id);
+        ctx.attempts.push({name: p.name || p.id, label: "dilewati otomatis (2x gagal sesi ini)"});
+        continue;
+      }
+    }
+    const untried = list.filter(q => !ctx.skip.has(q.id)).length;
+    const remain = ctx.deadline - Date.now();
+    if (remain < 5000) {
+      /* Anggaran resolve habis: catat SEMUA penyedia tersisa secara jujur
+         agar ringkasan menyebut mereka (bug v50: VidRock tidak pernah
+         disebut di ringkasan GoT S4E5 padahal belum dicoba). Yang sudah
+         dicatat sebagai auto-skip tidak dicatat dua kali. */
+      ctx.allowIneligibleOnce = false;
+      for (const q of list) {
+        if (ctx.skip.has(q.id) || (ctx.autoSkipped && ctx.autoSkipped.has(q.id))) continue;
+        ctx.skip.add(q.id);
+        ctx.attempts.push({name: q.name || q.id, label: "terlewat (waktu habis)"});
+      }
+      return null;
+    }
+    const share = Math.max(5000, Math.min(18000, Math.floor(remain / Math.max(1, untried))));
     setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)}…</span>`);
-    const payload = await resolveOneHidden(p, Math.min(18000, remain));
+    let attemptUrl = p.url;
+    let payload = await resolveOneHidden(p, share);
+    /* v52: percobaan mirror dalam attempt yang sama — satu catatan
+       attempts per penyedia; referer replay mengikuti URL yang sukses,
+       karena replay mensyaratkan Referer URL embed yang menyajikan
+       manifest. */
+    if ((!payload || !payload.ok) && p.mirror && window.__lumioEmbedGen === gen) {
+      const remain2 = ctx.deadline - Date.now();
+      if (remain2 >= 5000) {
+        setPlayerStatus(`<span><span class="spin"></span>Mencari stream via ${esc(p.name || p.id)} (mirror)…</span>`);
+        const share2 = Math.max(5000, Math.min(share, remain2));
+        const payload2 = await resolveOneHidden({id: p.id, name: p.name, url: p.mirror}, share2);
+        if (payload2 && payload2.ok) { payload = payload2; attemptUrl = p.mirror; }
+      }
+    }
     if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    ctx.skip.add(p.id);
     if (payload && payload.ok && payload.url) {
       return {
         master: payload.url,
-        referer: p.url,
+        referer: attemptUrl,
         server: "Embed · " + (p.name || p.id),
         source: "",
         subtitles: Array.isArray(payload.subtitles) ? payload.subtitles.filter(s => s && s.url) : [],
         _viaHidden: true,
-        _hiddenProvider: p.name || p.id
+        _hiddenProvider: p.name || p.id,
+        _hiddenProviderId: p.id
       };
     }
+    const err = (payload && payload.error) || "tidak menemukan stream";
+    const failLabel = err === "timeout" ? "waktu habis" : "tidak menemukan stream";
+    ctx.attempts.push({name: p.name || p.id, label: failLabel});
+    recordProviderFailure(p.id, failLabel); /* v57: hanya "waktu habis" yang dihitung */
   }
   return null;
+}
+/* ---- Resolver v2 (payload v50): loop lanjutan + guard latar + diagnostik ---- */
+function hiddenDiagHost(master){
+  /* Host manifest saja untuk diagnostik — URL lengkap TIDAK PERNAH
+     ditampilkan (bisa membawa token). */
+  try { return new URL(master).hostname || ""; } catch (e) { return ""; }
+}
+function hiddenSummary(ctx){
+  if (!ctx || !ctx.attempts.length) return "Semua penyedia gagal menemukan stream yang bisa diputar.";
+  return "Semua penyedia gagal: " + ctx.attempts.map(a => `${a.name} (${a.label})`).join(" · ");
+}
+function hiddenUntriedRemain(ctx){
+  /* v52: penyedia "tersisa" dihitung dari allowlist resolver, bukan
+     dari daftar bar embed (yang memuat penyedia embed-only). */
+  if (!ctx || !ctx.resolverProviders) return false;
+  return ctx.resolverProviders.some(p => !ctx.skip.has(p.id));
+}
+function updateCycleBtn(){
+  const b = $("#ctlCycleBtn");
+  if (!b) return;
+  const ctx = window._hiddenCtx;
+  const g = window._hiddenGuard;
+  const show = !!(ctx && g && g.ctx === ctx && g.parsed && !ctx.advancing && hiddenUntriedRemain(ctx));
+  b.classList.toggle("hidden", !show);
+}
+function clearHiddenGuard(){
+  const g = window._hiddenGuard;
+  if (g && g.timer) { try { clearInterval(g.timer); } catch (e) {} }
+  window._hiddenGuard = null;
+}
+function teardownHiddenAttempt(){
+  /* Teardown MINIMAL antar-percobaan hidden: hancurkan hls + reset video
+     TANPA stopPlayer (stopPlayer menaikkan gen, menyembunyikan ctl, dan
+     membersihkan subtitle — tidak diinginkan di tengah rangkaian). */
+  if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+  try { video.pause(); } catch (e) {}
+  video.removeAttribute("src");
+  try { video.load(); } catch (e) {}
+  skipRange = null;
+  window._intro = null; window._outro = null;
+}
+function restoreSubInfo(){
+  /* Setelah status di-render ulang antar-percobaan, kembalikan teks info
+     subtitle sesuai pilihan aktif (tanpa me-reset pilihan user). */
+  const cur = (window._subOptions || []).find(o => o.id === window._subActiveId);
+  if (cur) updateSubInfo("Subtitle: " + cur.label);
+  else if ((window._subOptions || []).length) updateSubInfo("Subtitle: mati.");
+  else updateSubInfo("Subtitle: tidak tersedia untuk episode ini.");
+}
+async function fetchEmbedSubtitles(t, ep){
+  /* Daftar subtitle statis (rezesubs) untuk judul TMDB — lapisan mekanisme,
+     independen penyedia (bukti: Viduki DAN VidFast sama-sama 0 trek
+     tertangkap — kesenjangan subtitle melintasi penyedia). Timeout mandiri
+     5 dtk; kegagalan/timeout berarti daftar kosong, bukan error. */
+  try {
+    const q = t.type === "movie"
+      ? `tmdb=${t.id}&type=movie`
+      : `tmdb=${t.id}&type=tv&season=${window._tmdbSeason || 1}&episode=${ep}`;
+    const d = await Promise.race([
+      api(`/api/stream/embed_subtitles?${q}`),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("subtitle lookup timeout")), 5000))
+    ]);
+    return ((d && d.subtitles) || []).filter(s => s && s.url);
+  } catch (e) { return []; }
+}
+function attachHiddenAttempt(data, ctx, t, ep){
+  /* Memasang HLS untuk satu percobaan hidden. Promise selesai:
+     {outcome:"parsed"} | {outcome:"failed"} | {outcome:"aborted"}.
+     Saat parsed, guard latar (watchdog stall + penghitung error fatal)
+     TETAP HIDUP dan dapat memicu hiddenAdvance sendiri. */
+  return new Promise((settle) => {
+    const gen = window.__lumioEmbedGen;
+    const referer = data.referer || "";
+    const proxied = "/api/player/video?url=" + encodeURIComponent(data.master) + "&referer=" + encodeURIComponent(referer);
+    const qSel = $("#qualitySel");
+    qSel.dataset.referer = referer;
+    qSel.dataset.master = proxied;
+    qSel.innerHTML = `<option value="">Kualitas: Auto</option>`;
+    window._pendingVariant = "";
+    const subCount = (data.subtitles || []).length;
+    const host = hiddenDiagHost(data.master);
+    const info = [];
+    if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
+    if (host) info.push("Host: " + esc(host));
+    info.push("💬 " + subCount + " subtitle");
+    setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
+    skipRange = null;
+    window._intro = null; window._outro = null;
+    if (!ctx.subsAttached) { ctx.subsAttached = true; attachSubtitle(data, referer); }
+    else restoreSubInfo();
+    let settled = false;
+    let parsed = false;
+    let fatalCount = 0;
+    const guard = {ctx, timer: null, parsed: false, lastT: -1, lastAdvance: Date.now(),
+      graceUntil: Date.now() + 20000, disarmed: false};
+    window._hiddenGuard = guard;
+    const done = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (outcome.outcome !== "parsed") clearHiddenGuard();
+      settle(outcome);
+    };
+    const failAttempt = (label) => {
+      if (settled) return;
+      ctx.attempts.push({name: data._hiddenProvider || "penyedia", label});
+      recordProviderFailure(data._hiddenProviderId, label); /* v57: hanya "waktu habis" yang dihitung */
+      done({outcome: "failed"});
+    };
+    guard.timer = setInterval(() => {
+      if (guard.disarmed) return;
+      if (window.__lumioEmbedGen !== gen || window._hiddenCtx !== ctx) {
+        guard.disarmed = true; clearInterval(guard.timer);
+        done({outcome: "aborted"});
+        return;
+      }
+      const now = Date.now();
+      if (!parsed) {
+        if (now > guard.graceUntil) failAttempt("tidak bisa diputar (waktu habis)");
+        return;
+      }
+      /* Pasca-parse: watchdog progres. Jeda/seek/berakhir dari pengguna
+         me-reset jam; hanya kemacetan saat seharusnya berputar yang
+         dihitung. */
+      try {
+        if (video.paused || video.ended || video.seeking) { guard.lastT = video.currentTime; guard.lastAdvance = now; return; }
+        if (now < guard.graceUntil) { guard.lastT = video.currentTime; guard.lastAdvance = now; return; }
+        const cur = video.currentTime;
+        if (guard.lastT < 0 || cur > guard.lastT + 0.05) { guard.lastT = cur; guard.lastAdvance = now; return; }
+        if (now - guard.lastAdvance > 15000) {
+          guard.disarmed = true; clearInterval(guard.timer);
+          hiddenAdvance(ctx, "macet (tidak ada progres)");
+        }
+      } catch (e) {}
+    }, 1000);
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        abrEwmaDefaultEstimate: 3*1000*1000,
+        startBufferDuration: 3
+      });
+      hls.loadSource(proxied);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        parsed = true; guard.parsed = true;
+        guard.lastT = -1; guard.lastAdvance = Date.now();
+        buildQualityLevelOptions();
+        video.play().catch(() => {});
+        updateRendInfo();
+        updateCycleBtn();
+        done({outcome: "parsed"});
+      });
+      hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
+      hls.on(Hls.Events.ERROR, (ev, d) => {
+        if (!d.fatal) return;
+        /* v54: codec tidak didukung -> pindah penyedia LANGSUNG, tanpa
+           retry dan tanpa menunggu guard (20 dtk grace / 15 dtk stall):
+           manifest yang sama akan gagal sama persis. Alasan codec
+           dicatat jujur di ringkasan. */
+        if (isCodecError(d)) {
+          if (!parsed) { failAttempt("codec tidak didukung"); return; }
+          guard.disarmed = true; clearInterval(guard.timer);
+          hiddenAdvance(ctx, "codec tidak didukung");
+          return;
+        }
+        if (!parsed) { failAttempt("tidak bisa diputar"); return; }
+        /* Pasca-parse: pemulihan BERBATAS (v50). Perilaku lama
+           (startLoad tanpa batas) membuat layar hitam selamanya bila
+           segmen gagal persisten. */
+        fatalCount++;
+        if (fatalCount > 3) {
+          guard.disarmed = true; clearInterval(guard.timer);
+          hiddenAdvance(ctx, "tidak stabil");
+          return;
+        }
+        if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { setPlayerStatus("⚠️ Gangguan jaringan stream — mencoba pulih…"); try { hls.startLoad(); } catch (e) {} }
+        else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { try { hls.recoverMediaError(); } catch (e) {} }
+        else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
+      });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = proxied;
+      video.play().catch(() => {});
+      parsed = true; guard.parsed = true;
+      updateCycleBtn();
+      done({outcome: "parsed"});
+    } else {
+      setPlayerStatus("❌ Browser ini tidak mendukung pemutaran HLS.");
+      failAttempt("tidak bisa diputar");
+    }
+  });
+}
+async function runHiddenLoop(ctx){
+  /* Mengembalikan true bila sebuah percobaan berhasil parse (guard latar
+     mengambil alih), false bila semua penyedia habis, HIDDEN_ABORTED bila
+     dibatalkan. */
+  const gen = window.__lumioEmbedGen;
+  while (true) {
+    if (window.__lumioEmbedGen !== gen) return HIDDEN_ABORTED;
+    const data = await tryHiddenResolve(ctx.slug, ctx.ep, ctx);
+    if (data === HIDDEN_ABORTED) return HIDDEN_ABORTED;
+    if (!data) return false;
+    if (ctx.lookedUpSubs && ctx.lookedUpSubs.length) {
+      const seen = new Set((data.subtitles || []).map(s => s && s.url));
+      for (const s of ctx.lookedUpSubs) {
+        if (s && s.url && !seen.has(s.url)) { data.subtitles.push(s); seen.add(s.url); }
+      }
+    }
+    ctx.lastProvider = data._hiddenProvider || "";
+    ctx.lastProviderId = data._hiddenProviderId || ""; /* v57: id untuk kesehatan sesi */
+    /* v51: waktu guard replay (grace 20 dtk / stall) BUKAN waktu resolve —
+       kembalikan ke anggaran supaya tidak memakan giliran penyedia
+       tersisa (akar bug v50: deadline 60 dtk habis dimakan 2× guard
+       sebelum VidRock kebagian giliran). */
+    const guardT0 = Date.now();
+    const res = await attachHiddenAttempt(data, ctx, ctx.t, ctx.ep);
+    ctx.deadline += Math.max(0, Date.now() - guardT0);
+    if (res.outcome === "aborted") return HIDDEN_ABORTED;
+    if (res.outcome === "parsed") {
+      clearProviderFailures(data._hiddenProviderId); /* v57: sukses menghapus hitungan gagal */
+      updateCycleBtn();
+      return true;
+    }
+    clearHiddenGuard();
+    teardownHiddenAttempt();
+    updateCycleBtn();
+  }
+}
+async function hiddenAdvance(ctx, label, opts){
+  /* Guard latar (stall/error-limit) atau tombol "Server lain": catat
+     penyedia berjalan, teardown, jalankan rangkaian berikutnya; bila habis,
+     tawarkan embed dengan ringkasan diagnostik. Single-flight.
+     v57: opts.manual (hanya dari tombol) mengizinkan SATU percobaan ke
+     penyedia auto-ineligible; advance dari guard selalu membersihkan flag
+     itu. Kegagalan stall dicatat ke kesehatan sesi. */
+  if (!ctx || window._hiddenCtx !== ctx || ctx.advancing) return;
+  ctx.advancing = true;
+  ctx.allowIneligibleOnce = !!(opts && opts.manual);
+  try {
+    if (ctx.lastProvider) ctx.attempts.push({name: ctx.lastProvider, label});
+    recordProviderFailure(ctx.lastProviderId, label); /* v57: hanya "macet"/"waktu habis" yang dihitung */
+    const gen = window.__lumioEmbedGen;
+    clearHiddenGuard();
+    teardownHiddenAttempt();
+    updateCycleBtn();
+    if (window.__lumioEmbedGen !== gen) return;
+    ctx.deadline = Date.now() + 45000;
+    const started = await runHiddenLoop(ctx);
+    if (started === HIDDEN_ABORTED) return;
+    if (!started) {
+      const msg = hiddenSummary(ctx);
+      stopPlayer();
+      await offerEmbedMode(ctx.slug, ctx.ep, msg, ctx.providers, busyInfoForCtx(ctx));
+    }
+  } finally {
+    ctx.advancing = false;
+    updateCycleBtn();
+  }
+}
+function tmdbPlayerTitle(slug, it){
+  /* v51: judul bersih untuk header player — jangan pernah tampilkan slug
+     mentah "tmdb:*". Jalur resume balapan dengan fetch detail (playTmdb
+     jalan sebelum judul asli kembali), jadi jatuh ke judul riwayat, lalu
+     label bersih "🎬 Film #id" / "📺 Series #id" (logika yang sama dengan
+     histDisplayTitle). */
+  const cand = (it && it.title) || ((histGet(slug) || {}).title) || "";
+  if (cand && !String(cand).startsWith("tmdb:")) return cand;
+  const t = parseTmdbSlug(slug);
+  if (t) return (t.type === "movie" ? "🎬 Film #" : "📺 Series #") + t.id;
+  return cand || slug;
+}
+function setTmdbPlayerTitle(slug, ep){
+  const t = parseTmdbSlug(slug);
+  if (!t) return;
+  const it = itemStore.get(slug) || currentItem || {};
+  const title = tmdbPlayerTitle(slug, it);
+  $("#pTitle").textContent = t.type === "movie"
+    ? title
+    : `${title} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
+  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+}
+/* v55: judul player anime — slug mentah TIDAK BOLEH tampil di pTitle /
+   ctlTitle / nextEpTitle dalam kondisi apa pun. Akar masalah: jalur play
+   tanpa judul (resume/riwayat) membuat itemStore/currentItem kosong,
+   sehingga playEpisode jatuh ke {title: slug}. Jalur detail sudah benar
+   (kartu membawa judul) dan TIDAK diubah perilakunya — helper ini hanya
+   mengisi kekosongan, tidak pernah menimpa judul bersih.
+   Sumber judul berurutan: objek item -> itemStore -> entri riwayat ->
+   fetch detail (terbatas, async). FALLBACK BILA JUDUL TIDAK DIDAPAT:
+   tampilkan HANYA "Episode N" (tanpa judul). */
+function isRawSlugTitle(s, slug){
+  const v = String(s || "").trim();
+  if (!v) return true;
+  if (slug && v === String(slug)) return true;
+  /* Slug HiAnime: huruf kecil + angka + strip, diakhiri -<id angka>.
+     Judul asli selalu mengandung huruf besar/spasi/tanda baca. */
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*-\d+$/.test(v);
+}
+function animePlayerTitle(slug, it){
+  if (String(slug).startsWith("tmdb:")) return tmdbPlayerTitle(slug, it);
+  /* it boleh berasal dari currentItem global — hanya pakai bila memang
+     item untuk slug ini (id/slug cocok, atau tanpa id/slug sama sekali);
+     currentItem milik judul LAIN tidak boleh membocorkan judulnya ke
+     header player judul ini. */
+  const ownTitle = (it && (it.id === slug || it.slug === slug || (!it.id && !it.slug))) ? it.title : null;
+  const cands = [
+    ownTitle,
+    (itemStore.get(slug) || {}).title,
+    (histGet(slug) || {}).title,
+  ];
+  for (const c of cands){
+    if (c && !isRawSlugTitle(c, slug)) return String(c).trim();
+  }
+  return "";
+}
+function setAnimePlayerTitle(slug, ep){
+  const title = animePlayerTitle(slug, itemStore.get(slug) || currentItem || {});
+  $("#pTitle").textContent = title ? `${title} — Episode ${ep}` : `Episode ${ep}`;
+  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  if (!title) upgradeAnimePlayerTitle(slug, ep);
+}
+const _animeTitleUpgrade = new Map();
+async function upgradeAnimePlayerTitle(slug, ep){
+  const now = Date.now();
+  if (now - (_animeTitleUpgrade.get(slug) || 0) < 60000) return;
+  _animeTitleUpgrade.set(slug, now);
+  try {
+    const d = await Promise.race([
+      api(`/api/anime/${encodeURIComponent(slug)}/detail`),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("detail timeout")), 8000)),
+    ]);
+    const title = d && d.title;
+    if (!title || isRawSlugTitle(title, slug)) return;
+    const clean = String(title).trim();
+    /* Benih untuk pemutaran berikutnya (hanya isi kekosongan) + perbaiki
+       entri riwayat yang menyimpan slug mentah sebagai judul. */
+    const stored = itemStore.get(slug) || {};
+    if (isRawSlugTitle(stored.title, slug)) itemStore.set(slug, {...stored, id: slug, title: clean});
+    if (currentItem && (currentItem.id === slug || currentItem.slug === slug) && isRawSlugTitle(currentItem.title, slug)) currentItem.title = clean;
+    const all = loadHist(); const ix = all.findIndex(x => x.slug === slug);
+    if (ix >= 0 && isRawSlugTitle(all[ix].title, slug)){
+      all[ix].title = clean;
+      saveHist(all);
+      if (typeof renderHistRail === "function") renderHistRail();
+    }
+    /* Tingkatkan header HANYA bila masih memutar slug/episode yang sama. */
+    if (window._curSlug === slug && (window._curEp || 0) === ep && !$("#playerModal").classList.contains("hidden")){
+      $("#pTitle").textContent = `${clean} — Episode ${ep}`;
+      const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+    }
+  } catch (e) { /* gagal diam-diam: label "Episode N" sudah bersih */ }
+}
+/* v54: pintu masuk rangkaian hidden resolver untuk judul TMDB — dipakai
+   DUA tempat: (a) resolve statis tidak mengembalikan master (jalur
+   v49/v50), (b) fallback codec jalur statis (stream statis gagal karena
+   codec tidak didukung; penyedia hidden lain bisa memberi H.264).
+   preAttempts: catatan diagnostik yang sudah diketahui sebelum loop
+   (mis. penyedia statis yang gagal karena codec) — tampil di ringkasan
+   akhir bersama catatan hidden. Mengembalikan HIDDEN_ABORTED bila
+   dibatalkan, true bila sebuah stream berhasil parse (guard latar
+   mengambil alih), false bila semua habis (tawaran embed sudah
+   ditampilkan). */
+async function startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, preAttempts, staticBusy){
+  const fetched = await fetchEmbedProviders(slug, ep);
+  const ctx = {
+    slug, ep, t,
+    providers: fetched.providers,
+    resolverProviders: buildResolverProviders(fetched),
+    skip: new Set(),
+    autoSkipped: new Set(), /* v57: auto-skip kesehatan sesi (terpisah dari skip) */
+    allowIneligibleOnce: false, /* v57: sekali pakai, hanya dari tombol manual */
+    failOpenNoted: false, /* v57: catatan fail-open sekali per rangkaian */
+    staticBusy: staticBusy || null, /* v57: sinyal busy resolve statis */
+    deadline: Date.now() + 60000,
+    attempts: (preAttempts || []).slice(),
+    lookedUpSubs: subsLookedUp || [],
+    subsAttached: false,
+    advancing: false,
+    lastProvider: "",
+    lastProviderId: ""
+  };
+  window._hiddenCtx = ctx;
+  const started = await runHiddenLoop(ctx);
+  if (started === HIDDEN_ABORTED) return HIDDEN_ABORTED;
+  if (!started) {
+    const msg = hiddenSummary(ctx);
+    stopPlayer();
+    await offerEmbedMode(slug, ep, msg, ctx.providers, busyInfoForCtx(ctx));
+    return false;
+  }
+  return true;
 }
 /* Player untuk judul TMDB (v44): cermin playEpisode, tapi resolve lewat
    /api/stream/resolve_movie|resolve_series. HLS + panel kualitas level +
@@ -3153,8 +3959,8 @@ async function tryHiddenResolve(slug, ep){
 async function playTmdb(slug, ep, fromAuto){
   const t = parseTmdbSlug(slug);
   if (!t) return;
-  const it = itemStore.get(slug) || currentItem || {title: slug};
   window._curSlug = slug; window._curEp = ep;
+  loadSubOffset(); /* v56: offset timing subtitle per judul+episode */
   histTouch(slug, ep);
   const savedHist = histGet(slug);
   window._resumePos = (savedHist && savedHist.ep === ep && savedHist.pos > 15 && (!savedHist.dur || savedHist.pos < savedHist.dur - 20)) ? savedHist.pos : 0;
@@ -3164,18 +3970,19 @@ async function playTmdb(slug, ep, fromAuto){
   stopPlayer();
   video.controls = false; ctlOn = true; showCtl();
   setEpCtlVisible(t.type !== "movie");
+  setServerCtlVisible(false);
   const csp2 = $("#ctlSpin"); if (csp2) csp2.classList.remove("hidden");
-  $("#pTitle").textContent = t.type === "movie"
-    ? `${it.title || slug}`
-    : `${it.title || slug} — Season ${window._tmdbSeason || 1} Episode ${ep}`;
-  const ctlT = $("#ctlTitle"); if (ctlT) ctlT.textContent = $("#pTitle").textContent;
+  setTmdbPlayerTitle(slug, ep);
   $("#qualitySel").innerHTML = `<option value="">Kualitas: Auto</option>`;
   setPlayerStatus(`<span><span class="spin"></span>Menghubungi server stream…</span>`);
+  /* v50: lookup subtitle statis berjalan paralel dengan resolve statis. */
+  const subsPromise = fetchEmbedSubtitles(t, ep);
   const resolveUrl = t.type === "movie"
     ? `/api/stream/resolve_movie?tmdb=${t.id}`
     : `/api/stream/resolve_series?tmdb=${t.id}&season=${window._tmdbSeason || 1}&episode=${ep}`;
   let data = null;
   let staticErr = "";
+  let staticBusy = null; /* v57: sinyal busy resolve statis (R1) */
   try {
     data = await Promise.race([
       api(resolveUrl),
@@ -3183,19 +3990,34 @@ async function playTmdb(slug, ep, fromAuto){
     ]);
   } catch (e) {
     staticErr = (e && e.message) || String(e);
+    if (e && e.busy) staticBusy = {busy: true, retryAfterMs: e.retryAfterMs || 15000};
   }
   let master = (data && (data.master || (data.picked && data.picked.url))) || "";
-  /* v49: resolve statis gagal -> coba hidden WebView (bila bridge ada) */
+  const subsLookedUp = await subsPromise;
+  /* v49/v50: resolve statis gagal -> rangkaian hidden WebView (bila bridge
+     ada). Loop + guard latar mengambil alih sampai putar atau habis. */
   if (!master && hiddenResolverAvailable()) {
-    const hidden = await tryHiddenResolve(slug, ep);
-    if (hidden === HIDDEN_ABORTED) return;
-    if (hidden) { data = hidden; master = hidden.master; }
-  }
-  if (!master) {
-    await offerEmbedMode(slug, ep, staticErr || "Server tidak mengembalikan URL stream untuk judul ini.");
+    await startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, null, staticBusy);
     return;
   }
+  if (!master) {
+    await offerEmbedMode(slug, ep, staticErr || "Server tidak mengembalikan URL stream untuk judul ini.", undefined, staticBusy);
+    return;
+  }
+  /* Jalur statis: gabungkan subtitle hasil lookup (dedupe per URL). */
+  if (subsLookedUp.length) {
+    data.subtitles = data.subtitles || [];
+    const seenSubs = new Set(data.subtitles.map(s => s && s.url));
+    for (const s of subsLookedUp) {
+      if (s && s.url && !seenSubs.has(s.url)) { data.subtitles.push(s); seenSubs.add(s.url); }
+    }
+  }
   const referer = data.referer || "";
+  /* Spike Fase 0 — jalur statis saja (hidden loop tetap memakai player web
+     di spike); bila toggle aktif + bridge ada, lempar sesi ke native. */
+  if (tryNativePlay({kind: t.type, slug, episode: ep, title: tmdbPlayerTitle(slug, itemStore.get(slug) || currentItem) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, tmdb: t.id, mediaType: t.type, season: window._tmdbSeason || 1})) {
+    closeModal("playerModal"); return;
+  }
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
   const qSel = $("#qualitySel");
   qSel.dataset.referer = referer;
@@ -3210,9 +4032,21 @@ async function playTmdb(slug, ep, fromAuto){
     const opt = [...qSel.options].find(o => o.value && o.textContent.replace(/\D/g, "").includes(SETTINGS.quality));
     if (opt) { qSel.value = opt.value; window._pendingVariant = opt.value; }
   }
+  /* v53: diagnostik jalur statis sejajar jalur hidden (attachHiddenAttempt):
+     Server + Host manifest + jumlah subtitle — URL lengkap tidak pernah
+     ditampilkan. Hitungan subtitle memakai daftar hasil merge di atas. */
   const info = [];
   if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
-  if (data.source) info.push("Sumber: " + esc(data.source));
+  const diagHost = hiddenDiagHost(master);
+  if (diagHost) info.push("Host: " + esc(diagHost));
+  info.push("💬 " + (data.subtitles || []).length + " subtitle");
+  /* v57: partial — stream didapat setelah >=1 penyedia statis gagal;
+     tampilkan nama yang gagal saja (dari fail_reasons), tanpa alasan
+     mentah (bisa memuat URL) dan tanpa URL apa pun. */
+  if (data.partial) {
+    const failedNames = (data.fail_reasons || []).map(f => f && f.provider).filter(Boolean);
+    info.push("⚠ Sebagian penyedia gagal" + (failedNames.length ? ": " + esc(failedNames.join(", ")) : ""));
+  }
   setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
   skipRange = null;
   window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
@@ -3222,7 +4056,7 @@ async function playTmdb(slug, ep, fromAuto){
      total sebelum manifest ter-parse jatuh ke tawaran embed (lihat handler
      ERROR di bawah). */
   const viaHidden = !!(data && data._viaHidden);
-  let tmdbManifestParsed = false, tmdbFallbackDone = false;
+  let tmdbManifestParsed = false, tmdbFallbackDone = false, tmdbCodecFallbackDone = false;
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({
       maxBufferLength: 60,
@@ -3245,6 +4079,29 @@ async function playTmdb(slug, ep, fromAuto){
     hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
+      /* v54: codec tidak didukung di jalur statis (mis. stream HEVC di
+         perangkat tanpa HEVC) — JANGAN mentok di "Memutar": teardown
+         stream statis, lalu masuk rangkaian hidden (penyedia lain bisa
+         memberi stream H.264); bila hidden habis, tawaran embed seperti
+         biasa. Alasan codec dicatat di ringkasan. Tanpa bridge, langsung
+         tawaran embed. Sekali saja per pemutaran (flag) — error codec
+         dari percobaan hidden ditangani handler attachHiddenAttempt. */
+      if (isCodecError(d) && !tmdbCodecFallbackDone) {
+        tmdbCodecFallbackDone = true;
+        stopPlayer();
+        /* stopPlayer menyembunyikan ctl + mengembalikan kontrol native;
+           kembalikan keadaan prologue playTmdb agar rangkaian hidden
+           memakai bilah kontrol Lumio (bukan kontrol native). */
+        video.controls = false; ctlOn = true; showCtl();
+        setPlayerStatus("<span>Codec stream tidak didukung perangkat — mencoba jalur lain…</span>");
+        const pre = [{name: (data && data.server) || "penyedia statis", label: "codec tidak didukung"}];
+        if (hiddenResolverAvailable()) {
+          startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, pre);
+        } else {
+          offerEmbedMode(slug, ep, "Codec stream tidak didukung perangkat ini.");
+        }
+        return;
+      }
       /* v49: URL hasil intersepsi kadang tidak bisa diputar ulang di luar
          sesi halaman penyedia (cookie/token). Bila gagal total SEBELUM
          manifest ter-parse, langsung tawarkan mode embed — tanpa loop
@@ -3370,13 +4227,48 @@ function parseVttCues(vtt){
   }
   return out;
 }
+/* v56: geser timing subtitle per judul+episode. KONVENSI TANDA: offset
+   +X dtk berarti subtitle muncul X detik LEBIH LAMBAT (untuk subtitle
+   yang kecepetan); offset −X dtk berarti lebih cepat (untuk yang telat).
+   Diterapkan pada WAKTU BANDING di renderSubOverlay, BUKAN dengan
+   mengubah cue — sehingga bertahan saat cue diganti mesin progresif,
+   saat ganti trek, seek, dan pause. Cap ±30 dtk. Disimpan per
+   judul+episode (kunci slug#ep, pola yang sama dengan _resumeKey) —
+   tidak pernah global, tidak bocor antar judul. */
+const SUB_OFFSET_KEY = "lumio_suboffset_v1";
+const SUB_OFFSET_CAP = 30;
+window._subOffset = 0;
+function subOffsetKey(slug, ep){ return (slug || "") + "#" + (ep || 0); }
+function loadSubOffset(){
+  try {
+    const m = JSON.parse(localStorage.getItem(SUB_OFFSET_KEY) || "{}");
+    const v = Number(m[subOffsetKey(window._curSlug, window._curEp)] || 0);
+    window._subOffset = Math.max(-SUB_OFFSET_CAP, Math.min(SUB_OFFSET_CAP, v || 0));
+  } catch (e) { window._subOffset = 0; }
+}
+function saveSubOffset(){
+  try {
+    const m = JSON.parse(localStorage.getItem(SUB_OFFSET_KEY) || "{}");
+    const k = subOffsetKey(window._curSlug, window._curEp);
+    if (!window._subOffset) delete m[k]; else m[k] = window._subOffset;
+    localStorage.setItem(SUB_OFFSET_KEY, JSON.stringify(m));
+  } catch (e) {}
+}
+function fmtSubOffset(v){ return ((v > 0 ? "+" : "") + String(v).replace(".", ",")) + " dtk"; }
+function setSubOffset(v){
+  window._subOffset = Math.max(-SUB_OFFSET_CAP, Math.min(SUB_OFFSET_CAP, Math.round(v * 2) / 2));
+  saveSubOffset();
+  window._subCueText = "__init__"; renderSubOverlay();
+  const el = $("#subOffVal"); if (el) el.textContent = fmtSubOffset(window._subOffset);
+}
 function setSubCues(vtt){ window._subCues = parseVttCues(vtt); window._subCueText = "__init__"; renderSubOverlay(); }
 function clearSubCues(){ window._subCues = null; window._subCueText = "__init__"; const ov = $("#subOverlay"); if (ov) ov.classList.add("hidden"); }
 function renderSubOverlay(){
   const ov = $("#subOverlay"); if (!ov) return;
   const cues = window._subCues;
   if (!cues || !cues.length) { ov.classList.add("hidden"); window._subCueText = ""; return; }
-  const t = video.currentTime || 0;
+  /* v56: waktu efektif = waktu video − offset (offset + = subtitle lebih lambat). */
+  const t = (video.currentTime || 0) - (window._subOffset || 0);
   let lo = 0, hi = cues.length - 1, cur = null;
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (cues[mid].start <= t) { cur = cues[mid]; lo = mid + 1; } else hi = mid - 1; }
   const txt = (cur && t <= cur.end) ? cur.text : "";
@@ -3457,18 +4349,29 @@ async function attachSubtitle(data, referer){
   let subs = (data.subtitles || []).filter(s => s && s.url);
   if (!subs.length && data.sub) subs = [{label: data.sub_lang || "Subtitle", lang: "en", url: data.sub}];
   if (!subs.length) { updateSubInfo("Subtitle: tidak tersedia untuk episode ini."); return; }
-  const mkUrl = (u, extra) => "/api/player/sub?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(referer || "") + (extra || "");
+  /* v50: referer per-trek — trek hasil lookup rezesubs WAJIB memakai
+     Referer viduki (403 tanpanya), sedangkan referer video bisa berasal
+     dari penyedia lain. Trek tanpa referer sendiri memakai referer video. */
+  const mkUrl = (u, extra, tref) => "/api/player/sub?url=" + encodeURIComponent(u) + "&referer=" + encodeURIComponent(tref || referer || "") + (extra || "");
   const opts = [];
   const srcTrack = subs.find(s => (s.lang || "").startsWith("en")) || subs.find(s => !(s.lang || "").startsWith("id"));
   if (srcTrack) {
     const sl = (srcTrack.lang || "en").slice(0, 2);
-    opts.push({id: "id-gtx", label: "Indonesia (GTX — Cepat)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx"))});
-    opts.push({id: "id-gtxplus", label: "Indonesia (GTX+ — Smart Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx+"))});
-    opts.push({id: "id-ai", label: "Indonesia (AI Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("ai"))});
+    opts.push({id: "id-gtx", label: "Indonesia (GTX — Cepat)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx"), srcTrack.referer)});
+    opts.push({id: "id-gtxplus", label: "Indonesia (GTX+ — Smart Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("gtx+"), srcTrack.referer)});
+    opts.push({id: "id-ai", label: "Indonesia (AI Fansub)", srclang: "id", fetchUrl: mkUrl(srcTrack.url, "&lang=id&src=" + sl + "&mode=" + encodeURIComponent("ai"), srcTrack.referer)});
   }
+  /* v56: semua varian per bahasa terdaftar (backend tidak lagi mendupe).
+     Label varian dari nomor varian backend (berasal dari nama berkas
+     respons rezesubs, BUKAN nama rilis): varian 1 tanpa akhiran, varian
+     N>1 berakhiran " (N)". `group` = label dasar untuk pengelompokan
+     panel. Trek tanpa nomor varian (jalur anime) berperilaku seperti
+     sebelumnya: varian 1, tanpa akhiran. */
   subs.forEach((s, i) => {
     const isId = (s.lang || "").startsWith("id");
-    opts.push({id: "raw-" + i, label: isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1))), srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url)});
+    const variant = Number(s.variant || 1);
+    const base = isId ? "Indonesia (Asli / Bawaan)" : (s.label || s.lang || ("Subtitle " + (i + 1)));
+    opts.push({id: "raw-" + i, label: variant > 1 ? base + " (" + variant + ")" : base, group: base, variant, srclang: (s.lang || "en").slice(0, 2), fetchUrl: mkUrl(s.url, "", s.referer)});
   });
   window._subOptions = opts;
   let def = null;
@@ -3484,7 +4387,7 @@ async function attachSubtitle(data, referer){
 
 /* ---------------- Pengaturan ---------------- */
 const SETTINGS_KEY = "tatap_proto_settings_v1";
-const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer", mangaDataSaver: false, mangaReaderMode: "webtoon"};
+const SETTINGS_DEFAULTS = {theme: "ungu", audio: "sub", quality: "auto", subLang: "id", subSize: "m", subBg: "box", subColor: "putih", speed: 1, autoNext: true, source: "auto", safeMode: true, sort: "populer", mangaDataSaver: false, mangaReaderMode: "webtoon", spikeNative: false};
 let SETTINGS = {...SETTINGS_DEFAULTS};
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (e) {}
 function saveSettings(){ try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {} }
@@ -3508,6 +4411,11 @@ function syncSettingsUI(){
   if (ms) {
     ms.classList.toggle("on", !!SETTINGS.mangaDataSaver);
     ms.setAttribute("aria-checked", SETTINGS.mangaDataSaver ? "true" : "false");
+  }
+  const sn = $("#setSpikeNative");
+  if (sn) {
+    sn.classList.toggle("on", !!SETTINGS.spikeNative);
+    sn.setAttribute("aria-checked", SETTINGS.spikeNative ? "true" : "false");
   }
 }
 function applySettings(){
@@ -3552,6 +4460,13 @@ function toggleMangaDataSaver(){
 }
 $("#setMangaDataSaver").addEventListener("click", toggleMangaDataSaver);
 $("#setMangaDataSaver").addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleMangaDataSaver(); } });
+/* Spike Fase 0 — toggle pemutar native (ExoPlayer) untuk uji perangkat. */
+function toggleSpikeNative(){
+  SETTINGS.spikeNative = !SETTINGS.spikeNative; applySettings();
+  toast(SETTINGS.spikeNative ? "🧪 Spike Player Native AKTIF — putaran berikutnya memakai ExoPlayer." : "🧪 Spike Player Native nonaktif — kembali ke player web.");
+}
+$("#setSpikeNative").addEventListener("click", toggleSpikeNative);
+$("#setSpikeNative").addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleSpikeNative(); } });
 $("#btnResetSettings").addEventListener("click", () => {
   SETTINGS = {...SETTINGS_DEFAULTS}; applySettings(); loadHome();
   toast("↺ Pengaturan dikembalikan ke awal");
