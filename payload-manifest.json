@@ -1,9 +1,1 @@
-{
-  "version": 58,
-  "label": "Spike: Player Native (uji)",
-  "notes": "Payload UJI untuk spike player native Fase 0: membawa frontend spike (toggle Spike Player Native di Pengaturan Lainnya) di atas backend v57. Bukan payload biasa — hanya untuk uji perangkat. Tanpa APK baru, pakai APK spike-fase0. Setelah uji selesai, payload biasa berikutnya menggantikannya.",
-  "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-58/lumio-payload.zip",
-  "sha256": "c6a2b975a74acd3e90a4865f352fd7028e3419693fbc9f53cc174f8a958563ab",
-  "size": 1112372
-}
+{"label":"Fase 1: subtitle player native (uji)","min_app":"2.30.0","notes":"Fase 1 player native: subtitle kini jalan di player native jalur anime. Trek mentah + tier id-gtx/id-gtxplus/id-ai dikirim ke ExoPlayer, offset timing cap 30 dtk ikut tersimpan, varian trek tampil. Toggle Spike tetap OFF secara default. Uji: Ao Ashi ep 1, cek subtitle Indonesia aktif, geser offset, ganti varian, Back lalu cek offset tersimpan.","sha256":"5ad7f2a39f6265a6c47ebc357aeb1daa52e8f570946d4b9d7aa693aaa608d25b","size":1113395,"url":"https://github.com/wisnumacheda/lumio/releases/download/payload-59/lumio-payload.zip","version":59}
