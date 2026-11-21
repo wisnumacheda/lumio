@@ -3059,7 +3059,64 @@ window.__lumioNativePlayerResult = function(r){
     if (typeof r.subColor === "string" && ["putih", "kuning", "cyan", "hijau"].indexOf(r.subColor) !== -1) SETTINGS.subColor = r.subColor;
     saveSettings(); syncSettingsUI();
   } catch (e) {}
+  /* Fase 2 — rail Lanjut Nonton: pemain native tidak memanggil closeModal,
+     jadi segarkan rail saat sesi native berakhir. */
+  try { if (r && (r.action === "closed" || r.action === "ended") && typeof renderHistRail === "function") renderHistRail(); } catch (e) {}
+  /* Fase 2 — bangunkan penunggu hasil native (rangkaian hidden) bila ada. */
+  try {
+    const w = window._nativeResultWaiter;
+    if (w && r && r.slug === w.slug && r.episode === w.episode) { window._nativeResultWaiter = null; w.resolve(r); }
+  } catch (e) {}
+  /* Fase 2 — sesi statis TMDB: hasil error native → fallback jalur hidden/embed. */
+  try { handleNativeStaticResult(r); } catch (e) {}
 };
+
+/* Fase 2 — pelacak sesi statis TMDB yang sedang diputar native. Diisi di
+   playTmdb sebelum tryNativePlay; dibersihkan saat hasil native tiba atau
+   saat fallback hidden dimulai (kepemilikan pindah ke ctx hidden). */
+window._nativeStatic = null;
+window._nativeResultWaiter = null;
+
+/* Fase 2 — menangani hasil error native dari sesi STATIS TMDB (jalur B).
+   Sesi hidden (jalur C) ditangani penunggu di runHiddenLoop, bukan di sini. */
+function handleNativeStaticResult(r) {
+  const st = window._nativeStatic;
+  if (!st || !r || r.slug !== st.slug || r.episode !== st.ep) return;
+  if (r.action !== "error") { window._nativeStatic = null; return; }
+  const code = r.errorCode || "";
+  const preName = st.server || "penyedia statis";
+  const goHiddenOrEmbed = (pre, embedMsg) => {
+    window._nativeStatic = null;
+    if (hiddenResolverAvailable()) startHiddenLoopForTmdb(st.slug, st.ep, st.t, st.subs, pre);
+    else offerEmbedMode(st.slug, st.ep, embedMsg);
+  };
+  if (code === "codec" && !st.codecDone) {
+    st.codecDone = true;
+    setPlayerStatus("<span>Codec stream tidak didukung perangkat — mencoba jalur lain…</span>");
+    goHiddenOrEmbed([{name: preName, label: "codec tidak didukung"}], "Codec stream tidak didukung perangkat ini.");
+    return;
+  }
+  if ((code === "stall" || code === "timeout" || code === "network") && !st.stallDone) {
+    st.stallDone = true;
+    const label = code === "stall" ? "macet (tidak ada progres)" : (code === "timeout" ? "tidak bisa diputar (waktu habis)" : "tidak bisa diputar");
+    setPlayerStatus("<span>Stream macet — mencoba jalur lain…</span>");
+    goHiddenOrEmbed([{name: preName, label}], "Stream dari penyedia statis tidak bisa diputar di player Lumio.");
+    return;
+  }
+  window._nativeStatic = null;
+}
+
+/* Fase 2 — menyembunyikan modal player web TANPA stopPlayer(). stopPlayer()
+   memanggil cancelHiddenResolve() (menaikkan __lumioEmbedGen) + menghapus
+   window._hiddenCtx + clearHiddenGuard() — jadi pemakaian closeModal di sini
+   akan menghancurkan rangkaian hidden yang sedang berjalan. Dipakai saat
+   handoff ke player native dari dalam loop hidden. */
+function hidePlayerModalForNative() {
+  const m = $("#playerModal");
+  if (m) m.classList.add("hidden");
+  document.body.style.overflow = "";
+  exitFs();
+}
 
 async function playEpisode(slug, ep, fromAuto){
   /* Judul TMDB memakai jalur putar sendiri (v44) — resolve berbeda, player sama. */
@@ -3798,6 +3855,50 @@ async function runHiddenLoop(ctx){
     }
     ctx.lastProvider = data._hiddenProvider || "";
     ctx.lastProviderId = data._hiddenProviderId || ""; /* v57: id untuk kesehatan sesi */
+    /* Fase 2 — bila toggle aktif + bridge ada, lempar percobaan hidden ke
+       player native (guard + tombol Server lain pindah ke native, P-C5/P-C6).
+       Modal web disembunyikan TANPA stopPlayer (stopPlayer akan membatalkan
+       rangkaian + menghapus ctx — lihat hidePlayerModalForNative). */
+    if (SETTINGS.spikeNative && hiddenResolverAvailable()) {
+      const t0 = Date.now();
+      const sess = {kind: ctx.t.type, slug: ctx.slug, episode: ctx.ep, title: tmdbPlayerTitle(ctx.slug, itemStore.get(ctx.slug) || currentItem) || ("Episode " + ctx.ep), master: data.master, referer: data.referer || "", speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, tmdb: ctx.t.id, mediaType: ctx.t.type, season: window._tmdbSeason || 1, viaHidden: true, source: data._hiddenProviderId || "", hiddenUntried: hiddenUntriedRemain(ctx), subtitles: SETTINGS.subLang === "off" ? [] : buildNativeSubtitles(data, data.referer || ""), subLang: SETTINGS.subLang, subOffsetSec: window._subOffset || 0, subSize: SETTINGS.subSize, subBg: SETTINGS.subBg, subColor: SETTINGS.subColor};
+      const infoN = [];
+      if (data.server) infoN.push("Server: <b>" + esc(data.server) + "</b>");
+      const hostN = hiddenDiagHost(data.master);
+      if (hostN) infoN.push("Host: " + esc(hostN));
+      infoN.push("💬 " + (data.subtitles || []).length + " subtitle");
+      setPlayerStatus(`<span>▶ Memutar di player native…</span><span>${infoN.join(" · ")}</span>`);
+      ctx.nativeUsed = true;
+      const res = await new Promise((resolve) => {
+        window._nativeResultWaiter = {slug: ctx.slug, episode: ctx.ep, resolve};
+        if (!tryNativePlay(sess)) { window._nativeResultWaiter = null; resolve(null); }
+        else hidePlayerModalForNative();
+      });
+      ctx.deadline += Math.max(0, Date.now() - t0); /* v51: kembalikan waktu native */
+      if (res) {
+        if (res.action === "closed" || res.action === "ended") {
+          clearProviderFailures(data._hiddenProviderId);
+          updateCycleBtn();
+          return true;
+        }
+        if (res.action === "cycle") {
+          ctx.attempts.push({name: data._hiddenProvider || "penyedia", label: "diganti manual"});
+          ctx.allowIneligibleOnce = true;
+          updateCycleBtn();
+          continue;
+        }
+        if (res.action === "error") {
+          const code = res.errorCode || "";
+          const label = code === "stall" ? "macet (tidak ada progres)" : code === "timeout" ? "tidak bisa diputar (waktu habis)" : code === "codec" ? "codec tidak didukung" : "tidak bisa diputar";
+          ctx.attempts.push({name: data._hiddenProvider || "penyedia", label});
+          recordProviderFailure(data._hiddenProviderId, label);
+          updateCycleBtn();
+          continue;
+        }
+      }
+      /* tryNativePlay gagal (toggle dimatikan di tengah jalan / bridge
+         hilang): jatuh ke percobaan web seperti biasa di bawah. */
+    }
     /* v51: waktu guard replay (grace 20 dtk / stall) BUKAN waktu resolve —
        kembalikan ke anggaran supaya tidak memakan giliran penyedia
        tersisa (akar bug v50: deadline 60 dtk habis dimakan 2× guard
@@ -3839,6 +3940,9 @@ async function hiddenAdvance(ctx, label, opts){
     if (started === HIDDEN_ABORTED) return;
     if (!started) {
       const msg = hiddenSummary(ctx);
+      /* Fase 2: rangkaian bisa berjalan dengan modal tertutup (sesi native) —
+         buka lagi sebelum tawaran embed, kalau tidak pengguna tidak melihatnya. */
+      if (ctx.modalWasClosed) openModal("playerModal");
       stopPlayer();
       await offerEmbedMode(ctx.slug, ctx.ep, msg, ctx.providers, busyInfoForCtx(ctx));
     }
@@ -3967,13 +4071,19 @@ async function startHiddenLoopForTmdb(slug, ep, t, subsLookedUp, preAttempts, st
     subsAttached: false,
     advancing: false,
     lastProvider: "",
-    lastProviderId: ""
+    lastProviderId: "",
+    /* Fase 2: modal bisa tertutup saat rangkaian dimulai dari fallback
+       sesi statis native; saat habis, modal dibuka lagi sebelum tawaran
+       embed. nativeUsed = ada handoff ke player native di rangkaian ini. */
+    nativeUsed: false,
+    modalWasClosed: $("#playerModal").classList.contains("hidden")
   };
   window._hiddenCtx = ctx;
   const started = await runHiddenLoop(ctx);
   if (started === HIDDEN_ABORTED) return HIDDEN_ABORTED;
   if (!started) {
     const msg = hiddenSummary(ctx);
+    if (ctx.modalWasClosed) openModal("playerModal");
     stopPlayer();
     await offerEmbedMode(slug, ep, msg, ctx.providers, busyInfoForCtx(ctx));
     return false;
@@ -4041,11 +4151,32 @@ async function playTmdb(slug, ep, fromAuto){
     }
   }
   const referer = data.referer || "";
-  /* Spike Fase 0 — jalur statis saja (hidden loop tetap memakai player web
-     di spike); bila toggle aktif + bridge ada, lempar sesi ke native. */
-  if (tryNativePlay({kind: t.type, slug, episode: ep, title: tmdbPlayerTitle(slug, itemStore.get(slug) || currentItem) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, tmdb: t.id, mediaType: t.type, season: window._tmdbSeason || 1})) {
+  /* v53: diagnostik jalur statis sejajar jalur hidden (attachHiddenAttempt):
+     Server + Host manifest + jumlah subtitle — URL lengkap tidak pernah
+     ditampilkan. Hitungan subtitle memakai daftar hasil merge di atas.
+     Fase 2: status ditulis SEBELUM tryNativePlay agar sesi native juga
+     meninggalkan status terakhir di modal (modal ditutup saat handoff). */
+  const info = [];
+  if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
+  const diagHost = hiddenDiagHost(master);
+  if (diagHost) info.push("Host: " + esc(diagHost));
+  info.push("💬 " + (data.subtitles || []).length + " subtitle");
+  /* v57: partial — stream didapat setelah >=1 penyedia statis gagal;
+     tampilkan nama yang gagal saja (dari fail_reasons), tanpa alasan
+     mentah (bisa memuat URL) dan tanpa URL apa pun. */
+  if (data.partial) {
+    const failedNames = (data.fail_reasons || []).map(f => f && f.provider).filter(Boolean);
+    info.push("⚠ Sebagian penyedia gagal" + (failedNames.length ? ": " + esc(failedNames.join(", ")) : ""));
+  }
+  setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
+  /* Fase 2 — jalur statis memakai player native bila toggle aktif + bridge
+     ada; sesi membawa subtitle rezesubs hasil merge (buildNativeSubtitles)
+     + gaya/offset; viaHidden:false. Gagal diam-diam = jalur web biasa. */
+  window._nativeStatic = {slug, ep, t, subs: data.subtitles || [], server: data.server || "", codecDone: false, stallDone: false};
+  if (tryNativePlay({kind: t.type, slug, episode: ep, title: tmdbPlayerTitle(slug, itemStore.get(slug) || currentItem) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, tmdb: t.id, mediaType: t.type, season: window._tmdbSeason || 1, subtitles: SETTINGS.subLang === "off" ? [] : buildNativeSubtitles(data, referer), subLang: SETTINGS.subLang, subOffsetSec: window._subOffset || 0, subSize: SETTINGS.subSize, subBg: SETTINGS.subBg, subColor: SETTINGS.subColor, viaHidden: false, hiddenUntried: false})) {
     closeModal("playerModal"); return;
   }
+  window._nativeStatic = null;
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
   const qSel = $("#qualitySel");
   qSel.dataset.referer = referer;
@@ -4060,22 +4191,8 @@ async function playTmdb(slug, ep, fromAuto){
     const opt = [...qSel.options].find(o => o.value && o.textContent.replace(/\D/g, "").includes(SETTINGS.quality));
     if (opt) { qSel.value = opt.value; window._pendingVariant = opt.value; }
   }
-  /* v53: diagnostik jalur statis sejajar jalur hidden (attachHiddenAttempt):
-     Server + Host manifest + jumlah subtitle — URL lengkap tidak pernah
-     ditampilkan. Hitungan subtitle memakai daftar hasil merge di atas. */
-  const info = [];
-  if (data.server) info.push("Server: <b>" + esc(data.server) + "</b>");
-  const diagHost = hiddenDiagHost(master);
-  if (diagHost) info.push("Host: " + esc(diagHost));
-  info.push("💬 " + (data.subtitles || []).length + " subtitle");
-  /* v57: partial — stream didapat setelah >=1 penyedia statis gagal;
-     tampilkan nama yang gagal saja (dari fail_reasons), tanpa alasan
-     mentah (bisa memuat URL) dan tanpa URL apa pun. */
-  if (data.partial) {
-    const failedNames = (data.fail_reasons || []).map(f => f && f.provider).filter(Boolean);
-    info.push("⚠ Sebagian penyedia gagal" + (failedNames.length ? ": " + esc(failedNames.join(", ")) : ""));
-  }
-  setPlayerStatus(`<span>▶ Memutar ${t.type === "movie" ? "Film" : "Episode " + ep}</span><span>${info.join(" · ")}</span><span id="rendInfo"></span><span id="subInfo">Menyiapkan subtitle…</span>`);
+  /* Status sudah ditulis sebelum tryNativePlay (Fase 2) — jalur web memakai
+     baris yang sama, termasuk span #rendInfo/#subInfo. */
   skipRange = null;
   window._intro = data.intro && data.intro.end > data.intro.start ? {...data.intro, label: "intro"} : null;
   window._outro = data.outro && data.outro.end > data.outro.start ? {...data.outro, label: "outro"} : null;

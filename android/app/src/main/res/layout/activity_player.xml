@@ -388,6 +388,27 @@
             android:textColor="@color/text_primary"
             android:focusable="true"
             android:nextFocusLeft="@+id/btn_sub_style"
+            android:nextFocusRight="@+id/btn_cycle_server"
+            app:strokeColor="#33FFFFFF"
+            app:strokeWidth="1dp"
+            app:cornerRadius="8dp"
+            android:backgroundTint="#1E2433" />
+
+        <!-- Fase 2 — Tombol Server lain (P-C5): hanya saat sesi hidden +
+             ada penyedia belum dicoba + manifest ter-parse; default GONE. -->
+        <Button
+            android:id="@+id/btn_cycle_server"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:paddingHorizontal="14dp"
+            android:text="🔄 Server lain"
+            android:textSize="@dimen/text_caption"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="@color/text_primary"
+            android:focusable="true"
+            android:nextFocusLeft="@+id/btn_sub_selector"
+            android:visibility="gone"
             app:strokeColor="#33FFFFFF"
             app:strokeWidth="1dp"
             app:cornerRadius="8dp"
@@ -582,6 +603,23 @@
                     app:strokeColor="#38BDF8"
                     app:strokeWidth="1dp" />
             </LinearLayout>
+
+            <!-- Fase 2 — Tombol Server lain portrait (P-C5): baris penuh di
+                 bawah kontrol cepat; default GONE. -->
+            <Button
+                android:id="@+id/btn_portrait_cycle"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginTop="8dp"
+                android:text="🔄 Server lain"
+                android:textSize="@dimen/text_caption"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="@color/text_primary"
+                android:backgroundTint="#1A202C"
+                android:visibility="gone"
+                app:cornerRadius="6dp"
+                app:strokeColor="#2D3748"
+                app:strokeWidth="1dp" />
         </LinearLayout>
 
         <!-- Header Daftar Episode & Sort Order -->

@@ -247,6 +247,60 @@ public class PlayerActivity extends Activity {
     private boolean isWebViewSession = false;
     private JSONObject webViewSession = null;
     private boolean nativeResultSent = false;
+    /* Fase 2 — sesi hidden (jalur C) + guard pasca-parse (P-C6) + tombol
+     * Server lain (P-C5). Guard: 20 dtk ke frame pertama, 15 dtk stall
+     * tanpa kemajuan posisi, maks 3 recovery (applyCurrentStream ulang).
+     * Klasifikasi error media3 1.2.1 (javap media3-common): codec 4001–4005,
+     * timeout 1003/2002, IO 2000–2008, parsing 3001–3004. */
+    private boolean sessionViaHidden = false;
+    private boolean sessionHiddenUntried = false;
+    private String sessionHiddenSource = "";
+    private boolean nativeGuardArmed = false;
+    private boolean nativeGuardParsed = false;
+    private long nativeGuardFirstFrameDeadlineMs = 0;
+    private long nativeGuardLastPosMs = -1;
+    private long nativeGuardLastAdvanceMs = 0;
+    private int nativeGuardRecoveries = 0;
+    private static final long NATIVE_GUARD_FIRST_FRAME_MS = 20000;
+    private static final long NATIVE_GUARD_STALL_MS = 15000;
+    private static final int NATIVE_GUARD_MAX_RECOVERIES = 3;
+    private Button btnCycleServer;
+    private Button btnPortraitCycle;
+    private final Runnable nativeGuardRunnable = new Runnable() {
+        @Override public void run() {
+            if (!nativeGuardArmed || nativeResultSent || player == null) return;
+            try {
+                long now = System.currentTimeMillis();
+                if (!nativeGuardParsed) {
+                    if (now > nativeGuardFirstFrameDeadlineMs) {
+                        sendNativeResult("error", "tidak bisa diputar (waktu habis)", "timeout");
+                        Toast.makeText(PlayerActivity.this, "Stream tidak bisa diputar (waktu habis)", Toast.LENGTH_SHORT).show();
+                        finish();
+                        return;
+                    }
+                } else {
+                    boolean shouldPlay = false;
+                    try { shouldPlay = player.getPlayWhenReady() && player.getPlaybackState() != Player.STATE_ENDED; } catch (Throwable ignored) {}
+                    if (!shouldPlay) {
+                        nativeGuardLastAdvanceMs = now;
+                    } else {
+                        long pos = -1;
+                        try { pos = player.getCurrentPosition(); } catch (Throwable ignored) {}
+                        if (nativeGuardLastPosMs < 0 || pos > nativeGuardLastPosMs + 50) {
+                            nativeGuardLastPosMs = pos;
+                            nativeGuardLastAdvanceMs = now;
+                        } else if (now - nativeGuardLastAdvanceMs > NATIVE_GUARD_STALL_MS) {
+                            sendNativeResult("error", "macet (tidak ada progres)", "stall");
+                            Toast.makeText(PlayerActivity.this, "Stream macet — mencoba penyedia berikutnya…", Toast.LENGTH_SHORT).show();
+                            finish();
+                            return;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+            if (nativeGuardArmed && !nativeResultSent) handler.postDelayed(nativeGuardRunnable, 1000);
+        }
+    };
     private String masterStreamUrl = "";
     private int currentResizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT;
     private final List<JSONObject> streamVariants = new ArrayList<>();
@@ -500,6 +554,12 @@ public class PlayerActivity extends Activity {
                     if (s.has("slug")) slug = s.optString("slug");
                     if (s.has("title")) title = s.optString("title");
                     if (s.has("episode")) ep = s.optInt("episode", ep);
+                    /* Fase 2 — penanda jalur hidden (jalur C): sumber
+                     * penyedia + apakah masih ada penyedia belum dicoba
+                     * (untuk tombol Server lain P-C5). */
+                    sessionViaHidden = s.optBoolean("viaHidden", false);
+                    sessionHiddenUntried = s.optBoolean("hiddenUntried", false);
+                    sessionHiddenSource = s.optString("source", "");
                 }
             } catch (Exception ignored) {}
         }
@@ -515,6 +575,7 @@ public class PlayerActivity extends Activity {
         btnPortraitFullscreen = findViewById(R.id.btn_portrait_fullscreen);
         btnPortraitPip = findViewById(R.id.btn_portrait_pip);
         btnPortraitSort = findViewById(R.id.btn_portrait_sort);
+        btnPortraitCycle = findViewById(R.id.btn_portrait_cycle);
         rvPortraitRanges = findViewById(R.id.rv_portrait_ranges);
         rvPortraitEpisodes = findViewById(R.id.rv_portrait_episodes);
 
@@ -573,6 +634,14 @@ public class PlayerActivity extends Activity {
                     isPortraitAscending = !isPortraitAscending;
                     btnPortraitSort.setText(isPortraitAscending ? "Urutan: 1 - N" : "Urutan: N - 1");
                     updatePortraitEpisodeDisplay();
+                });
+            }
+            /* Fase 2 — tombol 🔄 Server lain portrait (P-C5); default GONE. */
+            if (btnPortraitCycle != null) {
+                btnPortraitCycle.setVisibility(View.GONE);
+                btnPortraitCycle.setOnClickListener(v -> {
+                    HapticHelper.performClick(v);
+                    onNativeCyclePressed();
                 });
             }
 
@@ -680,6 +749,17 @@ public class PlayerActivity extends Activity {
             });
         }
 
+        /* Fase 2 — tombol 🔄 Server lain di bar atas (P-C5); default GONE,
+         * visibilitas diatur updateNativeCycleBtn(). */
+        btnCycleServer = findViewById(R.id.btn_cycle_server);
+        if (btnCycleServer != null) {
+            btnCycleServer.setVisibility(View.GONE);
+            btnCycleServer.setOnClickListener(v -> {
+                HapticHelper.performClick(v);
+                onNativeCyclePressed();
+            });
+        }
+
         btnSkipOpEd = findViewById(R.id.btn_skip_op_ed);
         if (btnSkipOpEd != null) {
             btnSkipOpEd.setOnClickListener(v -> doSkipOpEd());
@@ -743,6 +823,7 @@ public class PlayerActivity extends Activity {
         TvFocusHelper.attachFocusScale(btnSpeed, 1.08f, 6f);
         TvFocusHelper.attachFocusScale(btnSubStyle, 1.08f, 6f);
         TvFocusHelper.attachFocusScale(btnSubSelector, 1.08f, 6f);
+        TvFocusHelper.attachFocusScale(btnCycleServer, 1.08f, 6f);
 
         try {
             audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -1155,6 +1236,15 @@ public class PlayerActivity extends Activity {
                             setupHapticGenerator(sessionId);
                         }
                     }
+                    /* Fase 2 — manifest ter-parse (frame pertama siap):
+                     * guard beralih ke mode stall + tombol Server lain
+                     * boleh tampil (P-C5) bila sesi hidden. */
+                    if (isWebViewSession && nativeGuardArmed && !nativeGuardParsed) {
+                        nativeGuardParsed = true;
+                        nativeGuardLastPosMs = -1;
+                        nativeGuardLastAdvanceMs = System.currentTimeMillis();
+                        updateNativeCycleBtn();
+                    }
                 } else if (playbackState == Player.STATE_ENDED) {
                     if (layoutBuffering != null) {
                         layoutBuffering.setVisibility(View.GONE);
@@ -1215,19 +1305,36 @@ public class PlayerActivity extends Activity {
 
             @Override
             public void onPlayerError(PlaybackException error) {
-                /* Spike Fase 0: sesi WebView tidak punya jalur resolve ulang —
-                 * laporkan kode error media3 apa adanya (berguna untuk U-4)
-                 * lalu kembali ke UI web. */
+                /* Fase 2 — sesi WebView: klasifikasikan error media3 lalu
+                 * laporkan berkode ke JS (P-B5/P-C6). Codec + timeout
+                 * langsung dilaporkan (JS menjalankan hiddenAdvance /
+                 * fallback statis); gangguan lain dicoba pulih max 3x
+                 * (applyCurrentStream ulang), lalu dilaporkan "network".
+                 * Pesan error dibersihkan dari URL (P-G2): pesan
+                 * PlaybackException bisa memuat URL stream ber-token. */
                 if (isWebViewSession) {
                     if (layoutBuffering != null) {
                         layoutBuffering.setVisibility(View.GONE);
                     }
-                    String msg = error.getMessage();
-                    Throwable cause = error.getCause();
-                    if (cause != null && cause.getMessage() != null) {
-                        msg += " (" + cause.getMessage() + ")";
+                    String code = classifyNativeError(error.errorCode);
+                    String msg = sanitizeNativeErrorMessage(error);
+                    String detail = "code=" + error.errorCode + " " + msg;
+                    if ("codec".equals(code) || "timeout".equals(code)) {
+                        sendNativeResult("error", detail, code);
+                        Toast.makeText(PlayerActivity.this, "Player native gagal: " + msg, Toast.LENGTH_LONG).show();
+                        finish();
+                        return;
                     }
-                    sendNativeResult("error", "code=" + error.errorCode + " " + msg);
+                    if (nativeGuardRecoveries < NATIVE_GUARD_MAX_RECOVERIES) {
+                        nativeGuardRecoveries++;
+                        nativeGuardParsed = false;
+                        nativeGuardFirstFrameDeadlineMs = System.currentTimeMillis() + NATIVE_GUARD_FIRST_FRAME_MS;
+                        nativeGuardLastAdvanceMs = System.currentTimeMillis();
+                        Toast.makeText(PlayerActivity.this, "Stream terputus — mencoba pulih…", Toast.LENGTH_SHORT).show();
+                        runOnUiThread(() -> applyCurrentStream());
+                        return;
+                    }
+                    sendNativeResult("error", detail, "network");
                     Toast.makeText(PlayerActivity.this, "Player native gagal: " + msg, Toast.LENGTH_LONG).show();
                     finish();
                     return;
@@ -2801,6 +2908,18 @@ public class PlayerActivity extends Activity {
             if (sp > 0) currentPlaybackSpeed = (float) sp;
             applySessionSubtitles(s); /* Fase 1 — isi trek + gaya subtitle SEBELUM applyCurrentStream */
             applyCurrentStream();
+            /* Fase 2 — persenjatai guard pasca-parse (P-C6) untuk sesi
+             * WebView (anime + TMDB statis + hidden). Guard dimatikan di
+             * sendNativeResult / onDestroy. */
+            nativeGuardArmed = true;
+            nativeGuardParsed = false;
+            nativeGuardFirstFrameDeadlineMs = System.currentTimeMillis() + NATIVE_GUARD_FIRST_FRAME_MS;
+            nativeGuardLastPosMs = -1;
+            nativeGuardLastAdvanceMs = System.currentTimeMillis();
+            nativeGuardRecoveries = 0;
+            handler.removeCallbacks(nativeGuardRunnable);
+            handler.postDelayed(nativeGuardRunnable, 1000);
+            updateNativeCycleBtn();
             double resume = s.optDouble("resumePosSec", 0);
             if (resume > 0 && player != null) {
                 try { player.seekTo((long) (resume * 1000)); } catch (Throwable ignored) {}
@@ -2816,9 +2935,56 @@ public class PlayerActivity extends Activity {
      * → window.__lumioNativePlayerResult). Sekali kirim saja. */
     private void sendNativeResult(String action) { sendNativeResult(action, null); }
 
-    private void sendNativeResult(String action, String detail) {
+    private void sendNativeResult(String action, String detail) { sendNativeResult(action, detail, null); }
+
+    /* Fase 2 — klasifikasi error media3 1.2.1 (P-B5/P-C6). Codec 4001–4005,
+     * timeout 1003 (ERROR_CODE_TIMEOUT) + 2002 (IO_NETWORK_CONNECTION_TIMEOUT).
+     * Selain itu → "network" (penyedia berikut layak dicoba; codec/timeout
+     * adalah dua kategori yang pasti). */
+    private static String classifyNativeError(int errorCode) {
+        if (errorCode >= 4001 && errorCode <= 4005) return "codec";
+        if (errorCode == 1003 || errorCode == 2002) return "timeout";
+        return "network";
+    }
+
+    /* Fase 2 — bersihkan pesan error dari URL lengkap (P-G2): pesan
+     * PlaybackException dapat memuat URL proxy stream beserta token.
+     * Hanya host yang boleh bocor ke toast/hasil. */
+    private static String sanitizeNativeErrorMessage(PlaybackException error) {
+        String msg = error.getMessage();
+        Throwable cause = error.getCause();
+        if (cause != null && cause.getMessage() != null) {
+            msg = (msg == null ? "" : msg + " (") + cause.getMessage() + ")";
+        }
+        if (msg == null) msg = "";
+        msg = msg.replaceAll("https?://\\S+", "[url]");
+        if (msg.length() > 200) msg = msg.substring(0, 200);
+        return msg;
+    }
+
+    /* Fase 2 — tombol 🔄 Server lain (P-C5): laporkan action "cycle" ke JS
+     * (JS menjalankan attempt berikut lalu playNative lagi) lalu tutup. */
+    private void onNativeCyclePressed() {
+        if (nativeResultSent) return;
+        Toast.makeText(this, "Mencoba penyedia berikutnya…", Toast.LENGTH_SHORT).show();
+        sendNativeResult("cycle");
+        finish();
+    }
+
+    /* Fase 2 — visibilitas tombol Server lain (P-C5): hanya saat sesi hidden
+     * + ada penyedia belum dicoba + manifest ter-parse + hasil belum dikirim. */
+    private void updateNativeCycleBtn() {
+        boolean show = isWebViewSession && sessionViaHidden && sessionHiddenUntried && nativeGuardParsed && !nativeResultSent;
+        if (btnCycleServer != null) btnCycleServer.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (btnPortraitCycle != null) btnPortraitCycle.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    private void sendNativeResult(String action, String detail, String errorCode) {
         if (nativeResultSent) return;
         nativeResultSent = true;
+        /* Fase 2 — matikan guard pasca-parse (P-C6) begitu hasil dikirim. */
+        nativeGuardArmed = false;
+        try { handler.removeCallbacks(nativeGuardRunnable); } catch (Throwable ignored) {}
         try {
             JSONObject r = new JSONObject();
             r.put("action", action);
@@ -2847,6 +3013,9 @@ public class PlayerActivity extends Activity {
             } catch (Throwable ignored) {}
             r.put("subColor", sessionSubColor != null ? sessionSubColor : "putih");
             if (detail != null) r.put("error", detail);
+            /* Fase 2 — kode error berkode untuk JS (P-B5/P-C6):
+             * "codec" | "timeout" | "stall" | "network". */
+            if (errorCode != null) r.put("errorCode", errorCode);
             Intent data = new Intent();
             data.putExtra("resultJson", r.toString());
             setResult(RESULT_OK, data);
