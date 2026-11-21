@@ -1,9 +1,9 @@
 {
-  "version": 57,
-  "label": "Status jujur resolve + autoEligible per penyedia",
-  "notes": "Resolve TMDB kini jujur soal sebagian dan sibuk: status partial tampil saat sebagian penyedia gagal, dan saat server sibuk tampil countdown lalu tombol Coba lagi. Penyedia yang dua kali gagal sesi ini dilewati otomatis di loop hidden, tapi tombol Server lain tetap bisa mencobanya. Tanpa APK baru.",
+  "version": 58,
+  "label": "Spike: Player Native (uji)",
+  "notes": "Payload UJI untuk spike player native Fase 0: membawa frontend spike (toggle Spike Player Native di Pengaturan Lainnya) di atas backend v57. Bukan payload biasa — hanya untuk uji perangkat. Tanpa APK baru, pakai APK spike-fase0. Setelah uji selesai, payload biasa berikutnya menggantikannya.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-57/lumio-payload.zip",
-  "sha256": "ddcd1a86f5344410ac29eecc7bf2e7c64642c2e0d9f91868adec4603d48e0e05",
-  "size": 1111408
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-58/lumio-payload.zip",
+  "sha256": "c6a2b975a74acd3e90a4865f352fd7028e3419693fbc9f53cc174f8a958563ab",
+  "size": 1112372
 }
