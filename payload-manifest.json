@@ -1,9 +1,1 @@
-{
-  "version": 60,
-  "label": "Fase 2: subtitle film + hidden di player native (uji)",
-  "notes": "Fase 2 player native: TMDB statis + hidden resolver di ExoPlayer dengan subtitle rezesubs. Toggle Spike tetap OFF secara default. Uji: film via VidRift statis, film via hidden, tombol Server lain native, GoT S4E5 ringkasan gagal.",
-  "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-60/lumio-payload.zip",
-  "sha256": "051b234576a068fa49bdffd40d5327e6be92e7dcedd085b5cfee4d1e174785da",
-  "size": 1115187
-}
+{"label":"v61: perbaikan proxy m3u8 + fallback anime (uji)","min_app":"2.30.0","notes":"Perbaikan proxy: body playlist m3u8 kini dinormalisasi (lepas chunked + buang BOM/whitespace + wajib diawali #EXTM3U) di probe, validasi, dan proxy desync/direct; body buruk tidak pernah masuk cache. Player native anime yang error kini jatuh balik sekali ke player web dengan data resolve yang sama. Toggle Spike tetap OFF secara default. Uji: anime ...-10496 ep 7 harus jalan di player native.","sha256":"f58dd3ae6fcf0a1b06b2334975e374406c9fc04bd2293d898aeeea3375ea20d4","size":1116969,"url":"https://github.com/wisnumacheda/lumio/releases/download/payload-61/lumio-payload.zip","version":61}
