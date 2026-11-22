@@ -1,9 +1,9 @@
 {
-  "version": 57,
-  "label": "Status jujur resolve + autoEligible per penyedia",
-  "notes": "Resolve TMDB kini jujur soal sebagian dan sibuk: status partial tampil saat sebagian penyedia gagal, dan saat server sibuk tampil countdown lalu tombol Coba lagi. Penyedia yang dua kali gagal sesi ini dilewati otomatis di loop hidden, tapi tombol Server lain tetap bisa mencobanya. Tanpa APK baru.",
+  "version": 63,
+  "label": "Diagnosa Jaringan (uji)",
+  "notes": "Diagnosa Jaringan dulu sebelum perbaikan berikutnya: ring buffer in-memory 50 kejadian terakhir di jalur anime (tahap, host saja tanpa URL lengkap/body/kredensial, metode direct/desync, hasil, latensi ms) + endpoint GET /api/net/diag dan POST /api/net/diag/clear + seksi baru di Pengaturan berisi daftar kejadian dengan tombol Salin dan Bersihkan. Titik catat di _fetch/_fetch_media/_probe_master/_validate_sub_url (hianime), _fetch_once/_ajax_post (otakudesu), _pipe_video/_pipe_desync_video/_fetch_sub_text/_download_sub (main), tls_desync_connect/_resolve_host (desync). Nol perubahan perilaku jaringan: logika resolve/proxy/desync v62, anggaran 25 detik, subtitle, urutan provider, dan toggle Spike tetap sama. Tanpa APK baru.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-57/lumio-payload.zip",
-  "sha256": "ddcd1a86f5344410ac29eecc7bf2e7c64642c2e0d9f91868adec4603d48e0e05",
-  "size": 1111408
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-63/lumio-payload.zip",
+  "sha256": "d7a170c742a92f4661ad982017e10afc4dbb0fc82db8338e4208c39bcd2b9c5f",
+  "size": 1125194
 }
