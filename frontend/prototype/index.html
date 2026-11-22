@@ -3069,6 +3069,21 @@ window.__lumioNativePlayerResult = function(r){
   } catch (e) {}
   /* Fase 2 — sesi statis TMDB: hasil error native → fallback jalur hidden/embed. */
   try { handleNativeStaticResult(r); } catch (e) {}
+  /* v61 — sesi anime: hasil error native → jatuh balik SEKALI ke player web
+     dengan data resolve yang sama (tanpa resolve ulang, tanpa native lagi).
+     Jalur TMDB ditangani handleNativeStaticResult / penunggu hidden di atas,
+     jadi di sini hanya slug non-tmdb: yang dicek. */
+  try {
+    if (r && r.action === "error" && r.slug && !String(r.slug).startsWith("tmdb:")) {
+      const p = window._nativeAnimePending;
+      if (p && p.slug === r.slug && p.ep === r.episode) {
+        window._nativeAnimePending = null;
+        toast("🎬 Player native gagal — lanjut di player web");
+        openModal("playerModal");
+        playAnimeWeb(p.slug, p.ep, p.data, p.referer, p.master);
+      }
+    }
+  } catch (e) {}
 };
 
 /* Fase 2 — pelacak sesi statis TMDB yang sedang diputar native. Diisi di
@@ -3076,6 +3091,9 @@ window.__lumioNativePlayerResult = function(r){
    saat fallback hidden dimulai (kepemilikan pindah ke ctx hidden). */
 window._nativeStatic = null;
 window._nativeResultWaiter = null;
+/* v61 — sesi anime yang sedang diputar native (diisi playEpisode sebelum
+   tryNativePlay; dibersihkan saat jalur web diambil / saat fallback jalan). */
+window._nativeAnimePending = null;
 
 /* Fase 2 — menangani hasil error native dari sesi STATIS TMDB (jalur B).
    Sesi hidden (jalur C) ditangani penunggu di runHiddenLoop, bukan di sini. */
@@ -3176,9 +3194,19 @@ async function playEpisode(slug, ep, fromAuto){
      Fase 1 — sesi membawa subtitle (trek mentah + tier, Bab 6) + bahasa,
      offset, dan gaya subtitle dari SETTINGS. Bila subLang "off", daftar
      trek tidak dikirim (native menampilkan "Subtitle: mati."). */
+  /* v61 — simpan data resolve untuk fallback native→web (tanpa resolve ulang). */
+  window._nativeAnimePending = {slug, ep, data, referer, master};
   if (tryNativePlay({kind: "anime", slug, episode: ep, title: animePlayerTitle(slug, it) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, subtitles: SETTINGS.subLang === "off" ? [] : buildNativeSubtitles(data, referer), subLang: SETTINGS.subLang, subOffsetSec: window._subOffset || 0, subSize: SETTINGS.subSize, subBg: SETTINGS.subBg, subColor: SETTINGS.subColor})) {
     closeModal("playerModal"); return;
   }
+  window._nativeAnimePending = null;
+  playAnimeWeb(slug, ep, data, referer, master);
+}
+/* v61 — jalur putar web anime (diekstrak verbatim dari playEpisode supaya
+   fallback native→web bisa memakainya dengan data resolve yang sama).
+   Dipanggil dari playEpisode (jalur web normal) dan dari
+   __lumioNativePlayerResult saat player native error di sesi anime. */
+function playAnimeWeb(slug, ep, data, referer, master){
   const proxied = "/api/player/video?url=" + encodeURIComponent(master) + "&referer=" + encodeURIComponent(referer);
 
   // Pilihan kualitas dari variants resolver.

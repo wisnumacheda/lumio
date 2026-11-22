@@ -225,6 +225,33 @@ def _is_blocked_dpi_host(host: str) -> bool:
         return host.lower() in _BLOCKED_DPI_HOSTS
 
 
+def _normalize_m3u8_body(body):
+    """Normalisasi body playlist m3u8 mentah (v61 — SATU aturan untuk semua
+    jalur: probe, validasi, proxy desync/direct). Lepas chunked
+    transfer-encoding bila ada (respons desync mentah bisa ber-chunked),
+    buang BOM UTF-8 + whitespace di depan. Kembalikan teks HANYA bila
+    diawali '#EXTM3U'; selain itu None — body buruk tidak boleh di-cache
+    atau disajikan ke player (ExoPlayer menolak apa pun yang tidak diawali
+    #EXTM3U, code 3002). Menerima bytes atau str."""
+    if body is None:
+        return None
+    data = body.encode("utf-8") if isinstance(body, str) else body
+    if not data:
+        return None
+    from api.desync import _dechunk_http_body
+    dec = _dechunk_http_body(data)
+    if dec is not None:
+        data = dec
+    try:
+        txt = data.decode("utf-8", errors="strict")
+    except Exception:
+        return None
+    txt = txt.lstrip("\ufeff \t\r\n")
+    if not txt.startswith("#EXTM3U"):
+        return None
+    return txt
+
+
 def _probe_master(master_url, referer, deadline=None):
     """Probe cepat master.m3u8:
     100% Direct TCP port 443 tanpa VPN.
@@ -251,8 +278,11 @@ def _probe_master(master_url, referer, deadline=None):
         try:
             from api.desync import tls_desync_request
             content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
-            if content and b"#EXTM3U" in content:
-                return content
+            # v61: konten desync hanya diterima bila lolos normalisasi
+            # (dechunk + diawali #EXTM3U); bila tidak, lanjut ke direct.
+            norm = _normalize_m3u8_body(content)
+            if norm is not None:
+                return norm.encode("utf-8")
         except _ResolveBudgetExceeded:
             raise
         except Exception:
@@ -272,7 +302,12 @@ def _probe_master(master_url, referer, deadline=None):
             client = _get_shared_client()
             r = client.get(master_url, headers=headers, timeout=_cap_timeout(10, call_deadline), follow_redirects=True)
         if r.status_code == 200 and r.content:
-            return r.content
+            # v61: konten direct hanya diterima bila lolos normalisasi;
+            # bila tidak, raise agar alur di bawah mencoba desync / menandai.
+            norm = _normalize_m3u8_body(r.content)
+            if norm is not None:
+                return norm.encode("utf-8")
+            raise RuntimeError(f"probe master not m3u8 for {host}")
         if r.status_code >= 400:
             raise RuntimeError(f"upstream {r.status_code} for {host}")
     except _ResolveBudgetExceeded:
@@ -286,8 +321,10 @@ def _probe_master(master_url, referer, deadline=None):
             try:
                 from api.desync import tls_desync_request
                 content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
-                if content and b"#EXTM3U" in content:
-                    return content
+                # v61: sama seperti di atas — hanya terima bila lolos normalisasi.
+                norm = _normalize_m3u8_body(content)
+                if norm is not None:
+                    return norm.encode("utf-8")
             except _ResolveBudgetExceeded:
                 raise
             except Exception:
@@ -1218,6 +1255,13 @@ def _try_megaplay(embed: str, deadline=None):
     text = ""
     try:
         text = _fetch_media(master, referer=origin + "/", timeout=5.0, deadline=deadline)
+        # v61: playlist harus diawali #EXTM3U (dechunk + buang BOM/whitespace).
+        # Gagal → raise di sini (ditangkap except di bawah: host ditandai mati
+        # 10 menit + error dibungkus "megaplay master: ...").
+        norm = _normalize_m3u8_body(text)
+        if norm is None:
+            raise RuntimeError("megaplay playlist: not m3u8")
+        text = norm
         base = master.rsplit("/", 1)[0] + "/"
         lines = text.splitlines()
         for i, ln in enumerate(lines):
@@ -1239,8 +1283,8 @@ def _try_megaplay(embed: str, deadline=None):
     variants.sort(key=lambda v: int(re.sub(r"\D", "", v["q"]) or 0), reverse=True)
     if not variants:
         variants = [{"q": "auto", "url": master}]
-    if "#EXTM3U" not in text:
-        raise RuntimeError("megaplay playlist: not m3u8")
+    # v61: pengecekan "#EXTM3U" di sini sudah digantikan normalisasi di atas
+    # (teks yang sampai ke sini dijamin diawali #EXTM3U).
 
     intro = cfg.get("intro") or {"start": 0, "end": 0}
     outro = cfg.get("outro") or {"start": 0, "end": 0}
@@ -1312,8 +1356,13 @@ def _validate_master_playlist(master_url: str, referer: str, variants: list, bod
     else:
         body = _fetch_media(master_url, referer=referer, timeout=8.0, deadline=deadline)
     txt = body if isinstance(body, str) else body.decode("utf-8", errors="ignore")
-    if "#EXTM3U" not in txt:
+    # v61: tegakkan docstring di atas — playlist HARUS diawali #EXTM3U
+    # (dulu hanya substring, sehingga body ber-chunked lolos lalu ditolak
+    # player). Parsing di bawah memakai teks yang sudah dinormalisasi.
+    norm = _normalize_m3u8_body(txt)
+    if norm is None:
         raise RuntimeError("master playlist: not m3u8")
+    txt = norm
     # Hitung jumlah stream-inf / segment lines yang valid, dan ekstrak variants jika ada STREAM-INF
     base = master_url.rsplit("/", 1)[0] + "/"
     valid_count = 0

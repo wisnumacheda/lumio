@@ -267,3 +267,37 @@ async def tls_desync_stream(url: str, headers: dict = None, chunk_size: int = 65
             raw_sock.close()
         except Exception:
             pass
+
+
+def _dechunk_http_body(data: bytes):
+    """Lepas chunked transfer-encoding (RFC 9112) dari body mentah desync.
+    Kembalikan None bila data bukan chunked yang valid (body utuh bukan
+    chunked — mis. gambar biner — tidak pernah diubah).
+    v61: dipindah dari backend/main.py ke sini supaya satu aturan dipakai
+    semua jalur (gambar, video, probe) — sebelumnya hanya /api/img yang
+    melepaskannya, jalur video tidak, sehingga body playlist ber-chunked
+    lolos validasi substring lalu ditolak ExoPlayer (code 3002)."""
+    if not data:
+        return None
+    out = bytearray()
+    pos = 0
+    n = len(data)
+    while pos < n:
+        end = data.find(b"\r\n", pos)
+        if end < 0 or end - pos > 16:
+            return None
+        size_s = data[pos:end].split(b";", 1)[0].strip()
+        try:
+            size = int(size_s, 16)
+        except ValueError:
+            return None
+        pos = end + 2
+        if size == 0:
+            return bytes(out)
+        if pos + size > n:
+            return None
+        out += data[pos:pos + size]
+        pos += size
+        if data[pos:pos + 2] == b"\r\n":
+            pos += 2
+    return None

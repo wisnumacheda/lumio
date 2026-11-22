@@ -4204,34 +4204,8 @@ def _sniff_image_type(data: bytes):
     return None
 
 
-def _dechunk_http_body(data: bytes):
-    """Lepas chunked transfer-encoding (RFC 9112) dari body mentah desync.
-    Kembalikan None bila data bukan chunked yang valid (body utuh bukan
-    chunked — mis. gambar biner — tidak pernah diubah)."""
-    if not data:
-        return None
-    out = bytearray()
-    pos = 0
-    n = len(data)
-    while pos < n:
-        end = data.find(b"\r\n", pos)
-        if end < 0 or end - pos > 16:
-            return None
-        size_s = data[pos:end].split(b";", 1)[0].strip()
-        try:
-            size = int(size_s, 16)
-        except ValueError:
-            return None
-        pos = end + 2
-        if size == 0:
-            return bytes(out)
-        if pos + size > n:
-            return None
-        out += data[pos:pos + size]
-        pos += size
-        if data[pos:pos + 2] == b"\r\n":
-            pos += 2
-    return None
+# v61: _dechunk_http_body dipindah ke backend/api/desync.py (dipakai juga
+# oleh hianime._normalize_m3u8_body) — satu aturan untuk semua jalur.
 
 
 @app.get("/api/img")
@@ -4256,7 +4230,7 @@ async def proxy_image(url: str = Query("")):
     # Fetch normal gagal (timeout / status != 200 / bukan gambar): coba sekali
     # via TLS desync — jalur yang sama dipakai video untuk host DPI-blocked.
     try:
-        from api.desync import tls_desync_request
+        from api.desync import tls_desync_request, _dechunk_http_body
         import asyncio
         loop = asyncio.get_running_loop()
         body = await loop.run_in_executor(
@@ -4327,15 +4301,19 @@ async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
     if _is_m3u8_url(url):
         cached_txt = _master_cache_get(url)
         if cached_txt is not None:
-            yield _rewrite_m3u8_content(cached_txt, url, referer).encode("utf-8")
-            return
+            # v61: entri cache harus lolos normalisasi (dechunk + diawali
+            # #EXTM3U) sebelum disajikan; entri beracun dibuang + fetch ulang.
+            norm = hi._normalize_m3u8_body(cached_txt)
+            if norm is not None:
+                yield _rewrite_m3u8_content(norm, url, referer).encode("utf-8")
+                return
+            _MASTER_CACHE.pop(url, None)
         body = await loop.run_in_executor(None, lambda: tls_desync_request(url, headers=headers))
-        try:
-            txt = body.decode("utf-8", errors="strict")
-        except Exception:
-            raise HTTPException(status_code=502, detail="upstream desync m3u8 binary decode error")
-        if "#EXTM3U" not in txt:
-            raise HTTPException(status_code=502, detail="upstream desync response missing #EXTM3U")
+        # v61: normalisasi (dechunk + BOM/whitespace + diawali #EXTM3U) —
+        # body buruk ditolak 502 dan TIDAK pernah masuk cache.
+        txt = hi._normalize_m3u8_body(body)
+        if txt is None:
+            raise HTTPException(status_code=502, detail="upstream desync m3u8 not a valid playlist")
         _master_cache_set(url, txt)
         yield _rewrite_m3u8_content(txt, url, referer).encode("utf-8")
         return
@@ -4391,15 +4369,19 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
                     # (resolver sudah pernah mengunduh master ini).
                     cached_txt = _master_cache_get(url)
                     if cached_txt is not None:
-                        yield _rewrite_m3u8_content(cached_txt, url, referer).encode("utf-8")
-                        return
+                        # v61: sama seperti jalur desync — entri cache harus
+                        # lolos normalisasi sebelum disajikan.
+                        norm = hi._normalize_m3u8_body(cached_txt)
+                        if norm is not None:
+                            yield _rewrite_m3u8_content(norm, url, referer).encode("utf-8")
+                            return
+                        _MASTER_CACHE.pop(url, None)
                     body = await r.aread()
-                    try:
-                        txt = body.decode("utf-8", errors="strict")
-                    except Exception:
-                        raise HTTPException(status_code=502, detail="upstream m3u8 binary decode error")
-                    if "#EXTM3U" not in txt:
-                        raise HTTPException(status_code=502, detail="upstream response missing #EXTM3U")
+                    # v61: httpx sudah dechunk, tapi validasi startsWith +
+                    # tanpa-cache-buruk tetap diberlakukan (satu aturan).
+                    txt = hi._normalize_m3u8_body(body)
+                    if txt is None:
+                        raise HTTPException(status_code=502, detail="upstream response not a valid m3u8 playlist")
                     _master_cache_set(url, txt)
                     yield _rewrite_m3u8_content(txt, url, referer).encode("utf-8")
                     return
