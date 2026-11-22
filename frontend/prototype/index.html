@@ -483,6 +483,14 @@
   .set-row.flex{display:flex;align-items:center;gap:14px}
   .set-row.flex .grow{flex:1}
   .set-row.flex .desc{margin-bottom:0}
+  .netdiag-list{margin:4px 0 8px;border:1px solid var(--line);border-radius:10px;
+    padding:8px 10px;max-height:260px;overflow-y:auto;background:rgba(0,0,0,.18)}
+  .nd-row{font-size:12px;line-height:1.55;padding:5px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+  .nd-row:first-child{border-top:0}
+  .nd-row .nd-t{color:var(--faint)}
+  .nd-row .nd-h{font-weight:700}
+  .nd-ok{color:#4ade80}
+  .nd-bad{color:#f87171}
   .seg{display:flex;gap:6px;flex-wrap:wrap}
   .seg button{padding:8px 14px;border-radius:99px;font-size:13px;font-weight:700;
     background:var(--panel);border:1px solid var(--line);color:var(--muted);transition:.18s}
@@ -1238,6 +1246,19 @@
         <div class="desc" id="payloadInfo">Memuat…</div>
         <div class="desc">Isi diperiksa &amp; diunduh otomatis tanpa update APK — perbaikan kecil langsung sampai. Isi baru diterapkan saat aplikasi dibuka lagi.</div>
         <button class="btn-reset" id="btnCheckPayload">🔍 Periksa Isi</button>
+      </div>
+    </div>
+
+    <div class="set-sec">
+      <h4>🔬 Diagnosa Jaringan</h4>
+      <div class="set-row">
+        <div class="lbl">Kejadian jaringan terakhir</div>
+        <div class="desc">Catatan percobaan jaringan jalur anime — host saja, tanpa URL lengkap. Buka sesudah memutar dengan VPN mati, lalu salin isinya buat dikirim ke pengembang.</div>
+        <div id="netDiagList" class="netdiag-list"><div class="desc">Memuat…</div></div>
+        <div class="desc" id="netDiagMeta"></div>
+        <button class="btn-reset" id="btnNetDiagRefresh">↻ Muat Ulang</button>
+        <button class="btn-reset" id="btnNetDiagCopy" style="margin-top:6px">📋 Salin</button>
+        <button class="btn-reset" id="btnNetDiagClear" style="margin-top:6px">🧹 Bersihkan</button>
       </div>
     </div>
 
@@ -4675,6 +4696,7 @@ function openSettings(){
   $("#settingsWrap").classList.remove("hidden");
   document.body.style.overflow = "hidden";
   refreshTmdbKeyStatus();
+  loadNetDiag();
   if (!verLoaded) {
     verLoaded = true;
     api("/api/version").then(d => { $("#verInfo").textContent = d.version || "?"; })
@@ -5836,6 +5858,53 @@ async function checkPayload(manual){
   } catch (e) { if (manual) toast("Gagal memeriksa isi: " + e.message, true); }
 }
 $("#btnCheckPayload").addEventListener("click", () => checkPayload(true));
+
+/* ---------------- Diagnosa Jaringan (v63) ---------------- */
+let _netDiagText = "";
+function netDiagLine(ev){
+  return [ev.t, ev.stage, ev.host, ev.method, ev.result, ev.ms + "ms", ev.note || ""].filter(Boolean).join(" · ");
+}
+async function loadNetDiag(){
+  const el = $("#netDiagList"); if (!el) return;
+  try {
+    const d = await api("/api/net/diag");
+    const evs = (d && d.events) || [];
+    $("#netDiagMeta").textContent = (d.generated_at ? "Diambil " + d.generated_at : "") + (evs.length ? " • " + evs.length + " kejadian (terbaru dulu)" : "");
+    if (!evs.length) {
+      el.innerHTML = '<div class="desc">Belum ada kejadian — putar satu episode dulu, lalu muat ulang.</div>';
+      _netDiagText = "";
+      return;
+    }
+    _netDiagText = "Diagnosa Jaringan Lumio" + (d.generated_at ? " — " + d.generated_at : "") + "\n" + evs.map(netDiagLine).join("\n");
+    el.innerHTML = evs.map(ev => '<div class="nd-row"><span class="nd-t">' + esc(ev.t) + '</span> · ' + esc(ev.stage) + ' · <span class="nd-h">' + esc(ev.host || "—") + '</span> · ' + esc(ev.method) + ' · <span class="' + (ev.result === "sukses" ? "nd-ok" : "nd-bad") + '">' + esc(ev.result) + '</span> · ' + esc(ev.ms) + 'ms' + (ev.note ? ' · ' + esc(ev.note) : '') + '</div>').join("");
+  } catch (e) {
+    el.innerHTML = '<div class="desc">Gagal memuat diagnosa: ' + esc(e.message) + '</div>';
+  }
+}
+async function copyNetDiag(){
+  if (!_netDiagText) { toast("Belum ada diagnosa untuk disalin", true); return; }
+  try {
+    await navigator.clipboard.writeText(_netDiagText);
+    toast("📋 Diagnosa disalin");
+  } catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = _netDiagText; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); toast("📋 Diagnosa disalin"); }
+    catch (e2) { toast("Gagal menyalin — salin manual dari daftar", true); }
+    document.body.removeChild(ta);
+  }
+}
+async function clearNetDiag(){
+  try {
+    await apiSend("POST", "/api/net/diag/clear", {});
+    _netDiagText = "";
+    toast("🧹 Diagnosa dibersihkan");
+    loadNetDiag();
+  } catch (e) { toast("Gagal membersihkan: " + e.message, true); }
+}
+$("#btnNetDiagRefresh").addEventListener("click", loadNetDiag);
+$("#btnNetDiagCopy").addEventListener("click", copyNetDiag);
+$("#btnNetDiagClear").addEventListener("click", clearNetDiag);
 
 /* ---------------- Kirim masukan ---------------- */
 async function showFbDiag() {

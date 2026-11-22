@@ -57,7 +57,7 @@ def _set_dns_cache(host: str, ip: str):
     _DNS_CACHE[host] = ip
 
 
-def _resolve_host(host: str) -> str:
+def _resolve_host_impl(host: str) -> str:
     """Resolve domain ke IPv4 dengan proteksi anti DNS-poisoning ISP.
     Urutan (v62): DoH dulu (Cloudflare 1.1.1.1 / Google 8.8.8.8) -> System DNS ->
     Hardcoded Fallback. DoH didahulukan karena DNS sistem bisa di-poison ISP ke IP
@@ -133,12 +133,46 @@ def _resolve_host(host: str) -> str:
     return host
 
 
+def _resolve_host(host: str, _desync: bool = False) -> str:
+    """Wrapper pencatat (Diagnosa v63): resolve seperti biasa, tapi catat
+    hasilnya ke ring buffer netdiag (stage dns, host saja). Cache hit dan
+    IP numerik tidak dicatat — tidak ada jaringan yang terjadi.
+    _desync=True bila resolve dilakukan dari jalur desync (satu-satunya
+    pemanggil saat ini: tls_desync_connect)."""
+    if not host:
+        return host
+    if host in _DNS_CACHE:
+        return _DNS_CACHE[host]
+    if all(part.isdigit() for part in host.split(".") if part):
+        return _resolve_host_impl(host)
+    _t0 = time.monotonic()
+    _nd_method = "desync" if _desync else "direct"
+    try:
+        ip = _resolve_host_impl(host)
+    except Exception as e:
+        try:
+            from api.netdiag import record as _nd_rec, classify_error as _nd_class
+            _nd_rec("dns", host, _nd_method, _nd_class(e), int((time.monotonic() - _t0) * 1000))
+        except Exception:
+            pass
+        raise
+    try:
+        from api.netdiag import record as _nd_rec
+        if ip == host:
+            _nd_rec("dns", host, _nd_method, "gagal-dns", int((time.monotonic() - _t0) * 1000))
+        else:
+            _nd_rec("dns", host, _nd_method, "sukses", int((time.monotonic() - _t0) * 1000))
+    except Exception:
+        pass
+    return ip
+
+
 def tls_desync_connect(host: str, port: int = 443, timeout: float = 8.0):
     """Membuka socket TLS dengan Client Hello dipecah menjadi 2 TLS Record.
     Record 1: 1 byte data Client Hello.
     Record 2: Sisa data Client Hello.
     Menghilangkan signature SNI utuh dari pemindaian DPI ISP."""
-    ip = _resolve_host(host)
+    ip = _resolve_host(host, _desync=True)
     raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     raw_sock.settimeout(timeout)
     raw_sock.connect((ip, port))

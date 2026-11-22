@@ -781,6 +781,25 @@ async def health():
             reachable = False
     return ok({"hianime": HI_BASE, "reachable": reachable})
 
+@app.get("/api/net/diag")
+async def net_diag(clear: int = Query(0)):
+    """Diagnosa Jaringan (v63): 50 kejadian jaringan terakhir di jalur anime
+    — host saja, tanpa URL lengkap/body/kredensial. Alat ukur saja.
+    GET ?clear=1 mengosongkan buffer lalu mengembalikan daftar kosong."""
+    from api.netdiag import events as _nd_events, clear as _nd_clear
+    import datetime
+    if clear:
+        _nd_clear()
+    return ok({"generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+               "events": _nd_events()})
+
+@app.post("/api/net/diag/clear")
+async def net_diag_clear():
+    """Kosongkan buffer Diagnosa Jaringan."""
+    from api.netdiag import clear as _nd_clear
+    _nd_clear()
+    return ok({"cleared": True})
+
 _META_STOPWORDS = {
     'the', 'a', 'an', 'of', 'in', 'to', 'and', 'und', 'der', 'die', 'das',
     'no', 'wa', 'ga', 'ni', 'de', 'part', 'season', 'arc', 'cour', 'hen',
@@ -4291,6 +4310,13 @@ async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
     """Streaming video via TLS Client Hello Desynchronization (Direct TCP 443 tanpa VPN)."""
     from api.desync import tls_desync_request, tls_desync_stream
     import asyncio
+    # Diagnosa v63: catat hasil fetch master/segmen via desync (host saja).
+    from api.netdiag import record as _nd_rec, classify_error as _nd_class
+    from api.hianime import _host_from as _nd_hostof
+    _nd_t0 = time.monotonic()
+    _nd_h = _nd_hostof(url)
+    def _nd_ms():
+        return int((time.monotonic() - _nd_t0) * 1000)
 
     headers = {"Referer": referer} if referer else {}
     if range_header:
@@ -4305,23 +4331,40 @@ async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
             # #EXTM3U) sebelum disajikan; entri beracun dibuang + fetch ulang.
             norm = hi._normalize_m3u8_body(cached_txt)
             if norm is not None:
+                _nd_rec("master-fetch", _nd_h, "desync", "sukses", _nd_ms(), note="cache")
                 yield _rewrite_m3u8_content(norm, url, referer).encode("utf-8")
                 return
             _MASTER_CACHE.pop(url, None)
-        body = await loop.run_in_executor(None, lambda: tls_desync_request(url, headers=headers))
+        try:
+            body = await loop.run_in_executor(None, lambda: tls_desync_request(url, headers=headers))
+        except Exception as e:
+            _nd_rec("master-fetch", _nd_h, "desync", _nd_class(e), _nd_ms())
+            raise
         # v61: normalisasi (dechunk + BOM/whitespace + diawali #EXTM3U) —
         # body buruk ditolak 502 dan TIDAK pernah masuk cache.
         txt = hi._normalize_m3u8_body(body)
         if txt is None:
+            _nd_rec("master-fetch", _nd_h, "desync", "bukan-m3u8", _nd_ms())
             raise HTTPException(status_code=502, detail="upstream desync m3u8 not a valid playlist")
         _master_cache_set(url, txt)
+        _nd_rec("master-fetch", _nd_h, "desync", "sukses", _nd_ms())
         yield _rewrite_m3u8_content(txt, url, referer).encode("utf-8")
         return
 
     # Segmen TS: stream per bongkah via desync TLS generator
-    async for chunk in tls_desync_stream(url, headers=headers):
-        if chunk:
-            yield chunk
+    _seg_any = False
+    try:
+        async for chunk in tls_desync_stream(url, headers=headers):
+            if chunk:
+                _seg_any = True
+                yield chunk
+    except Exception as e:
+        _nd_rec("segmen", _nd_h, "desync", _nd_class(e), _nd_ms())
+        raise
+    if _seg_any:
+        _nd_rec("segmen", _nd_h, "desync", "sukses", _nd_ms(), dedupe_success=True)
+    else:
+        _nd_rec("segmen", _nd_h, "desync", "lainnya", _nd_ms(), note="tanpa-chunk")
 
 
 _direct_client = None
@@ -4348,6 +4391,16 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
     import urllib.parse as _up
     import asyncio as _asyncio
     from api.hianime import STRIP_BYTES as _SB, STRIP_RE as _SR2
+    # Diagnosa v63: catat hasil fetch direct master/segmen (host saja).
+    # Percobaan desync fallback di bawah TIDAK dicatat di sini — pipa desync
+    # (_pipe_desync_video) mencatat hasilnya sendiri.
+    from api.netdiag import record as _nd_rec, classify_error as _nd_class
+    from api.hianime import _host_from as _nd_hostof
+    _nd_t0 = time.monotonic()
+    _nd_h = _nd_hostof(url)
+    _nd_stage = "master-fetch"
+    def _nd_ms():
+        return int((time.monotonic() - _nd_t0) * 1000)
     c = _get_video_client(url)
 
     headers = {"User-Agent": HI_UA}
@@ -4374,6 +4427,7 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
                         # lolos normalisasi sebelum disajikan.
                         norm = hi._normalize_m3u8_body(cached_txt)
                         if norm is not None:
+                            _nd_rec("master-fetch", _nd_h, "direct", "sukses", _nd_ms(), note="cache")
                             yield _rewrite_m3u8_content(norm, url, referer).encode("utf-8")
                             return
                         _MASTER_CACHE.pop(url, None)
@@ -4384,12 +4438,14 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
                     if txt is None:
                         raise HTTPException(status_code=502, detail="upstream response not a valid m3u8 playlist")
                     _master_cache_set(url, txt)
+                    _nd_rec("master-fetch", _nd_h, "direct", "sukses", _nd_ms())
                     yield _rewrite_m3u8_content(txt, url, referer).encode("utf-8")
                     return
 
                 skipped = 0
                 need_strip = bool(_SR2.search(url))
                 first = True
+                _nd_stage = "segmen"
                 async for chunk in r.aiter_bytes(65536):
                     # v62: segmen yang dikembalikan sebagai HTML = halaman blokir
                     # DPI (HTTP 200), bukan media — jangan stream sampah ke player.
@@ -4406,12 +4462,18 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
                             continue
                     if chunk:
                         yield chunk
+                _nd_rec("segmen", _nd_h, "direct", "sukses", _nd_ms(), dedupe_success=True)
                 return
         except HTTPException as e:
             # v62: kegagalan direct yang tampak seperti DPI (halaman blokir /
             # upstream 403/5xx) dicoba via desync sekali sebelum menyerah;
             # 404 = konten memang hilang, langsung raise tanpa desync.
             _detail = str(getattr(e, "detail", "") or "")
+            _nd_stage2 = "segmen" if "segment not media" in _detail else "master-fetch"
+            _nd_res2 = _nd_class(_detail)
+            if "segment not media" in _detail:
+                _nd_res2 = "halaman-blokir"
+            _nd_rec(_nd_stage2, _nd_h, "direct", _nd_res2, _nd_ms())
             if "upstream 404" in _detail:
                 raise
             last_err = e
@@ -4420,6 +4482,7 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
             if attempt == 0:
                 await _asyncio.sleep(0.3)
                 continue
+            _nd_rec(_nd_stage, _nd_h, "direct", _nd_class(e), _nd_ms())
             last_err = e
             break
 
@@ -4448,6 +4511,12 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
 async def _fetch_sub_text(target_url, ref):
     """Helper fetcher yang mendukung desync bila host terblokir DPI atau butuh referer khusus."""
     from api.hianime import _host_from, _BLOCKED_DPI_HOSTS
+    # Diagnosa v63: satu kejadian per panggilan (host saja).
+    from api.netdiag import record as _nd_rec, classify_error as _nd_class
+    _nd_t0 = time.monotonic()
+    _nd_method = "direct"
+    def _nd_ms():
+        return int((time.monotonic() - _nd_t0) * 1000)
     h = _host_from(target_url)
 
     candidates = []
@@ -4473,25 +4542,30 @@ async def _fetch_sub_text(target_url, ref):
 
         # 1. Coba via TLS desync jika host masuk daftar DPI atau host CDN streaming
         if h in _BLOCKED_DPI_HOSTS or "dramahot" in h or "zokoanime" in h:
+            _nd_method = "desync"
             try:
                 from api.desync import tls_desync_request
                 loop = asyncio.get_running_loop()
                 raw = await loop.run_in_executor(None, lambda: tls_desync_request(target_url, headers=headers))
                 txt = raw.decode("utf-8", errors="replace")
                 if "WEBVTT" in txt or len(txt) > 200:
+                    _nd_rec("subtitle", h, "desync", "sukses", _nd_ms())
                     return txt
             except Exception as e:
                 last_err = e
 
         # 2. Coba direct request via httpx
+        _nd_method = "direct"
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=12.0) as c:
                 r = await c.get(target_url, headers=headers)
                 if r.status_code == 200 and ("WEBVTT" in r.text or len(r.text) > 200):
+                    _nd_rec("subtitle", h, "direct", "sukses", _nd_ms())
                     return r.text
         except Exception as e:
             last_err = e
             # Jika direct gagal (koneksi terputus/RST), coba desync
+            _nd_method = "desync"
             try:
                 from api.desync import tls_desync_request
                 _BLOCKED_DPI_HOSTS.add(h)
@@ -4499,12 +4573,15 @@ async def _fetch_sub_text(target_url, ref):
                 raw = await loop.run_in_executor(None, lambda: tls_desync_request(target_url, headers=headers))
                 txt = raw.decode("utf-8", errors="replace")
                 if "WEBVTT" in txt or len(txt) > 200:
+                    _nd_rec("subtitle", h, "desync", "sukses", _nd_ms())
                     return txt
             except Exception as e2:
                 last_err = e2
 
     if last_err:
+        _nd_rec("subtitle", h, _nd_method, _nd_class(last_err), _nd_ms())
         raise last_err
+    _nd_rec("subtitle", h, _nd_method, "lainnya", _nd_ms())
     raise RuntimeError("Gagal mengambil subtitle: upstream mengembalikan respons kosong atau tidak valid")
 
 
@@ -5200,24 +5277,38 @@ async def play_mpv(body: dict = None):
 
         # Helper download async; return None kalau gagal (skip track).
         async def _download_sub(url):
+            # Diagnosa v63: catat hasil unduh subtitle (host saja).
+            from api.netdiag import record as _nd_rec, classify_error as _nd_class
+            _nd_t0 = time.monotonic()
+            _nd_method = "direct"
+            def _nd_ms():
+                return int((time.monotonic() - _nd_t0) * 1000)
             try:
                 from api.hianime import _host_from, _BLOCKED_DPI_HOSTS
                 h = _host_from(url)
                 if h in _BLOCKED_DPI_HOSTS:
+                    _nd_method = "desync"
                     from api.desync import tls_desync_request
                     loop = asyncio.get_running_loop()
-                    raw = await loop.run_in_executor(None, lambda: tls_desync_request(url, headers={"Referer": got.get("referer", "")}))
+                    try:
+                        raw = await loop.run_in_executor(None, lambda: tls_desync_request(url, headers={"Referer": got.get("referer", "")}))
+                    except Exception as _e:
+                        _nd_rec("subtitle", h, "desync", _nd_class(_e), _nd_ms())
+                        raise
                     text = raw.decode("utf-8", errors="replace")
                 else:
                     async with httpx.AsyncClient(timeout=15) as c:
                         sr = await c.get(url, headers={"User-Agent": HI_UA,
                                                         "Referer": got.get("referer", "")})
                         if sr.status_code != 200 or not sr.text:
+                            _nd_rec("subtitle", h, "direct", _nd_class(f"upstream {sr.status_code}"), _nd_ms())
                             return None
                         text = sr.text
 
                 if not text:
+                    _nd_rec("subtitle", h, _nd_method, "lainnya", _nd_ms(), note="body-kosong")
                     return None
+                _nd_rec("subtitle", h, _nd_method, "sukses", _nd_ms())
                 fp = os.path.join(tempfile.gettempdir(),
                                   f"{slug}-ep{ep}-{abs(hash(url)) % 10**8}.vtt")
                 open(fp, "w").write(text)

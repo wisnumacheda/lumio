@@ -6,6 +6,7 @@ import re
 import json
 import base64
 import html as htmlmod
+import time
 import urllib.parse
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from config import OTAKU_BASE, HI_UA
@@ -43,35 +44,58 @@ def close_otaku_client():
 def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
     """Fetch helper menggunakan curl_cffi dengan fallback httpx pool dan TLS desync."""
     from api.desync import _looks_like_block_page
+    # Diagnosa v63: catat hasil tiap tahap (host saja).
+    from api.netdiag import record as _nd_rec, host_of as _nd_hostof, classify_error as _nd_class
+    _nd_h = _nd_hostof(url)
+    def _nd_ms(_t0):
+        return int((time.monotonic() - _t0) * 1000)
     h = dict(HEADERS)
     if referer:
         h["Referer"] = referer
+    _t0 = time.monotonic()
     try:
         from curl_cffi import requests as creq
         r = creq.get(url, headers=h, impersonate="chrome124", timeout=timeout, allow_redirects=True)
         # v62: halaman blokir DPI (HTTP 200) bukan sukses — lanjut ke tahap berikut.
         if r.status_code == 200 and not _looks_like_block_page(r.text):
+            _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms(_t0))
             return r.text
-    except Exception:
-        pass
+        if r.status_code == 200:
+            _nd_rec("resolve-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms(_t0))
+        else:
+            _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms(_t0))
+    except Exception as e:
+        _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(e), _nd_ms(_t0))
 
+    _t0 = time.monotonic()
     try:
         client = _get_otaku_client()
         r = client.get(url, headers=h)
         if r.status_code == 200 and not _looks_like_block_page(r.text):
+            _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms(_t0))
             return r.text
-    except Exception:
-        pass
+        if r.status_code == 200:
+            _nd_rec("resolve-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms(_t0))
+        else:
+            _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms(_t0))
+    except Exception as e:
+        _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(e), _nd_ms(_t0))
 
     # Fallback TLS Desync jika diblokir ISP
+    _t0 = time.monotonic()
     try:
         from api.desync import tls_desync_request
         raw = tls_desync_request(url, headers=h, timeout=timeout)
         txt = raw.decode("utf-8", errors="replace")
         if txt and ("<html" in txt.lower() or "{" in txt) and not _looks_like_block_page(txt):
+            _nd_rec("resolve-fetch", _nd_h, "desync", "sukses", _nd_ms(_t0))
             return txt
-    except Exception:
-        pass
+        if txt and _looks_like_block_page(txt):
+            _nd_rec("resolve-fetch", _nd_h, "desync", "halaman-blokir", _nd_ms(_t0))
+        else:
+            _nd_rec("resolve-fetch", _nd_h, "desync", "lainnya", _nd_ms(_t0), note="body-kosong")
+    except Exception as e:
+        _nd_rec("resolve-fetch", _nd_h, "desync", _nd_class(e), _nd_ms(_t0))
 
     raise RuntimeError(f"Gagal memuat URL dari Otakudesu: {url}")
 
@@ -291,15 +315,26 @@ def _is_title_match(target_title: str, candidate_title: str) -> bool:
 def _ajax_post(url: str, data: dict, headers: dict = None, timeout: int = 8) -> dict:
     """POST admin-ajax Otakudesu: direct httpx dulu; bila koneksi gagal
     (RST/timeout DPI), coba via TLS desync POST (v62). Return dict JSON."""
+    # Diagnosa v63: catat hasil tiap tahap (host saja).
+    from api.netdiag import record as _nd_rec, host_of as _nd_hostof, classify_error as _nd_class
+    _nd_h = _nd_hostof(url)
     client = _get_otaku_client()
+    _t0 = time.monotonic()
     try:
         r = client.post(url, data=data, headers=headers, timeout=timeout)
+        _nd_rec("ajax-otakudesu", _nd_h, "direct", "sukses", int((time.monotonic() - _t0) * 1000))
         return r.json() or {}
-    except Exception:
-        pass
+    except Exception as e:
+        _nd_rec("ajax-otakudesu", _nd_h, "direct", _nd_class(e), int((time.monotonic() - _t0) * 1000))
     from api.desync import tls_desync_post
-    raw = tls_desync_post(url, data=data, headers=headers, timeout=timeout)
-    return json.loads(raw.decode("utf-8", errors="replace") or "{}") or {}
+    _t0 = time.monotonic()
+    try:
+        raw = tls_desync_post(url, data=data, headers=headers, timeout=timeout)
+        _nd_rec("ajax-otakudesu", _nd_h, "desync", "sukses", int((time.monotonic() - _t0) * 1000))
+        return json.loads(raw.decode("utf-8", errors="replace") or "{}") or {}
+    except Exception as e:
+        _nd_rec("ajax-otakudesu", _nd_h, "desync", _nd_class(e), int((time.monotonic() - _t0) * 1000))
+        raise
 
 
 def _extract_animestream_stream(ep_html: str, ep_url: str):
