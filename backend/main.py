@@ -4357,6 +4357,7 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
     if referer:
         headers["Referer"] = referer
 
+    last_err = None
     for attempt in range(2):
         try:
             async with c.stream("GET", url, headers=headers) as r:
@@ -4388,7 +4389,15 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
 
                 skipped = 0
                 need_strip = bool(_SR2.search(url))
+                first = True
                 async for chunk in r.aiter_bytes(65536):
+                    # v62: segmen yang dikembalikan sebagai HTML = halaman blokir
+                    # DPI (HTTP 200), bukan media — jangan stream sampah ke player.
+                    if first:
+                        first = False
+                        _head = chunk.lstrip()[:20].lower()
+                        if _head.startswith(b"<!doctype") or _head.startswith(b"<html"):
+                            raise HTTPException(status_code=502, detail="upstream segment not media")
                     if need_strip and skipped < _SB:
                         cut = min(len(chunk), _SB - skipped)
                         skipped += cut
@@ -4398,25 +4407,43 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
                     if chunk:
                         yield chunk
                 return
-        except HTTPException:
-            raise
+        except HTTPException as e:
+            # v62: kegagalan direct yang tampak seperti DPI (halaman blokir /
+            # upstream 403/5xx) dicoba via desync sekali sebelum menyerah;
+            # 404 = konten memang hilang, langsung raise tanpa desync.
+            _detail = str(getattr(e, "detail", "") or "")
+            if "upstream 404" in _detail:
+                raise
+            last_err = e
+            break
         except Exception as e:
             if attempt == 0:
                 await _asyncio.sleep(0.3)
                 continue
-            try:
-                from api.hianime import _host_from, _BLOCKED_DPI_HOSTS
-                host = _host_from(url)
-                err_text = str(e).lower()
-                is_known_dpi = any(k in host for k in ("dramahot", "zokoanime"))
-                is_rst = any(w in err_text for w in ("connection reset", "connectionreseterror", "rst", "closed connection"))
-                if is_known_dpi or is_rst:
-                    _BLOCKED_DPI_HOSTS.add(host)
-                async for chunk in _pipe_desync_video(url, referer, range_header=range_header):
-                    yield chunk
-                return
-            except Exception:
-                raise HTTPException(status_code=502, detail=f"upstream error: {type(e).__name__}")
+            last_err = e
+            break
+
+    # v62 — fallback desync untuk SEMUA bentuk kegagalan direct: 502-invalid
+    # (halaman blokir), upstream 403/5xx, timeout, RST, connection error.
+    # Bila desync berhasil, host dicatat sebagai DPI-blocked agar rute
+    # (/api/player/video) + segmen berikutnya langsung desync-first.
+    try:
+        from api.hianime import _host_from, _add_blocked_dpi_host
+        host = _host_from(url)
+        served = False
+        async for chunk in _pipe_desync_video(url, referer, range_header=range_header):
+            if chunk:
+                if not served:
+                    served = True
+                    _add_blocked_dpi_host(host)
+                yield chunk
+        if served:
+            return
+    except Exception:
+        pass
+    if isinstance(last_err, HTTPException):
+        raise last_err
+    raise HTTPException(status_code=502, detail=f"upstream error: {type(last_err).__name__}" if last_err else "upstream error")
 
 async def _fetch_sub_text(target_url, ref):
     """Helper fetcher yang mendukung desync bila host terblokir DPI atau butuh referer khusus."""

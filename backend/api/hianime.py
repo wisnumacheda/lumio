@@ -198,8 +198,19 @@ def _mark_dead_pair(host, slug, ep, ttl=600):
 
 
 def _host_from(url):
+    """Host kanonis dari URL (tanpa port): DPI memblokir per-host, bukan per-port,
+    dan semua entri _BLOCKED_DPI_HOSTS / _DEAD_HOSTS memakai host tanpa port.
+    v62: sebelumnya authority ikut membawa ':port' sehingga host yang tercatat
+    dari URL ber-port non-standar tidak pernah cocok saat pengecekan ulang."""
     m = re.match(r"https?://([^/]+)", url or "", re.I)
-    return m.group(1).lower() if m else ""
+    if not m:
+        return ""
+    host = m.group(1).lower()
+    if host.startswith("["):  # literal IPv6 [::1]:8080
+        host = host.split("]", 1)[0] + "]"
+    else:
+        host = host.split(":", 1)[0]
+    return host
 
 
 _BLOCKED_DPI_HOSTS = {"hls.dramahot.top", "drama1.cfd", "hls1.drama1.cfd", "puterin.biz", "putarin.xyz", "stream121.space"}
@@ -296,7 +307,12 @@ def _probe_master(master_url, referer, deadline=None):
             r = creq.get(master_url, **kw)
         except _ResolveBudgetExceeded:
             raise
-        except Exception:
+        except Exception as _ce:
+            # v62: bila curl timeout (host menggantung — ciri DPI silent-drop),
+            # jangan buang anggaran pada percobaan httpx yang sama; langsung ke
+            # desync di handler luar (yang kini dicoba untuk host apa pun).
+            if any(t in str(_ce).lower() for t in ("timeout", "timed out")):
+                raise
             # Gunakan shared pooled client (bukan httpx.get module-level) agar
             # koneksi TCP/TLS dipakai ulang antar request.
             client = _get_shared_client()
@@ -313,22 +329,22 @@ def _probe_master(master_url, referer, deadline=None):
     except _ResolveBudgetExceeded:
         raise
     except Exception as e:
-        err_str = str(e).lower()
-        is_known_dpi = any(k in host for k in ("dramahot", "zokoanime"))
-        is_rst = any(w in err_str for w in ("reset", "ssl", "recv failure"))
-        if is_known_dpi or is_rst:
-            _add_blocked_dpi_host(host)
-            try:
-                from api.desync import tls_desync_request
-                content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
-                # v61: sama seperti di atas — hanya terima bila lolos normalisasi.
-                norm = _normalize_m3u8_body(content)
-                if norm is not None:
-                    return norm.encode("utf-8")
-            except _ResolveBudgetExceeded:
-                raise
-            except Exception:
-                pass
+        # v62: kegagalan direct apa pun (termasuk konten bukan-m3u8 = halaman
+        # blokir DPI) dicoba via desync untuk host APA PUN, terbatas deadline.
+        # Host ditandai mati hanya bila desync juga gagal; desync yang berhasil
+        # mencatat host sebagai DPI-blocked (rute + segmen berikutnya desync-first).
+        try:
+            from api.desync import tls_desync_request
+            content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
+            # v61: sama seperti di atas — hanya terima bila lolos normalisasi.
+            norm = _normalize_m3u8_body(content)
+            if norm is not None:
+                _add_blocked_dpi_host(host)
+                return norm.encode("utf-8")
+        except _ResolveBudgetExceeded:
+            raise
+        except Exception:
+            pass
         _mark_dead(host)
         raise RuntimeError(f"probe fail {host}: {type(e).__name__}")
 
@@ -641,6 +657,7 @@ def close_shared_client():
 
 
 def _fetch(url, referer=None, timeout=12, deadline=None):
+    from api.desync import _looks_like_block_page
     last_err = ""
     # v55: bila deadline anggaran diberikan, KETIGA tahap (curl -> httpx ->
     # desync) berbagi SATU batas waktu: nominal `timeout` detik, dipotong
@@ -664,6 +681,11 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
                     kw["proxies"] = px
                 r = creq.get(url, **kw)
                 if r.status_code == 200:
+                    # v62: halaman blokir DPI (HTTP 200) bukan sukses — lanjut
+                    # ke tahap berikut (httpx/desync) agar failover berjalan.
+                    if _looks_like_block_page(r.text):
+                        last_err = "DPI block page"
+                        continue
                     return r.text
                 if "Just a moment" in r.text or "cf-challenge" in r.text:
                     last_err = "Blocked by cloudflare (cf-challenge)."
@@ -685,7 +707,9 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
         h = {"Referer": referer} if referer else {}
         r = client.get(url, headers=h, timeout=_cap_timeout(timeout, call_deadline))
         if r.status_code == 200:
-            if "Just a moment" in r.text or "cf-challenge" in r.text:
+            if _looks_like_block_page(r.text):
+                last_err = "DPI block page"
+            elif "Just a moment" in r.text or "cf-challenge" in r.text:
                 last_err = "Blocked by cloudflare (cf-challenge)."
             else:
                 return r.text
@@ -711,7 +735,8 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
                 desync_to = min(desync_to, _budget_remaining(call_deadline))
             raw = tls_desync_request(url, headers={"Referer": referer} if referer else {}, timeout=desync_to)
             txt = raw.decode("utf-8", errors="replace")
-            if txt and ("<html" in txt.lower() or "{" in txt or "#EXTM3U" in txt):
+            # v62: hasil desync yang ternyata halaman blokir bukan sukses.
+            if txt and ("<html" in txt.lower() or "{" in txt or "#EXTM3U" in txt) and not _looks_like_block_page(txt):
                 return txt
         except _ResolveBudgetExceeded:
             raise
@@ -1322,19 +1347,23 @@ def _fetch_media(url: str, referer: str = None, timeout: int = 10, deadline=None
     headers = {"User-Agent": HI_UA, **({"Referer": referer} if referer else {})}
     if _is_blocked_dpi_host(host):
         try:
-            from api.desync import tls_desync_request
+            from api.desync import tls_desync_request, _looks_like_block_page
             b = tls_desync_request(url, headers=headers, timeout=_cap_timeout(timeout, deadline))
             if b:
-                return b.decode("utf-8", errors="ignore")
+                _txt = b.decode("utf-8", errors="ignore")
+                # v62: hasil desync yang ternyata halaman blokir bukan sukses.
+                if not _looks_like_block_page(_txt):
+                    return _txt
         except _ResolveBudgetExceeded:
             raise
         except Exception:
             pass
     try:
+        from api.desync import _looks_like_block_page
         from curl_cffi import requests as creq
         kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(timeout, deadline))
         r = creq.get(url, **kw)
-        if r.status_code == 200:
+        if r.status_code == 200 and not _looks_like_block_page(r.text):
             return r.text
     except _ResolveBudgetExceeded:
         raise

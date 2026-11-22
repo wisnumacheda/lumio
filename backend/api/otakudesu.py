@@ -42,13 +42,15 @@ def close_otaku_client():
 
 def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
     """Fetch helper menggunakan curl_cffi dengan fallback httpx pool dan TLS desync."""
+    from api.desync import _looks_like_block_page
     h = dict(HEADERS)
     if referer:
         h["Referer"] = referer
     try:
         from curl_cffi import requests as creq
         r = creq.get(url, headers=h, impersonate="chrome124", timeout=timeout, allow_redirects=True)
-        if r.status_code == 200:
+        # v62: halaman blokir DPI (HTTP 200) bukan sukses — lanjut ke tahap berikut.
+        if r.status_code == 200 and not _looks_like_block_page(r.text):
             return r.text
     except Exception:
         pass
@@ -56,7 +58,7 @@ def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
     try:
         client = _get_otaku_client()
         r = client.get(url, headers=h)
-        if r.status_code == 200:
+        if r.status_code == 200 and not _looks_like_block_page(r.text):
             return r.text
     except Exception:
         pass
@@ -66,7 +68,7 @@ def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
         from api.desync import tls_desync_request
         raw = tls_desync_request(url, headers=h, timeout=timeout)
         txt = raw.decode("utf-8", errors="replace")
-        if txt and ("<html" in txt.lower() or "{" in txt):
+        if txt and ("<html" in txt.lower() or "{" in txt) and not _looks_like_block_page(txt):
             return txt
     except Exception:
         pass
@@ -286,6 +288,20 @@ def _is_title_match(target_title: str, candidate_title: str) -> bool:
     return overlap >= 0.55
 
 
+def _ajax_post(url: str, data: dict, headers: dict = None, timeout: int = 8) -> dict:
+    """POST admin-ajax Otakudesu: direct httpx dulu; bila koneksi gagal
+    (RST/timeout DPI), coba via TLS desync POST (v62). Return dict JSON."""
+    client = _get_otaku_client()
+    try:
+        r = client.post(url, data=data, headers=headers, timeout=timeout)
+        return r.json() or {}
+    except Exception:
+        pass
+    from api.desync import tls_desync_post
+    raw = tls_desync_post(url, data=data, headers=headers, timeout=timeout)
+    return json.loads(raw.decode("utf-8", errors="replace") or "{}") or {}
+
+
 def _extract_animestream_stream(ep_html: str, ep_url: str):
     """Ekstrak stream dari mirror tema Animestream (otakudesu.blog): mirror
     dipilih lewat ajax WordPress (nonce + data-content base64 per mirror),
@@ -316,11 +332,9 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
         return (0 if m["default"] else 10) + qscore * 3 + score
     mirrors.sort(key=_pref)
     ajax_url = OTAKU_BASE + "/wp-admin/admin-ajax.php"
-    client = _get_otaku_client()
     headers = {"Referer": ep_url, "X-Requested-With": "XMLHttpRequest"}
     try:
-        r = client.post(ajax_url, data={"action": act_n[0]}, headers=headers, timeout=8)
-        nonce = (r.json() or {}).get("data")
+        nonce = (_ajax_post(ajax_url, {"action": act_n[0]}, headers=headers, timeout=8) or {}).get("data")
     except Exception:
         nonce = None
     if not nonce:
@@ -328,8 +342,7 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
     for m in mirrors[:3]:
         try:
             data = dict(m["payload"]); data["nonce"] = nonce; data["action"] = act_m.group(1)
-            r = client.post(ajax_url, data=data, headers=headers, timeout=8)
-            embed_html = _b64.b64decode((r.json() or {}).get("data") or "").decode("utf-8", "replace")
+            embed_html = _b64.b64decode((_ajax_post(ajax_url, data, headers=headers, timeout=8) or {}).get("data") or "").decode("utf-8", "replace")
         except Exception:
             continue
         src_m = re.search(r'<iframe[^>]*src="([^"]+)"', embed_html)

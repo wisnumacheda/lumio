@@ -3,6 +3,7 @@ Membypass blokir SNI / DPI ISP di Indonesia tanpa memerlukan VPN / WireGuard,
 sehingga 100% aman dari deteksi Sangfor Firewall dan tidak memicu blokir MAC address.
 """
 
+import re
 import socket
 import ssl
 import time
@@ -12,6 +13,37 @@ from config import HI_UA
 # Cache DNS hasil resolve DoH / direct dengan batas memori maksimum
 _DNS_CACHE = {}
 _MAX_DNS_CACHE = 256
+
+
+# Marker halaman blokir ISP Indonesia + Cloudflare (v62). Dipakai _fetch /
+# _fetch_once / _fetch_media: halaman blokir HTTP 200 harus diperlakukan sebagai
+# GAGAL, bukan sukses (sebelumnya dikembalikan apa adanya, lalu pemanggil gagal
+# parse dengan pesan menyesatkan — atau lebih buruk, dianggap halaman asli).
+_BLOCK_PAGE_MARKERS = (
+    "internet sehat",
+    "trustpositif",
+    "trust positif",
+    "situs ini diblokir",
+    "website ini diblokir",
+    "halaman ini diblokir",
+    "attention required",
+    "just a moment",
+    "cf-challenge",
+    "kominfo",
+    "access denied",
+)
+
+
+def _looks_like_block_page(text) -> bool:
+    """True bila teks (HTML) tampak seperti halaman blokir ISP/Cloudflare.
+    Hanya memeriksa <title> + 4000 karakter pertama agar halaman sah yang
+    kebetulan menyebut kata itu di bagian dalam tidak kena false positive."""
+    if not text:
+        return False
+    head = text if isinstance(text, str) else text.decode("utf-8", errors="ignore")
+    m = re.search(r"<title[^>]*>(.*?)</title>", head, re.I | re.S)
+    sample = ((m.group(1) + "\n" + head[:4000]) if m else head[:4000]).lower()
+    return any(mk in sample for mk in _BLOCK_PAGE_MARKERS)
 
 
 def _set_dns_cache(host: str, ip: str):
@@ -27,28 +59,37 @@ def _set_dns_cache(host: str, ip: str):
 
 def _resolve_host(host: str) -> str:
     """Resolve domain ke IPv4 dengan proteksi anti DNS-poisoning ISP.
-    Urutan: Cache -> System DNS -> DoH (Cloudflare 1.1.1.1 / Google 8.8.8.8) -> Hardcoded Fallback."""
+    Urutan (v62): DoH dulu (Cloudflare 1.1.1.1 / Google 8.8.8.8) -> System DNS ->
+    Hardcoded Fallback. DoH didahulukan karena DNS sistem bisa di-poison ISP ke IP
+    halaman blokir (IP publik, lolos cek private-range) — dalam kasus itu desync
+    ikut nyambung ke IP yang salah; bila DoH gagal/tidak terjangkau, jatuh ke
+    system DNS seperti sebelumnya. Hasil di-cache (biaya DoH hanya sekali/host)."""
     if not host:
         return host
     if host in _DNS_CACHE:
         return _DNS_CACHE[host]
-    
+
     # Cek apakah host sudah merupakan IP numerik
     if all(part.isdigit() for part in host.split(".") if part):
         _set_dns_cache(host, host)
         return host
 
-    # 1. Coba resolve DNS sistem lokal
-    try:
-        ip = socket.gethostbyname(host)
-        # Abaikan bila di-poison ke IP localhost atau private range
-        if ip and not ip.startswith("10.") and not ip.startswith("127.") and not ip.startswith("192.168."):
-            _set_dns_cache(host, ip)
-            return ip
-    except Exception:
-        pass
+    def _usable_ip(ip):
+        # Tolak IP private/loopback/link-local (hasil DNS-poisoning ISP).
+        try:
+            parts = [int(p) for p in str(ip).split(".")]
+            if len(parts) != 4 or any(p < 0 or p > 255 for p in parts):
+                return False
+            a, b = parts[0], parts[1]
+            if a == 10 or a == 127 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168):
+                return False
+            if a == 169 and b == 254:
+                return False
+            return True
+        except Exception:
+            return False
 
-    # 2. Bypass DNS Blokir ISP via DoH (DNS-over-HTTPS)
+    # 1. Bypass DNS Blokir ISP via DoH (DNS-over-HTTPS) — didahulukan (v62).
     for doh_url in ("https://1.1.1.1/dns-query", "https://dns.google/resolve"):
         try:
             import urllib.request
@@ -57,17 +98,28 @@ def _resolve_host(host: str) -> str:
                 f"{doh_url}?name={host}&type=A",
                 headers={"Accept": "application/dns-json", "User-Agent": HI_UA}
             )
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     answers = data.get("Answer", [])
                     for ans in answers:
                         if ans.get("type") == 1 and ans.get("data"):
                             ip = ans["data"]
-                            _set_dns_cache(host, ip)
-                            return ip
+                            if _usable_ip(ip):
+                                _set_dns_cache(host, ip)
+                                return ip
         except Exception:
             pass
+
+    # 2. Coba resolve DNS sistem lokal
+    try:
+        ip = socket.gethostbyname(host)
+        # Abaikan bila di-poison ke IP localhost atau private range
+        if _usable_ip(ip):
+            _set_dns_cache(host, ip)
+            return ip
+    except Exception:
+        pass
 
     # 3. Fallback IP CDN yang diketahui
     known = {
@@ -192,6 +244,79 @@ def tls_desync_request(url: str, headers: dict = None, timeout: float = 10.0) ->
         if idx >= 0:
             return resp_raw[idx + 4:]
         return resp_raw
+    finally:
+        try:
+            raw_sock.close()
+        except Exception:
+            pass
+
+
+def tls_desync_post(url: str, data=None, headers: dict = None, timeout: float = 10.0) -> bytes:
+    """Kirim HTTP POST via desync TLS socket (v62 — untuk admin-ajax Otakudesu saat
+    direct di-RST DPI). Body dikembalikan setelah di-dechunk bila ber-chunked.
+    data: dict (form-urlencoded) atau bytes mentah."""
+    p = urllib.parse.urlsplit(url)
+    host = p.netloc.split(":")[0]
+    port = p.port or 443
+    path = p.path or "/"
+    if p.query:
+        path += "?" + p.query
+
+    raw_sock, sslobj, in_bio, out_bio = tls_desync_connect(host, port, timeout=timeout)
+    try:
+        if data is None:
+            body = b""
+        elif isinstance(data, (bytes, bytearray)):
+            body = bytes(data)
+        else:
+            body = urllib.parse.urlencode(data).encode("utf-8")
+        h_lines = [
+            f"POST {path} HTTP/1.1",
+            f"Host: {host}",
+            f"User-Agent: {HI_UA}",
+            "Accept: */*",
+            "Content-Type: application/x-www-form-urlencoded",
+            f"Content-Length: {len(body)}",
+            "Connection: close",
+        ]
+        if headers:
+            for k, v in headers.items():
+                if k.lower() not in ("host", "connection", "content-length", "content-type"):
+                    h_lines.append(f"{k}: {v}")
+
+        req_data = "\r\n".join(h_lines) + "\r\n\r\n"
+        sslobj.write(req_data.encode("utf-8"))
+        if body:
+            sslobj.write(body)
+        raw_sock.sendall(out_bio.read())
+
+        # Baca seluruh HTTP response
+        resp_raw = b""
+        raw_sock.settimeout(timeout)
+        while True:
+            try:
+                d = raw_sock.recv(16384)
+                if not d:
+                    break
+                in_bio.write(d)
+                while True:
+                    try:
+                        chunk = sslobj.read(16384)
+                        if not chunk:
+                            break
+                        resp_raw += chunk
+                    except (ssl.SSLWantReadError, ssl.SSLZeroReturnError):
+                        break
+            except socket.timeout:
+                break
+            except Exception:
+                break
+
+        # Pisahkan header dan body HTTP, lalu lepas chunked bila ada.
+        idx = resp_raw.find(b"\r\n\r\n")
+        raw_body = resp_raw[idx + 4:] if idx >= 0 else resp_raw
+        dec = _dechunk_http_body(raw_body)
+        return dec if dec is not None else raw_body
     finally:
         try:
             raw_sock.close()
