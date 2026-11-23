@@ -553,8 +553,11 @@ def desync_post_variants(url, data=None, headers=None, deadline=None, timeout_ea
     raise DesyncTimeout(f"desync semua varian sudah hang {host}", variant=None)
 
 
-async def tls_desync_stream(url: str, headers: dict = None, chunk_size: int = 65536):
-    """Async generator untuk streaming segmen video via desync TLS dengan proteksi anti socket-leak."""
+async def tls_desync_stream(url: str, headers: dict = None, chunk_size: int = 65536, info: dict = None):
+    """Async generator untuk streaming segmen video via desync TLS dengan proteksi anti socket-leak.
+    Bila `info` diberikan (dict), head respons HTTP yang sudah di-parse dicatat di sana
+    (status, content-range, content-length, content-type) — dipakai proxy video untuk
+    meneruskan 206 + Content-Range ke player saat memutar mp4 progresif (v72)."""
     import asyncio
     p = urllib.parse.urlsplit(url)
     host = p.netloc.split(":")[0]
@@ -606,6 +609,19 @@ async def tls_desync_stream(url: str, headers: dict = None, chunk_size: int = 65
                             sep = buf.find(b"\r\n\r\n")
                             if sep >= 0:
                                 header_parsed = True
+                                if info is not None:
+                                    try:
+                                        head_txt = buf[:sep].decode("iso-8859-1", errors="ignore")
+                                        lines = head_txt.split("\r\n")
+                                        parts = lines[0].split(" ", 2) if lines else []
+                                        if len(parts) >= 2 and parts[1].isdigit():
+                                            info["status"] = int(parts[1])
+                                        for ln in lines[1:]:
+                                            if ":" in ln:
+                                                kk, vv = ln.split(":", 1)
+                                                info[kk.strip().lower()] = vv.strip()
+                                    except Exception:
+                                        pass
                                 body_part = buf[sep + 4:]
                                 buf = b""
                                 if body_part:

@@ -448,6 +448,249 @@ def _probe_master(master_url, referer, deadline=None):
     _mark_dead(host)
     raise RuntimeError(f"probe fail {host}: host menggantung")
 
+
+def _validate_mp4_head(head: bytes, content_length=None, content_type=""):
+    """Validasi kepala file mp4 progresif (v72 — Samehadaku/vkspeed):
+    4 byte pertama ukuran box, byte 4..8 harus 'ftyp' (ISO BMFF).
+    Halaman blokir (HTML) dan body kosong ditolak. Return True bila valid."""
+    if not head or len(head) < 12:
+        return False
+    if head[4:8] != b"ftyp":
+        return False
+    ct = (content_type or "").lower()
+    if ct and not (ct.startswith("video/") or ct.startswith("application/octet-stream")):
+        return False
+    if content_length is not None:
+        try:
+            if int(content_length) < 100_000:
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _probe_mp4(mp4_url, referer, deadline=None):
+    """Probe cepat file mp4 progresif (v72 — Samehadaku/vkspeed): Range GET
+    4 KB pertama, validasi ftyp + video/mp4 + ukuran. Struktur mengikuti
+    _probe_master (desync-first bila host terblokir DPI, direct lalu
+    desync-ulang, host mati hanya bila keduanya gagal, anggaran global
+    dipatuhi, event diagnosa host-only per percobaan). Bedanya: desync
+    memakai tls_desync_stream (ambil chunk pertama lalu tutup soket —
+    JANGAN unduh seluruh file; satu episode ~100 MB) dan direct memakai
+    streaming read 4 KB. Return {"size": int|None, "content_type": str}."""
+    if not mp4_url or not mp4_url.startswith("http"):
+        from api.netdiag import record as _nd_rec
+        _nd_rec("probe-master", "", "direct", "lainnya", 0, note="url-tidak-valid")
+        raise RuntimeError("invalid mp4 url")
+    host = _host_from(mp4_url)
+    from api.netdiag import record as _nd_rec, classify_error as _nd_class
+    _nd_t0 = _time.monotonic()
+    _nd_h = host
+    _nd_method = "direct"
+    _fail_kind = "lainnya"
+
+    def _nd_ms():
+        return int((_time.monotonic() - _nd_t0) * 1000)
+
+    if _is_dead_host(host):
+        _nd_rec("probe-master", _nd_h, "direct", "lainnya", _nd_ms(), note="host-mati")
+        raise RuntimeError(f"host dead: {host}")
+    headers = {"User-Agent": HI_UA, "Range": "bytes=0-4095",
+               **({"Referer": referer} if referer else {})}
+    call_deadline = None
+    if deadline is not None:
+        call_deadline = min(float(deadline), _time.monotonic() + 14.0)
+    _hung = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung = _hung_kinds(deadline, host)
+        if "v1" in _hung and "v2" in _hung:
+            _nd_rec("probe-master", _nd_h, "desync", "timeout-gantung", _nd_ms(), note="host-gantung")
+            raise RuntimeError(f"host menggantung (desync v1+v2): {host}")
+    _skip_direct_probe = "direct" in _hung
+
+    def _desync_head():
+        """Ambil kepala mp4 via desync stream (chunk pertama saja).
+        Return (head_bytes, None) atau (None, hung: bool). Raise
+        _ResolveBudgetExceeded bila anggaran habis."""
+        nonlocal _nd_method, _fail_kind
+        _nd_method = "desync"
+        try:
+            import asyncio as _aio
+            from api.desync import tls_desync_stream, DesyncTimeout
+            _to = _cap_timeout(8.0, call_deadline)
+
+            async def _first():
+                head = b""
+                async for chunk in tls_desync_stream(mp4_url, headers=headers):
+                    if chunk:
+                        head += chunk
+                        if len(head) >= 4096:
+                            break
+                return head
+
+            _loop = _aio.new_event_loop()
+            try:
+                head = _loop.run_until_complete(_aio.wait_for(_first(), timeout=_to))
+            finally:
+                try:
+                    _loop.close()
+                except Exception:
+                    pass
+            if not head:
+                _nd_rec("probe-master", _nd_h, "desync", "lainnya", _nd_ms(), note="tanpa-chunk")
+                return None, False
+            if head[:1] == b"<":
+                from api.desync import _looks_like_block_page as _v66_is_block
+                _fail_kind = "halaman-blokir" if _v66_is_block(head) else "bukan-mp4"
+                _nd_rec("probe-master", _nd_h, "desync", _fail_kind, _nd_ms())
+                return None, False
+            if _validate_mp4_head(head):
+                _nd_rec("probe-master", _nd_h, "desync", "sukses", _nd_ms())
+                _add_blocked_dpi_host(host)
+                return {"size": None, "content_type": "video/mp4"}, False
+            _fail_kind = "bukan-mp4"
+            _nd_rec("probe-master", _nd_h, "desync", "bukan-mp4", _nd_ms())
+            return None, False
+        except _ResolveBudgetExceeded:
+            _nd_rec("probe-master", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
+            raise
+        except Exception as _de:
+            if "Timeout" in type(_de).__name__ or "timed out" in str(_de).lower():
+                _fail_kind = "timeout-gantung"
+                _nd_rec("probe-master", _nd_h, "desync", "timeout-gantung", _nd_ms())
+                return None, True
+            _nd_rec("probe-master", _nd_h, "desync", _nd_class(_de), _nd_ms())
+            return None, False
+
+    # Jika host terdeteksi diblokir DPI ISP, gunakan TLS desync langsung.
+    if _is_blocked_dpi_host(host):
+        _nd_method = "desync"
+        try:
+            got, _hung2 = _desync_head()
+            if got is not None:
+                return got
+            if _hung2:
+                _skip_direct_probe = True
+        except _ResolveBudgetExceeded:
+            raise
+        except Exception:
+            pass
+
+    # Direct connection biasa untuk semua host normal.
+    if not _skip_direct_probe:
+        try:
+            try:
+                from curl_cffi import requests as creq
+                kw = dict(headers=headers, impersonate="chrome124",
+                          timeout=_cap_timeout(10, call_deadline), stream=True)
+                r = creq.get(mp4_url, **kw)
+                try:
+                    head = b""
+                    for chunk in r.iter_content(chunk_size=4096):
+                        head += chunk
+                        break
+                    status = r.status_code
+                    ctype = r.headers.get("content-type", "")
+                    clen = r.headers.get("content-length")
+                    crange = r.headers.get("content-range", "")
+                finally:
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
+            except _ResolveBudgetExceeded:
+                raise
+            except Exception as _ce:
+                if any(t in str(_ce).lower() for t in ("timeout", "timed out")):
+                    if deadline is not None:
+                        from api.desync import note_hang as _note_hang
+                        _note_hang(deadline, host, "direct")
+                    raise
+                client = _get_shared_client()
+                # Streaming + baca 4 KB pertama saja (JANGAN unduh file utuh
+                # bila server mengabaikan Range).
+                with client.stream("GET", mp4_url, headers=headers,
+                                   timeout=_cap_timeout(10, call_deadline),
+                                   follow_redirects=True) as r:
+                    head = b""
+                    for chunk in r.iter_bytes(chunk_size=4096):
+                        head += chunk
+                        break
+                    status = r.status_code
+                    ctype = r.headers.get("content-type", "")
+                    clen = r.headers.get("content-length")
+                    crange = r.headers.get("content-range", "")
+            # v72-fix — 206 Partial Content: Content-Length = ukuran RANGE
+            # (4096), BUKAN total file. Total ada di Content-Range
+            # ("bytes 0-4095/<total>") — pakai itu untuk validasi ukuran,
+            # kalau tidak mp4 valid selalu ditolak sebagai "terlalu kecil".
+            _eff_len = clen
+            if status == 206 and crange:
+                _m = re.search(r"/(\d+)\s*$", crange)
+                if _m:
+                    _eff_len = _m.group(1)
+            if status in (200, 206) and head:
+                if head[:1] == b"<":
+                    from api.desync import _looks_like_block_page as _v66_is_block
+                    _fail_kind = "halaman-blokir" if _v66_is_block(head) else "bukan-mp4"
+                    _nd_rec("probe-master", _nd_h, "direct", _fail_kind, _nd_ms())
+                    raise RuntimeError(f"probe mp4 not mp4 for {host}")
+                if _validate_mp4_head(head, _eff_len, ctype):
+                    _nd_rec("probe-master", _nd_h, "direct", "sukses", _nd_ms())
+                    try:
+                        size = int(_eff_len) if _eff_len else None
+                    except Exception:
+                        size = None
+                    return {"size": size, "content_type": ctype}
+                _fail_kind = "bukan-mp4"
+                _nd_rec("probe-master", _nd_h, "direct", "bukan-mp4", _nd_ms())
+                raise RuntimeError(f"probe mp4 not mp4 for {host}")
+            if status >= 400:
+                _fail_kind = _nd_class(f"upstream {status}")
+                _nd_rec("probe-master", _nd_h, "direct", _fail_kind, _nd_ms())
+                raise RuntimeError(f"upstream {status} for {host}")
+            _fail_kind = "lainnya"
+            _nd_rec("probe-master", _nd_h, "direct", "lainnya", _nd_ms(), note="status-tak-terduga")
+            raise RuntimeError(f"probe mp4 unexpected status {status} for {host}")
+        except _ResolveBudgetExceeded:
+            _nd_rec("probe-master", _nd_h, _nd_method, "lainnya", _nd_ms(), note="anggaran-habis")
+            raise
+        except Exception as e:
+            if _fail_kind == "lainnya":
+                try:
+                    _nd_rec("probe-master", _nd_h, "direct", _nd_class(e), _nd_ms())
+                except Exception:
+                    pass
+            if _fail_kind != "http-404":
+                got, _hung2 = _desync_head()
+                if got is not None:
+                    return got
+            _mark_dead(host)
+            raise RuntimeError(f"probe fail {host}: {_fail_kind}")
+    _hung_now = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung_now = _hung_kinds(deadline, host)
+    if not ("v1" in _hung_now and "v2" in _hung_now):
+        got, _hung2 = _desync_head()
+        if got is not None:
+            return got
+    _mark_dead(host)
+    raise RuntimeError(f"probe fail {host}: host menggantung")
+
+
+def _probe_media(media_url, referer, deadline=None):
+    """Dispatcher validasi master v66 (dipakai resolver + probe cache):
+    URL .m3u8 / /hls -> _probe_master; URL .mp4 -> _probe_mp4 (Range +
+    ftyp). Jenis lain -> _probe_master (perilaku lama: menolak bila
+    bukan playlist)."""
+    u = (media_url or "").lower()
+    if ".mp4" in u.split("?", 1)[0]:
+        return _probe_mp4(media_url, referer, deadline=deadline)
+    return _probe_master(media_url, referer, deadline=deadline)
+
+
 FILTERS = {
     "type": ["tv", "movie", "ova", "ona", "special", "music"],
     "status": ["releasing", "completed", "not_yet_aired", "currently_airing", "airing", "ongoing"],

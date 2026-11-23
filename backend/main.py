@@ -13,6 +13,7 @@ from api import otakudesu as otaku
 from api import aniskip
 from api import anichan
 from api import animeindo
+from api import samehadaku
 from api import mangadex as md
 from api import komikcast as kcmod
 from api import asura as asmod
@@ -3670,11 +3671,13 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         # tanpa-probe). Probe singkat (cap 6 dtk, sisa anggaran); gagal →
         # hapus cache + anggap miss supaya rantai fresh jalan dan failover
         # ke server berikutnya. Master sehat hanya menambah <1 dtk.
+        # v72 — probe via _probe_media: master mp4 (Samehadaku) divalidasi
+        # dengan probe range, bukan sebagai m3u8 (yang akan selalu menolaknya).
         if hit and hit.get("master"):
             try:
                 _cache_probe_deadline = min(_resolve_deadline, time.monotonic() + 6.0)
                 _loop = asyncio.get_running_loop()
-                await _loop.run_in_executor(None, lambda: hi._probe_master(hit["master"], referer=hit.get("referer") or "", deadline=_cache_probe_deadline))
+                await _loop.run_in_executor(None, lambda: hi._probe_media(hit["master"], referer=hit.get("referer") or "", deadline=_cache_probe_deadline))
             except Exception:
                 try:
                     await delete_episode_cache(cache_slug, ep, mode=mode)
@@ -3795,8 +3798,9 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         # v55: backstop anggaran untuk percobaan provider. Setiap percobaan
         # dibatasi SISA anggaran global; habisnya anggaran dicatat sebagai
         # alasan jujur per-provider, bukan timeout telanjang. Semantik
-        # prioritas sumber (Auto/HiAnime/Otakudesu/AniChan/Animeindo) TIDAK berubah —
-        # hanya pembungkus eksekusinya yang berbatas.
+        # prioritas sumber (Auto/HiAnime/Otakudesu/AniChan/Animeindo/
+        # Samehadaku) TIDAK berubah — hanya pembungkus eksekusinya yang
+        # berbatas.
         # v67 — deadline irisan: percobaan boleh dibatasi tenggat yang lebih
         # awal dari anggaran global (jatah adil per server); pemotongan oleh
         # irisan dibedakan pesannya ("jatah waktu server habis") dari
@@ -3842,20 +3846,20 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         # dicoba rantai ini; irisan adil dihitung dari jumlah itu.
         _is_auto = (source == "auto" or not source)
         if active_source == "anichan":
-            _dl = _slice_deadline(3 if _is_auto else 1)
+            _dl = _slice_deadline(4 if _is_auto else 1)
             got, _err = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_dl)
             if _err is not None:
                 last_error = _err
                 _note("AniChan", _err)
                 if _is_auto:
-                    got, _err2 = await _try_hianime(deadline=_slice_deadline(2))
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(3))
                     if _err2 is not None:
                         _note("HiAnime", _err2)
                     else:
                         active_source = "hianime"
                         cache_slug = slug
                     if not got:
-                        _dl3 = _slice_deadline(1)
+                        _dl3 = _slice_deadline(2)
                         got, _err3 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl3), deadline=_dl3)
                         if _err3 is not None:
                             last_error = _err3
@@ -3866,21 +3870,35 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "anichan"
                             _set_failover(slug, "animeindo")
+                    # Server ke-5 (v72): Samehadaku — dicoba terakhir bila
+                    # ketiga server di atas gagal, dengan irisannya sendiri.
+                    if not got:
+                        _dl4 = _slice_deadline(1)
+                        got, _err4 = await _try_provider(lambda: samehadaku.resolve_stream(slug, ep, deadline=_dl4), deadline=_dl4)
+                        if _err4 is not None:
+                            last_error = _err4
+                            _note("Samehadaku", _err4)
+                        else:
+                            active_source = "samehadaku"
+                            cache_slug = f"samehadaku:{slug}"
+                            is_failover = True
+                            failover_from = "anichan"
+                            _set_failover(slug, "samehadaku")
         elif active_source == "animeindo":
-            _dl = _slice_deadline(3 if _is_auto else 1)
+            _dl = _slice_deadline(4 if _is_auto else 1)
             got, _err = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
             if _err is not None:
                 last_error = _err
                 _note("Animeindo", _err)
                 if _is_auto:
-                    got, _err2 = await _try_hianime(deadline=_slice_deadline(2))
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(3))
                     if _err2 is not None:
                         _note("HiAnime", _err2)
                     else:
                         active_source = "hianime"
                         cache_slug = slug
                     if not got:
-                        _dl3 = _slice_deadline(1)
+                        _dl3 = _slice_deadline(2)
                         got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_dl3)
                         if _err3 is not None:
                             last_error = _err3
@@ -3891,13 +3909,25 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "animeindo"
                             _set_failover(slug, "anichan")
-        elif active_source == "otakudesu":
+                    # Server ke-5 (v72): Samehadaku — dicoba terakhir.
+                    if not got:
+                        _dl4 = _slice_deadline(1)
+                        got, _err4 = await _try_provider(lambda: samehadaku.resolve_stream(slug, ep, deadline=_dl4), deadline=_dl4)
+                        if _err4 is not None:
+                            last_error = _err4
+                            _note("Samehadaku", _err4)
+                        else:
+                            active_source = "samehadaku"
+                            cache_slug = f"samehadaku:{slug}"
+                            is_failover = True
+                            failover_from = "animeindo"
+                            _set_failover(slug, "samehadaku")
+        elif active_source == "samehadaku":
             _dl = _slice_deadline(4 if _is_auto else 1)
-            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
+            got, _err = await _try_provider(lambda: samehadaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
             if _err is not None:
                 last_error = _err
-                _note("Otakudesu", _err)
-                # Fallback ke hianime kalau user pakai auto
+                _note("Samehadaku", _err)
                 if _is_auto:
                     got, _err2 = await _try_hianime(deadline=_slice_deadline(3))
                     if _err2 is not None:
@@ -3906,7 +3936,45 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         active_source = "hianime"
                         cache_slug = slug
                     if not got:
-                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(2))
+                        _dl3 = _slice_deadline(2)
+                        got, _err3 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl3), deadline=_dl3)
+                        if _err3 is not None:
+                            last_error = _err3
+                            _note("Animeindo", _err3)
+                        else:
+                            active_source = "animeindo"
+                            cache_slug = f"animeindo:{slug}"
+                            is_failover = True
+                            failover_from = "samehadaku"
+                            _set_failover(slug, "animeindo")
+                    if not got:
+                        _dl4 = _slice_deadline(1)
+                        got, _err4 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_dl4)
+                        if _err4 is not None:
+                            last_error = _err4
+                            _note("AniChan", _err4)
+                        else:
+                            active_source = "anichan"
+                            cache_slug = f"anichan:{slug}"
+                            is_failover = True
+                            failover_from = "samehadaku"
+                            _set_failover(slug, "anichan")
+        elif active_source == "otakudesu":
+            _dl = _slice_deadline(5 if _is_auto else 1)
+            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
+            if _err is not None:
+                last_error = _err
+                _note("Otakudesu", _err)
+                # Fallback ke hianime kalau user pakai auto
+                if _is_auto:
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(4))
+                    if _err2 is not None:
+                        _note("HiAnime", _err2)
+                    else:
+                        active_source = "hianime"
+                        cache_slug = slug
+                    if not got:
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(3))
                         if _err3 is not None:
                             _note("AniChan", _err3)
                         else:
@@ -3916,7 +3984,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             failover_from = "otakudesu"
                             _set_failover(slug, "anichan")
                     if not got:
-                        _dl4 = _slice_deadline(1)
+                        _dl4 = _slice_deadline(2)
                         got, _err4 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl4), deadline=_dl4)
                         if _err4 is not None:
                             last_error = _err4
@@ -3927,14 +3995,27 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "otakudesu"
                             _set_failover(slug, "animeindo")
+                    # Server ke-5 (v72): Samehadaku — dicoba terakhir.
+                    if not got:
+                        _dl5 = _slice_deadline(1)
+                        got, _err5 = await _try_provider(lambda: samehadaku.resolve_stream(slug, ep, deadline=_dl5), deadline=_dl5)
+                        if _err5 is not None:
+                            last_error = _err5
+                            _note("Samehadaku", _err5)
+                        else:
+                            active_source = "samehadaku"
+                            cache_slug = f"samehadaku:{slug}"
+                            is_failover = True
+                            failover_from = "otakudesu"
+                            _set_failover(slug, "samehadaku")
         else:
-            got, _err = await _try_hianime(deadline=_slice_deadline(4 if _is_auto else 1))
+            got, _err = await _try_hianime(deadline=_slice_deadline(5 if _is_auto else 1))
             if _err is not None:
                 last_error = _err
                 _note("HiAnime", _err)
                 # Fallback ke otakudesu jika hianime gagal
                 if _is_auto:
-                    _dl = _slice_deadline(3)
+                    _dl = _slice_deadline(4)
                     got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
                     if _err2 is not None:
                         _note("Otakudesu", _err2)
@@ -3944,7 +4025,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                     # JIKA HIANIME & OTAKUDESU GAGAL (KASUS EYESHIELD 21):
                     # Failover otomatis per-judul ke AniChan langsung ke HLS M3U8
                     if not got:
-                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(2))
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(3))
                         if _err3 is not None:
                             last_error = _err3
                             _note("AniChan", _err3)
@@ -3954,10 +4035,10 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "hianime"
                             _set_failover(slug, "anichan")
-                    # Server ke-4 (v70): Animeindo — dicoba terakhir bila
-                    # ketiga server di atas gagal, dengan irisannya sendiri.
+                    # Server ke-4 (v70): Animeindo — dicoba bila ketiga
+                    # server di atas gagal, dengan irisannya sendiri.
                     if not got:
-                        _dl4 = _slice_deadline(1)
+                        _dl4 = _slice_deadline(2)
                         got, _err4 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl4), deadline=_dl4)
                         if _err4 is not None:
                             last_error = _err4
@@ -3968,6 +4049,20 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "hianime"
                             _set_failover(slug, "animeindo")
+                    # Server ke-5 (v72): Samehadaku — dicoba terakhir bila
+                    # keempat server di atas gagal, dengan irisannya sendiri.
+                    if not got:
+                        _dl5 = _slice_deadline(1)
+                        got, _err5 = await _try_provider(lambda: samehadaku.resolve_stream(slug, ep, deadline=_dl5), deadline=_dl5)
+                        if _err5 is not None:
+                            last_error = _err5
+                            _note("Samehadaku", _err5)
+                        else:
+                            active_source = "samehadaku"
+                            cache_slug = f"samehadaku:{slug}"
+                            is_failover = True
+                            failover_from = "hianime"
+                            _set_failover(slug, "samehadaku")
 
         if not got:
             if fail_reasons:
@@ -4339,7 +4434,15 @@ async def proxy_video(url: str = Query(""), referer: str = Query(""), range: str
     _validate_external_proxy_url(url)
 
     is_m3u8 = _is_m3u8_url(url)
-    media_type = "application/vnd.apple.mpegurl" if is_m3u8 else "video/mp2t"
+    # v72 — mp4 progresif (Samehadaku) dilayani sebagai video/mp4, bukan
+    # video/mp2t (tipe lama untuk segmen .ts).
+    _upath = url.split("?", 1)[0].lower()
+    if is_m3u8:
+        media_type = "application/vnd.apple.mpegurl"
+    elif _upath.endswith(".mp4"):
+        media_type = "video/mp4"
+    else:
+        media_type = "video/mp2t"
 
     if not referer:
         if any(h in url for h in ("dramahot.top", "drama1.cfd", "zokoanime")):
@@ -4356,12 +4459,46 @@ async def proxy_video(url: str = Query(""), referer: str = Query(""), range: str
     # Jika host terdeteksi diblokir DPI ISP, gunakan TLS desync murni (aman dari Sangfor)
     from api.hianime import _host_from, _BLOCKED_DPI_HOSTS
     host = _host_from(url)
+    # v72 — tarik chunk pertama dulu supaya status + header upstream
+    # (206 + Content-Range untuk mp4) diketahui SEBELUM respons dibuat.
+    # Tanpa ini, Range request dijawab 200 dan seek player rusak: player
+    # (ExoPlayer/<video>) mengira body mulai dari byte 0 padahal upstream
+    # sudah mulai dari byte N. Kegagalan pipe (502 dsb) kini terlempar
+    # sebagai respons error yang benar, bukan stream terpotong.
+    _info = {}
     if host in _BLOCKED_DPI_HOSTS:
-        return _SR(_pipe_desync_video(url, referer, range_header=range_header), media_type=media_type,
-                   headers={"Access-Control-Allow-Origin": "*"})
+        _gen = _pipe_desync_video(url, referer, range_header=range_header, info=_info)
+    else:
+        _gen = _pipe_video(url, referer, range_header=range_header, info=_info)
+    try:
+        _first = await _gen.__anext__()
+    except StopAsyncIteration:
+        _first = None
+    _status = 200
+    _headers = {"Access-Control-Allow-Origin": "*"}
+    # 206 + Content-Length HANYA untuk mp4: segmen .ts kadang dipotong
+    # (STRIP_BYTES) sehingga Content-Length upstream tidak lagi cocok
+    # dengan body yang diserahkan — jangan tambahkan ke segmen.
+    _is_mp4 = _upath.endswith(".mp4")
+    if _info.get("status") == 206 and _is_mp4:
+        _status = 206
+        if _info.get("content-range"):
+            _headers["Content-Range"] = _info["content-range"]
+        if _info.get("content-length"):
+            _headers["Content-Length"] = _info["content-length"]
+        _headers["Accept-Ranges"] = "bytes"
+    elif _info.get("content-length") and _is_mp4:
+        _headers["Content-Length"] = _info["content-length"]
+        _headers["Accept-Ranges"] = "bytes"
 
-    return _SR(_pipe_video(url, referer, range_header=range_header), media_type=media_type,
-               headers={"Access-Control-Allow-Origin": "*"})
+    async def _body():
+        if _first is not None:
+            yield _first
+        async for _chunk in _gen:
+            yield _chunk
+
+    return _SR(_body(), media_type=media_type, status_code=_status,
+               headers=_headers)
 
 
 def _sniff_image_type(data: bytes):
@@ -4470,8 +4607,11 @@ def _rewrite_m3u8_content(txt: str, base_url: str, referer: str) -> str:
     return "\n".join(out)
 
 
-async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
-    """Streaming video via TLS Client Hello Desynchronization (Direct TCP 443 tanpa VPN)."""
+async def _pipe_desync_video(url: str, referer: str, range_header: str = "", info: dict = None):
+    """Streaming video via TLS Client Hello Desynchronization (Direct TCP 443 tanpa VPN).
+    Bila `info` diberikan (dict), status + header upstream (content-range,
+    content-length, content-type) dicatat di sana — dipakai proxy video untuk
+    meneruskan 206 + Content-Range ke player saat memutar mp4 (v72)."""
     from api.desync import tls_desync_request, tls_desync_stream
     import asyncio
     # Diagnosa v63: catat hasil fetch master/segmen via desync (host saja).
@@ -4523,7 +4663,13 @@ async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
     _sniff_done = False
     _playlist_parts = None
     try:
-        async for chunk in tls_desync_stream(url, headers=headers):
+        _desync_info = {}
+        async for chunk in tls_desync_stream(url, headers=headers, info=_desync_info):
+            if info is not None and _desync_info:
+                # Teruskan status + header upstream ke pemanggil (proxy).
+                for _k in ("status", "content-range", "content-length", "content-type"):
+                    if _k in _desync_info and _k not in info:
+                        info[_k] = _desync_info[_k]
             if not chunk:
                 continue
             if _playlist_parts is not None:
@@ -4580,10 +4726,15 @@ def _get_video_client(url: str):
     return _direct_client
 
 
-async def _pipe_video(url: str, referer: str, range_header: str = ""):
+async def _pipe_video(url: str, referer: str, range_header: str = "", info: dict = None):
     import urllib.parse as _up
     import asyncio as _asyncio
     from api.hianime import STRIP_BYTES as _SB, STRIP_RE as _SR2
+    # v72 — bila `info` diberikan (dict), status + header upstream dicatat
+    # di sana sebelum chunk pertama diserahkan, supaya proxy video bisa
+    # meneruskan 206 + Content-Range ke player saat memutar mp4 progresif
+    # (tanpa ini, Range request dijawab 200 dan seek player rusak: player
+    # mengira body mulai dari byte 0 padahal upstream sudah mulai dari N).
     # Diagnosa v63: catat hasil fetch direct master/segmen (host saja).
     # Percobaan desync fallback di bawah TIDAK dicatat di sini — pipa desync
     # (_pipe_desync_video) mencatat hasilnya sendiri.
@@ -4619,6 +4770,11 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
             async with c.stream("GET", url, headers=headers, **_stream_kw) as r:
                 if r.status_code >= 400:
                     raise HTTPException(status_code=502, detail=f"upstream {r.status_code}")
+                if info is not None:
+                    info["status"] = r.status_code
+                    for _hk in ("content-range", "content-length", "content-type"):
+                        if r.headers.get(_hk) is not None:
+                            info[_hk] = r.headers.get(_hk)
                 ctype = r.headers.get("content-type", "")
                 is_playlist = _is_m3u8_url(url, ctype)
                 if is_playlist:
@@ -4721,11 +4877,15 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
     # (halaman blokir), upstream 403/5xx, timeout, RST, connection error.
     # Bila desync berhasil, host dicatat sebagai DPI-blocked agar rute
     # (/api/player/video) + segmen berikutnya langsung desync-first.
+    # v72 — bersihkan info direct yang gagal sebelum desync mengisinya ulang
+    # (status/header direct yang basi tidak boleh menimpa hasil desync).
     try:
         from api.hianime import _host_from, _add_blocked_dpi_host
         host = _host_from(url)
         served = False
-        async for chunk in _pipe_desync_video(url, referer, range_header=range_header):
+        if info is not None:
+            info.clear()
+        async for chunk in _pipe_desync_video(url, referer, range_header=range_header, info=info):
             if chunk:
                 if not served:
                     served = True

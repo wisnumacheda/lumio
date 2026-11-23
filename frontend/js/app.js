@@ -2373,6 +2373,10 @@ function playUrl(url,referrer,sub,subRef,resumeTime,token){
   v.addEventListener("canplay",onCan,{once:true});
   var cleanPath = (url || "").split("?")[0].toLowerCase();
   var isSeg = cleanPath.endsWith(".ts") || cleanPath.endsWith(".ts.jpg") || cleanPath.endsWith(".mp4") || cleanPath.endsWith(".aac");
+  // v72 — master mp4 progresif (Samehadaku) dilewatkan proxy seperti HLS:
+  // proxy memberi desync fallback + 206/Content-Range yang benar, supaya
+  // seek/resume jalan. Tanpa ini mp4 diputar direct dan gagal kena DPI.
+  var isMp4 = cleanPath.endsWith(".mp4");
   var isHls = !isSeg && ((url.indexOf(".m3u8") >= 0) || (url.indexOf("format=m3u8") >= 0) || (url.indexOf("/api/hls") >= 0) || (url.indexOf("/hls/playlist") >= 0));
   if(window.Hls&&window.Hls.isSupported()&&isHls){
     if(window._hls){try{window._hls.destroy();}catch(e){}}
@@ -2545,7 +2549,7 @@ function playUrl(url,referrer,sub,subRef,resumeTime,token){
       }
     });
   }else{
-    v.src=isHls?prox:url;
+    v.src=(isHls||isMp4)?prox:url;
   }
   if(pm.classList.contains("hidden") || (token && cur.playToken !== token)){
     if(window._hls){try{window._hls.destroy();window._hls=null;}catch(e){}}
@@ -3125,8 +3129,9 @@ function renderSourceUI(){
   var isOtaku = (s === "otakudesu");
   var isAnichan = (s === "anichan");
   var isAnimeindo = (s === "animeindo");
-  var txt = isOtaku ? "src: otakudesu (sub indo) ⇄" : (isAnichan ? "src: anichan (failover) ⇄" : (isAnimeindo ? "src: animeindo (sub indo) ⇄" : "src: hianime ⇄"));
-  var badgeTxt = isOtaku ? "OTAKUDESU (SUB INDO) ⇄" : (isAnichan ? "ANICHAN (FAILOVER) ⇄" : "HIANIME ⇄");
+  var isSamehadaku = (s === "samehadaku");
+  var txt = isOtaku ? "src: otakudesu (sub indo) ⇄" : (isAnichan ? "src: anichan (failover) ⇄" : (isAnimeindo ? "src: animeindo (sub indo) ⇄" : (isSamehadaku ? "src: samehadaku (sub indo) ⇄" : "src: hianime ⇄")));
+  var badgeTxt = isOtaku ? "OTAKUDESU (SUB INDO) ⇄" : (isAnichan ? "ANICHAN (FAILOVER) ⇄" : (isSamehadaku ? "SAMEHADAKU (SUB INDO) ⇄" : "HIANIME ⇄"));
   var sb = $("sb-source");
   if(sb){
     sb.textContent = txt;
@@ -3147,6 +3152,7 @@ function switchSource(targetSource){
     if(cur.source === "hianime") nextSource = "otakudesu";
     else if(cur.source === "otakudesu") nextSource = "anichan";
     else if(cur.source === "anichan") nextSource = "animeindo";
+    else if(cur.source === "animeindo") nextSource = "samehadaku";
     else nextSource = "hianime";
   }
   cur.source = nextSource;
@@ -3154,7 +3160,7 @@ function switchSource(targetSource){
   if(window.Tatap && window.Tatap.setSetting){
     window.Tatap.setSetting({ preferred_source: nextSource }).catch(function(){});
   }
-  var label = nextSource === "otakudesu" ? "Otakudesu (Sub Indo)" : (nextSource === "anichan" ? "AniChan (Failover)" : (nextSource === "animeindo" ? "Animeindo (Sub Indo)" : "HiAnime"));
+  var label = nextSource === "otakudesu" ? "Otakudesu (Sub Indo)" : (nextSource === "anichan" ? "AniChan (Failover)" : (nextSource === "animeindo" ? "Animeindo (Sub Indo)" : (nextSource === "samehadaku" ? "Samehadaku (Sub Indo)" : "HiAnime")));
   toast("Sumber: " + label);
   if(!$("player-modal").classList.contains("hidden") && cur.ep){
     openPlayer(cur.ep, curTime);
@@ -3521,7 +3527,7 @@ function init(){
     closePopover();
     switchSource();
     var b = $("drawer-src-badge");
-    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : cur.source === "anichan" ? "AniChan" : cur.source === "animeindo" ? "Animeindo" : "HiAnime";
+    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : cur.source === "anichan" ? "AniChan" : cur.source === "animeindo" ? "Animeindo" : cur.source === "samehadaku" ? "Samehadaku" : "HiAnime";
   });
   var popTheme = $("pop-toggle-theme");
   if(popTheme) popTheme.addEventListener("click", function(){
@@ -3632,7 +3638,7 @@ function init(){
   if(drawerSrc) drawerSrc.addEventListener("click", function(){
     switchSource();
     var b = $("drawer-src-badge");
-    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : cur.source === "anichan" ? "AniChan" : cur.source === "animeindo" ? "Animeindo" : "HiAnime";
+    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : cur.source === "anichan" ? "AniChan" : cur.source === "animeindo" ? "Animeindo" : cur.source === "samehadaku" ? "Samehadaku" : "HiAnime";
   });
 
   var drawerHelp = $("drawer-help");

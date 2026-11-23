@@ -1025,6 +1025,8 @@
         <option value="hianime">Server: HiAnime (HD)</option>
         <option value="otakudesu">Server: Otakudesu (Sub Indo)</option>
         <option value="anichan">Server: AniChan (HLS)</option>
+        <option value="animeindo">Server: Animeindo (Sub Indo)</option>
+        <option value="samehadaku">Server: Samehadaku (Sub Indo)</option>
       </select>
       <select id="qualitySel" title="Kualitas video"><option value="">Kualitas: Auto</option></select>
       <button class="x" style="position:static" data-close="playerModal">✕</button>
@@ -1154,6 +1156,8 @@
           <option value="hianime">HiAnime — server HD-1/HD-2</option>
           <option value="otakudesu">Otakudesu — hardsub Indonesia</option>
           <option value="anichan">AniChan — HLS langsung (judul tertentu)</option>
+          <option value="animeindo">Animeindo — hardsub Indonesia</option>
+          <option value="samehadaku">Samehadaku — hardsub Indonesia</option>
         </select>
       </div>
     </div>
@@ -2610,7 +2614,7 @@ function setEpCtlVisible(show){
   ["#ctlEpsBtn", "#ctlNextBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
 }
 function setServerCtlVisible(show){
-  /* v51: pemilih Server anime (HiAnime/Otakudesu/AniChan) tidak bermakna
+  /* v51: pemilih Server anime (HiAnime/Otakudesu/AniChan/Animeindo/Samehadaku) tidak bermakna
      untuk Movie/Series — sembunyikan selama pemutaran TMDB. Padanan TMDB
      untuk ganti penyedia adalah tombol 🔄 Server lain, bukan panel ini. */
   ["#serverSel", "#ctlServerBtn"].forEach(id => { const b = $(id); if (b) b.classList.toggle("hidden", !show); });
@@ -2826,7 +2830,7 @@ function ctlPanelShow(kind){
   const opt = (val, label, on) => `<button data-v="${esc(val)}" class="${on ? "on" : ""}"><span>${esc(label)}</span>${on ? "<span>✓</span>" : ""}</button>`;
   let html = "";
   if (kind === "server") {
-    html = `<div class="ph">Server / Sumber</div>` + [["auto", "Otomatis"], ["hianime", "HiAnime (HD)"], ["otakudesu", "Otakudesu (Sub Indo)"], ["anichan", "AniChan (HLS)"]].map(([v, l]) => opt(v, l, $("#serverSel").value === v)).join("");
+    html = `<div class="ph">Server / Sumber</div>` + [["auto", "Otomatis"], ["hianime", "HiAnime (HD)"], ["otakudesu", "Otakudesu (Sub Indo)"], ["anichan", "AniChan (HLS)"], ["animeindo", "Animeindo (Sub Indo)"], ["samehadaku", "Samehadaku (Sub Indo)"]].map(([v, l]) => opt(v, l, $("#serverSel").value === v)).join("");
   } else if (kind === "quality") {
     const opts = [...$("#qualitySel").options];
     html = `<div class="ph">Kualitas</div>` + (opts.length ? opts.map(o => opt(o.value, o.textContent.replace(/^Kualitas: /, ""), $("#qualitySel").value === o.value)).join("") : `<div class="ph">Tidak tersedia</div>`);
