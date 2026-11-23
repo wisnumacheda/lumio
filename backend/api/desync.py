@@ -6,6 +6,7 @@ sehingga 100% aman dari deteksi Sangfor Firewall dan tidak memicu blokir MAC add
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.parse
 from config import HI_UA
@@ -13,6 +14,74 @@ from config import HI_UA
 # Cache DNS hasil resolve DoH / direct dengan batas memori maksimum
 _DNS_CACHE = {}
 _MAX_DNS_CACHE = 256
+
+# Batas satu percobaan desync (v64). Diagnosa v63 dari HP user: desync ke
+# zokoanime.video DIGANTUNG ISP sampai timeout (bukan di-RST cepat) — satu
+# percobaan 12 dtk memakan anggaran resolve 25 dtk. Satu percobaan kini
+# dibatasi ~6 dtk; hang = gagal cepat (DesyncTimeout), bukan gantung.
+DESYNC_ATTEMPT_TIMEOUT = 6.0
+
+
+class DesyncTimeout(TimeoutError):
+    """Percobaan desync menggantung sampai batas waktu (ISP silent-drop).
+    Atribut .variant = varian yang dipakai saat hang (1 atau 2)."""
+    def __init__(self, message="desync timeout", variant=None):
+        super().__init__(message)
+        self.variant = variant
+
+
+# Registri hang per-resolve (v64): deadline resolve -> host -> {kind}.
+# kind: "direct" (curl/httpx timeout) atau "v1"/"v2" (varian desync hang).
+# Dipakai agar host yang menggantung TIDAK dicoba dua kali dalam satu resolve
+# yang sama — percobaan kedua langsung loncat ke varian yang belum dicoba,
+# atau gagal cepat bila keduanya sudah hang. Kunci = deadline (float
+# monotonic, unik per resolve); entri di-prune bila deadline sudah lewat
+# >180 dtk. Tanpa deadline (jalur non-resolve) registri tidak dipakai.
+_HANG_LOCK = threading.Lock()
+_HANG_BY_DEADLINE = {}
+_HANG_PRUNE_AFTER = 180.0
+
+
+def _canonical_hang_host(host):
+    """Host kanonis untuk registri hang: huruf kecil, tanpa port."""
+    if not host:
+        return ""
+    h = str(host).strip().lower()
+    if h.startswith("["):
+        h = h.split("]", 1)[0] + "]"
+    else:
+        h = h.split(":", 1)[0]
+    return h
+
+
+def note_hang(deadline, host, kind):
+    """Tandai host menggantung dalam resolve ini (kind: direct/v1/v2)."""
+    if deadline is None or not host or kind not in ("direct", "v1", "v2"):
+        return
+    host = _canonical_hang_host(host)
+    if not host:
+        return
+    now = time.monotonic()
+    with _HANG_LOCK:
+        for dl in [d for d in _HANG_BY_DEADLINE if d < now - _HANG_PRUNE_AFTER]:
+            _HANG_BY_DEADLINE.pop(dl, None)
+        _HANG_BY_DEADLINE.setdefault(float(deadline), {}).setdefault(host, set()).add(kind)
+
+
+def hung_kinds(deadline, host):
+    """Set kind yang sudah hang untuk (deadline, host) — kosong bila belum ada."""
+    if deadline is None or not host:
+        return set()
+    host = _canonical_hang_host(host)
+    if not host:
+        return set()
+    with _HANG_LOCK:
+        return set(_HANG_BY_DEADLINE.get(float(deadline), {}).get(host, set()))
+
+
+def hung_in_resolve(deadline, host):
+    """True bila host sudah tercatat menggantung dalam resolve ini."""
+    return bool(hung_kinds(deadline, host))
 
 
 # Marker halaman blokir ISP Indonesia + Cloudflare (v62). Dipakai _fetch /
@@ -167,15 +236,31 @@ def _resolve_host(host: str, _desync: bool = False) -> str:
     return ip
 
 
-def tls_desync_connect(host: str, port: int = 443, timeout: float = 8.0):
-    """Membuka socket TLS dengan Client Hello dipecah menjadi 2 TLS Record.
-    Record 1: 1 byte data Client Hello.
-    Record 2: Sisa data Client Hello.
-    Menghilangkan signature SNI utuh dari pemindaian DPI ISP."""
+def tls_desync_connect(host: str, port: int = 443, timeout: float = 8.0, variant: int = 1):
+    """Membuka socket TLS dengan Client Hello dipecah menjadi beberapa TLS Record.
+    Varian 1 (v62): 2 fragmen — Record 1: 1 byte data Client Hello; Record 2: sisanya.
+    Varian 2 (v64): 3 fragmen — [1 byte][64 byte][sisa], jeda 0,02 dtk; SNI
+    terpecah di DUA titik dengan ukuran rekaman berbeda dari v1.
+    Menghilangkan signature SNI utuh dari pemindaian DPI ISP.
+    Seluruh percobaan (connect + handshake) dibatasi `timeout` secara
+    keseluruhan (v64 — sebelumnya connect dan handshake masing-masing bisa
+    makan `timeout`, total sampai 2x). Hang = DesyncTimeout, bukan socket
+    setengah-jadi seperti sebelumnya."""
+    _variant = 2 if variant == 2 else 1
+    _end = time.monotonic() + float(timeout)
+    def _remaining():
+        return _end - time.monotonic()
     ip = _resolve_host(host, _desync=True)
     raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    raw_sock.settimeout(timeout)
-    raw_sock.connect((ip, port))
+    try:
+        raw_sock.settimeout(max(0.1, _remaining()))
+        raw_sock.connect((ip, port))
+    except (socket.timeout, TimeoutError):
+        try:
+            raw_sock.close()
+        except Exception:
+            pass
+        raise DesyncTimeout(f"desync connect timeout {host}", variant=_variant)
     raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     ctx = ssl.create_default_context()
@@ -192,21 +277,38 @@ def tls_desync_connect(host: str, port: int = 443, timeout: float = 8.0):
 
     b = out_bio.read()
     if len(b) > 10:
-        # Pecah Client Hello menjadi 2 valid TLS records
-        rec1 = b[:3] + b"\x00\x01" + b[5:6]
-        rec2_data = b[6:]
-        rec2 = b[:3] + len(rec2_data).to_bytes(2, "big") + rec2_data
+        if _variant == 2:
+            # v64: 3 fragmen — pecah di dua titik, bukan satu.
+            rec1 = b[:3] + b"\x00\x01" + b[5:6]
+            rec2_data = b[6:70]
+            rec2 = b[:3] + len(rec2_data).to_bytes(2, "big") + rec2_data
+            rec3_data = b[70:]
+            rec3 = b[:3] + len(rec3_data).to_bytes(2, "big") + rec3_data
+            raw_sock.sendall(rec1)
+            time.sleep(0.02)  # Jeda mikro agar terkirim terpisah di TCP layer
+            raw_sock.sendall(rec2)
+            time.sleep(0.02)
+            raw_sock.sendall(rec3)
+        else:
+            # Pecah Client Hello menjadi 2 valid TLS records
+            rec1 = b[:3] + b"\x00\x01" + b[5:6]
+            rec2_data = b[6:]
+            rec2 = b[:3] + len(rec2_data).to_bytes(2, "big") + rec2_data
 
-        raw_sock.sendall(rec1)
-        time.sleep(0.04)  # Jeda mikro agar terkirim terpisah di TCP layer
-        raw_sock.sendall(rec2)
+            raw_sock.sendall(rec1)
+            time.sleep(0.04)  # Jeda mikro agar terkirim terpisah di TCP layer
+            raw_sock.sendall(rec2)
     else:
         raw_sock.sendall(b)
 
-    # Selesaikan TLS Handshake
-    start_t = time.time()
-    while time.time() - start_t < timeout:
-        d = raw_sock.recv(8192)
+    # Selesaikan TLS Handshake — dibatasi deadline keseluruhan (v64).
+    _completed = False
+    while time.monotonic() < _end:
+        try:
+            raw_sock.settimeout(max(0.1, _remaining()))
+            d = raw_sock.recv(8192)
+        except (socket.timeout, TimeoutError):
+            break
         if not d:
             break
         in_bio.write(d)
@@ -214,26 +316,39 @@ def tls_desync_connect(host: str, port: int = 443, timeout: float = 8.0):
             sslobj.do_handshake()
             if out_bio.pending:
                 raw_sock.sendall(out_bio.read())
+            _completed = True
             break
         except ssl.SSLWantWriteError:
             raw_sock.sendall(out_bio.read())
         except ssl.SSLWantReadError:
             if out_bio.pending:
                 raw_sock.sendall(out_bio.read())
+    if not _completed:
+        try:
+            raw_sock.close()
+        except Exception:
+            pass
+        raise DesyncTimeout(f"desync handshake timeout {host}", variant=_variant)
 
     return raw_sock, sslobj, in_bio, out_bio
 
 
-def tls_desync_request(url: str, headers: dict = None, timeout: float = 10.0) -> bytes:
-    """Kirim HTTP GET request via desync TLS socket dan kembalikan response body bytes."""
+def tls_desync_request(url: str, headers: dict = None, timeout: float = 10.0, variant: int = 1) -> bytes:
+    """Kirim HTTP GET request via desync TLS socket dan kembalikan response body bytes.
+    v64: seluruh percobaan dibatasi `timeout` secara keseluruhan (connect +
+    handshake + baca respons); bila TIDAK ADA satu byte pun yang tiba sampai
+    batas waktu, raise DesyncTimeout (hang) — sebelumnya mengembalikan b''
+    sehingga pemanggil tidak bisa membedakan hang dari body kosong."""
+    _variant = 2 if variant == 2 else 1
     p = urllib.parse.urlsplit(url)
     host = p.netloc.split(":")[0]
     port = p.port or 443
     path = p.path or "/"
     if p.query:
         path += "?" + p.query
+    _end = time.monotonic() + float(timeout)
 
-    raw_sock, sslobj, in_bio, out_bio = tls_desync_connect(host, port, timeout=timeout)
+    raw_sock, sslobj, in_bio, out_bio = tls_desync_connect(host, port, timeout=timeout, variant=_variant)
     try:
         h_lines = [
             f"GET {path} HTTP/1.1",
@@ -251,11 +366,16 @@ def tls_desync_request(url: str, headers: dict = None, timeout: float = 10.0) ->
         sslobj.write(req_data.encode("utf-8"))
         raw_sock.sendall(out_bio.read())
 
-        # Baca seluruh HTTP response
+        # Baca seluruh HTTP response — dibatasi deadline keseluruhan (v64):
+        # server yang meneteskan 1 byte per interval tidak bisa memperpanjang
+        # percobaan tanpa batas seperti sebelumnya (settimeout per-recv).
         resp_raw = b""
-        raw_sock.settimeout(timeout)
         while True:
+            _rem = _end - time.monotonic()
+            if _rem <= 0:
+                break
             try:
+                raw_sock.settimeout(_rem)
                 d = raw_sock.recv(16384)
                 if not d:
                     break
@@ -273,6 +393,8 @@ def tls_desync_request(url: str, headers: dict = None, timeout: float = 10.0) ->
             except Exception:
                 break
 
+        if not resp_raw:
+            raise DesyncTimeout(f"desync response timeout {host}", variant=_variant)
         # Pisahkan header dan body HTTP
         idx = resp_raw.find(b"\r\n\r\n")
         if idx >= 0:
@@ -285,18 +407,22 @@ def tls_desync_request(url: str, headers: dict = None, timeout: float = 10.0) ->
             pass
 
 
-def tls_desync_post(url: str, data=None, headers: dict = None, timeout: float = 10.0) -> bytes:
+def tls_desync_post(url: str, data=None, headers: dict = None, timeout: float = 10.0, variant: int = 1) -> bytes:
     """Kirim HTTP POST via desync TLS socket (v62 — untuk admin-ajax Otakudesu saat
     direct di-RST DPI). Body dikembalikan setelah di-dechunk bila ber-chunked.
-    data: dict (form-urlencoded) atau bytes mentah."""
+    data: dict (form-urlencoded) atau bytes mentah.
+    v64: seperti tls_desync_request — dibatasi `timeout` keseluruhan; nol byte
+    yang tiba = DesyncTimeout (hang)."""
+    _variant = 2 if variant == 2 else 1
     p = urllib.parse.urlsplit(url)
     host = p.netloc.split(":")[0]
     port = p.port or 443
     path = p.path or "/"
     if p.query:
         path += "?" + p.query
+    _end = time.monotonic() + float(timeout)
 
-    raw_sock, sslobj, in_bio, out_bio = tls_desync_connect(host, port, timeout=timeout)
+    raw_sock, sslobj, in_bio, out_bio = tls_desync_connect(host, port, timeout=timeout, variant=_variant)
     try:
         if data is None:
             body = b""
@@ -324,11 +450,14 @@ def tls_desync_post(url: str, data=None, headers: dict = None, timeout: float = 
             sslobj.write(body)
         raw_sock.sendall(out_bio.read())
 
-        # Baca seluruh HTTP response
+        # Baca seluruh HTTP response — dibatasi deadline keseluruhan (v64).
         resp_raw = b""
-        raw_sock.settimeout(timeout)
         while True:
+            _rem = _end - time.monotonic()
+            if _rem <= 0:
+                break
             try:
+                raw_sock.settimeout(_rem)
                 d = raw_sock.recv(16384)
                 if not d:
                     break
@@ -346,6 +475,8 @@ def tls_desync_post(url: str, data=None, headers: dict = None, timeout: float = 
             except Exception:
                 break
 
+        if not resp_raw:
+            raise DesyncTimeout(f"desync response timeout {host}", variant=_variant)
         # Pisahkan header dan body HTTP, lalu lepas chunked bila ada.
         idx = resp_raw.find(b"\r\n\r\n")
         raw_body = resp_raw[idx + 4:] if idx >= 0 else resp_raw
@@ -356,6 +487,70 @@ def tls_desync_post(url: str, data=None, headers: dict = None, timeout: float = 
             raw_sock.close()
         except Exception:
             pass
+
+
+def _desync_timeout_each(deadline, timeout_each):
+    """Timeout satu percobaan varian: dibatasi cap 6 dtk DAN sisa anggaran
+    resolve (bila ada). Minimal 0,5 dtk agar percobaan tetap sempat jalan."""
+    to = min(float(timeout_each), DESYNC_ATTEMPT_TIMEOUT)
+    if deadline is not None:
+        to = min(to, max(0.5, float(deadline) - time.monotonic()))
+    return to
+
+
+def desync_request_variants(url, headers=None, deadline=None, timeout_each=DESYNC_ATTEMPT_TIMEOUT):
+    """GET via desync dengan fallback varian (v64): coba varian 1; bila
+    menggantung (DesyncTimeout), coba varian 2. Varian yang sudah hang untuk
+    (deadline, host) di resolve ini dilewati (registri hang). Return
+    (bytes, variant) — variant = varian yang berhasil.
+    Raise DesyncTimeout (.variant = varian terakhir yang dicoba) bila semua
+    varian yang dicoba hang. Body kosong (b'') dikembalikan apa adanya —
+    pemanggil yang menilai (bukan hang)."""
+    p = urllib.parse.urlsplit(url)
+    host = (p.netloc.split(":")[0] or "").lower()
+    _hung = hung_kinds(deadline, host)
+    _last_err = None
+    for _v in (1, 2):
+        if f"v{_v}" in _hung:
+            continue
+        try:
+            data = tls_desync_request(url, headers=headers,
+                                      timeout=_desync_timeout_each(deadline, timeout_each),
+                                      variant=_v)
+            return data, _v
+        except DesyncTimeout as e:
+            e.variant = _v
+            note_hang(deadline, host, f"v{_v}")
+            _last_err = e
+            continue
+    if _last_err is not None:
+        raise _last_err
+    raise DesyncTimeout(f"desync semua varian sudah hang {host}", variant=None)
+
+
+def desync_post_variants(url, data=None, headers=None, deadline=None, timeout_each=DESYNC_ATTEMPT_TIMEOUT):
+    """POST via desync dengan fallback varian (v64) — sama seperti
+    desync_request_variants, untuk admin-ajax Otakudesu."""
+    p = urllib.parse.urlsplit(url)
+    host = (p.netloc.split(":")[0] or "").lower()
+    _hung = hung_kinds(deadline, host)
+    _last_err = None
+    for _v in (1, 2):
+        if f"v{_v}" in _hung:
+            continue
+        try:
+            raw = tls_desync_post(url, data=data, headers=headers,
+                                  timeout=_desync_timeout_each(deadline, timeout_each),
+                                  variant=_v)
+            return raw, _v
+        except DesyncTimeout as e:
+            e.variant = _v
+            note_hang(deadline, host, f"v{_v}")
+            _last_err = e
+            continue
+    if _last_err is not None:
+        raise _last_err
+    raise DesyncTimeout(f"desync semua varian sudah hang {host}", variant=None)
 
 
 async def tls_desync_stream(url: str, headers: dict = None, chunk_size: int = 65536):

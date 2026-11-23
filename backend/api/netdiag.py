@@ -20,8 +20,10 @@ import urllib.parse
 _MAX_EVENTS = 50
 
 # Hasil yang diizinkan — di luar daftar ini dipetakan ke "lainnya".
+# "timeout-gantung" (v64): percobaan desync digantung ISP sampai batas waktu
+# (silent-drop), bukan timeout direct biasa.
 RESULTS = {
-    "sukses", "timeout", "rst-putus", "halaman-blokir", "http-403",
+    "sukses", "timeout", "timeout-gantung", "rst-putus", "halaman-blokir", "http-403",
     "http-5xx", "bukan-m3u8", "chunked", "gagal-dns", "lainnya",
 }
 
@@ -60,6 +62,8 @@ def classify_error(err):
     exception atau string. Tidak pernah mengembalikan teks asal — hanya
     label hasil — supaya pesan error yang memuat URL tidak bocor ke log."""
     s = str(err or "").lower()
+    if "timeout-gantung" in s or "desync timeout" in s or "desync handshake timeout" in s or "desync response timeout" in s or "desync connect timeout" in s:
+        return "timeout-gantung"
     if any(t in s for t in ("timeout", "timed out", "timedout", "deadline exceeded")):
         return "timeout"
     if any(t in s for t in ("connection reset", "reset by peer", "connectionreseterror",
@@ -83,13 +87,14 @@ def classify_error(err):
     return "lainnya"
 
 
-def record(stage, host, method, result, ms, note=None, dedupe_success=False):
+def record(stage, host, method, result, ms, note=None, dedupe_success=False, variant=None):
     """Catat satu kejadian. stage: resolve-fetch / probe-master /
     master-fetch / segmen / ajax-otakudesu / subtitle / dns.
     method: direct / desync. ms: latensi milidetik (int).
     note: hanya string tetap yang sudah ditentukan pemanggil
     (cache / anggaran-habis / host-mati / url-tidak-valid / body-kosong /
-    tanpa-chunk) — JANGAN isi teks dinamis dari error/URL.
+    tanpa-chunk / host-gantung) — JANGAN isi teks dinamis dari error/URL.
+    variant (v64): 1/2 bila method desync — varian desync yang dipakai.
     dedupe_success=True: kejadian sukses yang identik (stage+host+method)
     hanya dicatat sekali — dipakai segmen agar buffer tidak dibanjiri."""
     h = host_of(host)
@@ -115,6 +120,11 @@ def record(stage, host, method, result, ms, note=None, dedupe_success=False):
             "result": res,
             "ms": ms_i,
         }
+        if variant is not None:
+            try:
+                ev["variant"] = int(variant)
+            except Exception:
+                pass
         if note:
             ev["note"] = str(note)[:40]
         _EVENTS.append(ev)

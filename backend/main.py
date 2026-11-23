@@ -3757,7 +3757,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         active_source = "hianime"
                         cache_slug = slug
         elif active_source == "otakudesu":
-            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep))
+            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_resolve_deadline))
             if _err is not None:
                 last_error = _err
                 _note("Otakudesu", _err)
@@ -3786,7 +3786,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 _note("HiAnime", _err)
                 # Fallback ke otakudesu jika hianime gagal
                 if source == "auto" or not source:
-                    got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep))
+                    got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_resolve_deadline))
                     if _err2 is not None:
                         _note("Otakudesu", _err2)
                     else:

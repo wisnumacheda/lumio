@@ -294,78 +294,123 @@ def _probe_master(master_url, referer, deadline=None):
     call_deadline = None
     if deadline is not None:
         call_deadline = min(float(deadline), _time.monotonic() + 14.0)
+    # v64 — registri hang per-resolve: host yang sudah menggantung di resolve
+    # ini tidak dicoba dua kali. Bila kedua varian desync sudah hang → gagal
+    # cepat; bila direct sudah hang → lewati direct, langsung ke desync.
+    _hung = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung = _hung_kinds(deadline, host)
+        if "v1" in _hung and "v2" in _hung:
+            _nd_rec("probe-master", _nd_h, "desync", "timeout-gantung", _nd_ms(), note="host-gantung")
+            raise RuntimeError(f"host menggantung (desync v1+v2): {host}")
+    _skip_direct_probe = "direct" in _hung
+
+    def _desync_retry():
+        """Coba desync (varian 1 lalu 2, masing-masing ~6 dtk). Return
+        (bytes master yang lolos normalisasi atau None, hung: bool) — hung
+        True bila percobaan berakhir menggantung (DesyncTimeout).
+        Raise _ResolveBudgetExceeded bila anggaran habis."""
+        nonlocal _nd_method
+        _nd_method = "desync"
+        try:
+            from api.desync import desync_request_variants, DesyncTimeout
+            content, _var = desync_request_variants(master_url, headers=headers, deadline=deadline, timeout_each=_cap_timeout(8.0, call_deadline))
+            # v61: konten desync hanya diterima bila lolos normalisasi
+            # (dechunk + diawali #EXTM3U); bila tidak, kembalikan None agar
+            # pemanggil lanjut ke direct / menandai mati.
+            norm = _normalize_m3u8_body(content)
+            if norm is not None:
+                _nd_rec("probe-master", _nd_h, "desync", "sukses", _nd_ms(), variant=_var)
+                _add_blocked_dpi_host(host)
+                return norm.encode("utf-8"), False
+            return None, False
+        except _ResolveBudgetExceeded:
+            _nd_rec("probe-master", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
+            raise
+        except DesyncTimeout as _dt:
+            _nd_rec("probe-master", _nd_h, "desync", "timeout-gantung", _nd_ms(), variant=getattr(_dt, "variant", None))
+            return None, True
+        except Exception as _de:
+            _nd_rec("probe-master", _nd_h, "desync", _nd_class(_de), _nd_ms())
+            return None, False
 
     # Jika host terdeteksi diblokir DPI ISP, gunakan TLS desync langsung
     if _is_blocked_dpi_host(host):
         _nd_method = "desync"
         try:
-            from api.desync import tls_desync_request
-            content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
-            # v61: konten desync hanya diterima bila lolos normalisasi
-            # (dechunk + diawali #EXTM3U); bila tidak, lanjut ke direct.
-            norm = _normalize_m3u8_body(content)
-            if norm is not None:
-                _nd_rec("probe-master", _nd_h, "desync", "sukses", _nd_ms())
-                return norm.encode("utf-8")
+            got, _hung2 = _desync_retry()
+            if got is not None:
+                return got
+            if _hung2:
+                # v64: desync menggantung — jangan buang 10 dtk lagi ke
+                # direct yang hampir pasti menggantung juga.
+                _skip_direct_probe = True
         except _ResolveBudgetExceeded:
-            _nd_rec("probe-master", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
             raise
-        except Exception as _e:
-            _nd_rec("probe-master", _nd_h, "desync", _nd_class(_e), _nd_ms())
+        except Exception:
+            pass
 
     # Direct connection biasa untuk semua host normal
-    try:
+    # v64: dilewati bila host sudah tercatat hang di resolve ini.
+    if not _skip_direct_probe:
         try:
-            from curl_cffi import requests as creq
-            kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(10, call_deadline))
-            r = creq.get(master_url, **kw)
-        except _ResolveBudgetExceeded:
-            raise
-        except Exception as _ce:
-            # v62: bila curl timeout (host menggantung — ciri DPI silent-drop),
-            # jangan buang anggaran pada percobaan httpx yang sama; langsung ke
-            # desync di handler luar (yang kini dicoba untuk host apa pun).
-            if any(t in str(_ce).lower() for t in ("timeout", "timed out")):
+            try:
+                from curl_cffi import requests as creq
+                kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(10, call_deadline))
+                r = creq.get(master_url, **kw)
+            except _ResolveBudgetExceeded:
                 raise
-            # Gunakan shared pooled client (bukan httpx.get module-level) agar
-            # koneksi TCP/TLS dipakai ulang antar request.
-            client = _get_shared_client()
-            r = client.get(master_url, headers=headers, timeout=_cap_timeout(10, call_deadline), follow_redirects=True)
-        if r.status_code == 200 and r.content:
-            # v61: konten direct hanya diterima bila lolos normalisasi;
-            # bila tidak, raise agar alur di bawah mencoba desync / menandai.
-            norm = _normalize_m3u8_body(r.content)
-            if norm is not None:
-                _nd_rec("probe-master", _nd_h, "direct", "sukses", _nd_ms())
-                return norm.encode("utf-8")
-            raise RuntimeError(f"probe master not m3u8 for {host}")
-        if r.status_code >= 400:
-            raise RuntimeError(f"upstream {r.status_code} for {host}")
-    except _ResolveBudgetExceeded:
-        _nd_rec("probe-master", _nd_h, _nd_method, "lainnya", _nd_ms(), note="anggaran-habis")
-        raise
-    except Exception as e:
-        # v62: kegagalan direct apa pun (termasuk konten bukan-m3u8 = halaman
-        # blokir DPI) dicoba via desync untuk host APA PUN, terbatas deadline.
-        # Host ditandai mati hanya bila desync juga gagal; desync yang berhasil
-        # mencatat host sebagai DPI-blocked (rute + segmen berikutnya desync-first).
-        _nd_method = "desync"
-        try:
-            from api.desync import tls_desync_request
-            content = tls_desync_request(master_url, headers=headers, timeout=_cap_timeout(8.0, call_deadline))
-            # v61: sama seperti di atas — hanya terima bila lolos normalisasi.
-            norm = _normalize_m3u8_body(content)
-            if norm is not None:
-                _nd_rec("probe-master", _nd_h, "desync", "sukses", _nd_ms())
-                _add_blocked_dpi_host(host)
-                return norm.encode("utf-8")
+            except Exception as _ce:
+                # v62: bila curl timeout (host menggantung — ciri DPI silent-drop),
+                # jangan buang anggaran pada percobaan httpx yang sama; langsung ke
+                # desync di handler luar (yang kini dicoba untuk host apa pun).
+                if any(t in str(_ce).lower() for t in ("timeout", "timed out")):
+                    # v64: tandai host menggantung di resolve ini.
+                    if deadline is not None:
+                        from api.desync import note_hang as _note_hang
+                        _note_hang(deadline, host, "direct")
+                    raise
+                # Gunakan shared pooled client (bukan httpx.get module-level) agar
+                # koneksi TCP/TLS dipakai ulang antar request.
+                client = _get_shared_client()
+                r = client.get(master_url, headers=headers, timeout=_cap_timeout(10, call_deadline), follow_redirects=True)
+            if r.status_code == 200 and r.content:
+                # v61: konten direct hanya diterima bila lolos normalisasi;
+                # bila tidak, raise agar alur di bawah mencoba desync / menandai.
+                norm = _normalize_m3u8_body(r.content)
+                if norm is not None:
+                    _nd_rec("probe-master", _nd_h, "direct", "sukses", _nd_ms())
+                    return norm.encode("utf-8")
+                raise RuntimeError(f"probe master not m3u8 for {host}")
+            if r.status_code >= 400:
+                raise RuntimeError(f"upstream {r.status_code} for {host}")
         except _ResolveBudgetExceeded:
-            _nd_rec("probe-master", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
+            _nd_rec("probe-master", _nd_h, _nd_method, "lainnya", _nd_ms(), note="anggaran-habis")
             raise
-        except Exception as _de:
-            _nd_rec("probe-master", _nd_h, "desync", _nd_class(_de), _nd_ms())
-        _mark_dead(host)
-        raise RuntimeError(f"probe fail {host}: {type(e).__name__}")
+        except Exception as e:
+            # v62: kegagalan direct apa pun (termasuk konten bukan-m3u8 = halaman
+            # blokir DPI) dicoba via desync untuk host APA PUN, terbatas deadline.
+            # Host ditandai mati hanya bila desync juga gagal; desync yang berhasil
+            # mencatat host sebagai DPI-blocked (rute + segmen berikutnya desync-first).
+            got, _hung2 = _desync_retry()
+            if got is not None:
+                return got
+            _mark_dead(host)
+            raise RuntimeError(f"probe fail {host}: {type(e).__name__}")
+    # Direct dilewati (host hang) — coba desync (varian tersisa) sekali lagi.
+    # Bila kedua varian sudah hang, jangan panggil ulang (helper akan gagal
+    # cepat + mencatat event duplikat) — langsung tandai mati.
+    _hung_now = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung_now = _hung_kinds(deadline, host)
+    if not ("v1" in _hung_now and "v2" in _hung_now):
+        got, _hung2 = _desync_retry()
+        if got is not None:
+            return got
+    _mark_dead(host)
+    raise RuntimeError(f"probe fail {host}: host menggantung")
 
 FILTERS = {
     "type": ["tv", "movie", "ova", "ona", "special", "music"],
@@ -686,6 +731,19 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
     def _nd_ms():
         return int((_time.monotonic() - _nd_t0) * 1000)
     last_err = ""
+    # v64 — registri hang per-resolve: host yang sudah menggantung di resolve
+    # ini tidak dicoba dua kali. Bila kedua varian desync sudah hang → gagal
+    # cepat tanpa jaringan; bila ada hang apa pun → lewati tahap direct
+    # (curl/httpx ke host yang sama pasti menggantung lagi) dan langsung ke
+    # desync dengan varian yang belum dicoba.
+    _hung = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung = _hung_kinds(deadline, _nd_h)
+        if "v1" in _hung and "v2" in _hung:
+            _nd_rec("resolve-fetch", _nd_h, "desync", "timeout-gantung", _nd_ms(), note="host-gantung")
+            raise RuntimeError("Gagal memuat URL: host menggantung (desync v1+v2)")
+    _skip_direct = bool(_hung)
     # v55: bila deadline anggaran diberikan, KETIGA tahap (curl -> httpx ->
     # desync) berbagi SATU batas waktu: nominal `timeout` detik, dipotong
     # sisa anggaran global. Sebelumnya satu panggilan bisa menumpuk ~36 dtk
@@ -695,7 +753,8 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
     if deadline is not None:
         call_deadline = min(float(deadline), _time.monotonic() + float(timeout))
     # 1. Coba via curl_cffi impersonate Chrome jika tersedia di lingkungan
-    for px in _failover_proxies():
+    # v64: dilewati bila host sudah tercatat hang di resolve ini.
+    for px in _failover_proxies() if not _skip_direct else []:
         try:
             from curl_cffi import requests as creq
             try:
@@ -725,31 +784,42 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
                 raise
             except Exception as e:
                 last_err = str(e)
+                # v64: timeout direct = host menggantung — tandai agar
+                # percobaan berikutnya di resolve ini tidak mengulanginya.
+                if deadline is not None and any(t in last_err.lower() for t in ("timeout", "timed out")):
+                    from api.desync import note_hang as _note_hang
+                    _note_hang(deadline, _nd_h, "direct")
                 continue
         except ImportError:
             last_err = "curl_cffi missing"
             break
 
     # 2. Coba via persistent httpx pool
-    try:
-        client = _get_shared_client()
-        h = {"Referer": referer} if referer else {}
-        r = client.get(url, headers=h, timeout=_cap_timeout(timeout, call_deadline))
-        if r.status_code == 200:
-            if _looks_like_block_page(r.text):
-                last_err = "DPI block page"
-            elif "Just a moment" in r.text or "cf-challenge" in r.text:
-                last_err = "Blocked by cloudflare (cf-challenge)."
+    # v64: dilewati bila host sudah tercatat hang di resolve ini.
+    if not _skip_direct:
+        try:
+            client = _get_shared_client()
+            h = {"Referer": referer} if referer else {}
+            r = client.get(url, headers=h, timeout=_cap_timeout(timeout, call_deadline))
+            if r.status_code == 200:
+                if _looks_like_block_page(r.text):
+                    last_err = "DPI block page"
+                elif "Just a moment" in r.text or "cf-challenge" in r.text:
+                    last_err = "Blocked by cloudflare (cf-challenge)."
+                else:
+                    _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms())
+                    return r.text
             else:
-                _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms())
-                return r.text
-        else:
-            last_err = f"HTTP {r.status_code} from {url}"
-    except _ResolveBudgetExceeded:
-        _nd_rec("resolve-fetch", _nd_h, "direct", "lainnya", _nd_ms(), note="anggaran-habis")
-        raise
-    except Exception as e:
-        last_err = str(e)
+                last_err = f"HTTP {r.status_code} from {url}"
+        except _ResolveBudgetExceeded:
+            _nd_rec("resolve-fetch", _nd_h, "direct", "lainnya", _nd_ms(), note="anggaran-habis")
+            raise
+        except Exception as e:
+            last_err = str(e)
+            # v64: timeout direct = host menggantung.
+            if deadline is not None and any(t in last_err.lower() for t in ("timeout", "timed out")):
+                from api.desync import note_hang as _note_hang
+                _note_hang(deadline, _nd_h, "direct")
 
     # 3. Fallback: TLS Desync request (bypass DPI ISP block)
     # Jangan desync jika error-nya timeout pada pemanggilan timeout pendek (hemat latensi failover server)
@@ -757,7 +827,10 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
     if not (is_timeout and timeout <= 6):
         _nd_method = "desync"
         try:
-            from api.desync import tls_desync_request
+            # v64: varian 1 lalu varian 2 bila menggantung; masing-masing
+            # dibatasi ~6 dtk (bukan 12 dtk); varian yang sudah hang di
+            # resolve ini dilewati oleh helper.
+            from api.desync import desync_request_variants, DesyncTimeout
             desync_to = min(float(timeout), 5.0) if is_timeout else float(timeout)
             if call_deadline is not None:
                 # Jangan mulai desync bila sisa anggaran < 2 dtk — hampir
@@ -765,15 +838,19 @@ def _fetch(url, referer=None, timeout=12, deadline=None):
                 if _budget_remaining(call_deadline) < 2.0:
                     raise _ResolveBudgetExceeded("batas waktu resolve habis")
                 desync_to = min(desync_to, _budget_remaining(call_deadline))
-            raw = tls_desync_request(url, headers={"Referer": referer} if referer else {}, timeout=desync_to)
+            raw, _var = desync_request_variants(url, headers={"Referer": referer} if referer else {}, deadline=deadline, timeout_each=min(desync_to, 6.0))
             txt = raw.decode("utf-8", errors="replace")
             # v62: hasil desync yang ternyata halaman blokir bukan sukses.
             if txt and ("<html" in txt.lower() or "{" in txt or "#EXTM3U" in txt) and not _looks_like_block_page(txt):
-                _nd_rec("resolve-fetch", _nd_h, "desync", "sukses", _nd_ms())
+                _nd_rec("resolve-fetch", _nd_h, "desync", "sukses", _nd_ms(), variant=_var)
                 return txt
         except _ResolveBudgetExceeded:
             _nd_rec("resolve-fetch", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
             raise
+        except DesyncTimeout as _dt:
+            # v64: hang desync tercatat sebagai timeout-gantung + varian.
+            _nd_rec("resolve-fetch", _nd_h, "desync", "timeout-gantung", _nd_ms(), variant=getattr(_dt, "variant", None))
+            last_err = str(_dt)
         except Exception:
             pass
 
@@ -1386,41 +1463,62 @@ def _fetch_media(url: str, referer: str = None, timeout: int = 10, deadline=None
     _nd_h = host
     def _nd_ms():
         return int((_time.monotonic() - _nd_t0) * 1000)
+    # v64 — registri hang per-resolve: bila kedua varian desync sudah hang
+    # di resolve ini, gagal cepat tanpa jaringan.
+    _hung = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung = _hung_kinds(deadline, host)
+        if "v1" in _hung and "v2" in _hung:
+            _nd_rec("master-fetch", _nd_h, "desync", "timeout-gantung", _nd_ms(), note="host-gantung")
+            raise RuntimeError("host menggantung (desync v1+v2)")
     if _is_blocked_dpi_host(host):
         try:
-            from api.desync import tls_desync_request, _looks_like_block_page
-            b = tls_desync_request(url, headers=headers, timeout=_cap_timeout(timeout, deadline))
+            from api.desync import desync_request_variants, _looks_like_block_page, DesyncTimeout
+            b, _var = desync_request_variants(url, headers=headers, deadline=deadline, timeout_each=_cap_timeout(timeout, deadline))
             if b:
                 _txt = b.decode("utf-8", errors="ignore")
                 # v62: hasil desync yang ternyata halaman blokir bukan sukses.
                 if not _looks_like_block_page(_txt):
-                    _nd_rec("master-fetch", _nd_h, "desync", "sukses", _nd_ms())
+                    _nd_rec("master-fetch", _nd_h, "desync", "sukses", _nd_ms(), variant=_var)
                     return _txt
-                _nd_rec("master-fetch", _nd_h, "desync", "halaman-blokir", _nd_ms())
+                _nd_rec("master-fetch", _nd_h, "desync", "halaman-blokir", _nd_ms(), variant=_var)
             else:
                 _nd_rec("master-fetch", _nd_h, "desync", "lainnya", _nd_ms(), note="body-kosong")
         except _ResolveBudgetExceeded:
             _nd_rec("master-fetch", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
             raise
+        except DesyncTimeout as _dt:
+            # v64: hang desync tercatat sebagai timeout-gantung + varian.
+            _nd_rec("master-fetch", _nd_h, "desync", "timeout-gantung", _nd_ms(), variant=getattr(_dt, "variant", None))
         except Exception as e:
             _nd_rec("master-fetch", _nd_h, "desync", _nd_class(e), _nd_ms())
-    try:
-        from api.desync import _looks_like_block_page
-        from curl_cffi import requests as creq
-        kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(timeout, deadline))
-        r = creq.get(url, **kw)
-        if r.status_code == 200 and not _looks_like_block_page(r.text):
-            _nd_rec("master-fetch", _nd_h, "direct", "sukses", _nd_ms())
-            return r.text
-        if r.status_code == 200:
-            _nd_rec("master-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms())
-        else:
-            _nd_rec("master-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms())
-    except _ResolveBudgetExceeded:
-        _nd_rec("master-fetch", _nd_h, "direct", "lainnya", _nd_ms(), note="anggaran-habis")
-        raise
-    except Exception as e:
-        _nd_rec("master-fetch", _nd_h, "direct", _nd_class(e), _nd_ms())
+    # v64: tahap direct dilewati bila host sudah tercatat hang di resolve ini
+    # (curl ke host yang sama pasti menggantung lagi) — langsung ke fallback
+    # _fetch di bawah, yang memakai registri yang sama.
+    _direct_ok = "direct" not in _hung
+    if _direct_ok:
+        try:
+            from api.desync import _looks_like_block_page
+            from curl_cffi import requests as creq
+            kw = dict(headers=headers, impersonate="chrome124", timeout=_cap_timeout(timeout, deadline))
+            r = creq.get(url, **kw)
+            if r.status_code == 200 and not _looks_like_block_page(r.text):
+                _nd_rec("master-fetch", _nd_h, "direct", "sukses", _nd_ms())
+                return r.text
+            if r.status_code == 200:
+                _nd_rec("master-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms())
+            else:
+                _nd_rec("master-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms())
+        except _ResolveBudgetExceeded:
+            _nd_rec("master-fetch", _nd_h, "direct", "lainnya", _nd_ms(), note="anggaran-habis")
+            raise
+        except Exception as e:
+            # v64: timeout direct = host menggantung.
+            if deadline is not None and any(t in str(e).lower() for t in ("timeout", "timed out")):
+                from api.desync import note_hang as _note_hang
+                _note_hang(deadline, host, "direct")
+            _nd_rec("master-fetch", _nd_h, "direct", _nd_class(e), _nd_ms())
     try:
         _out = _fetch(url, referer=referer, timeout=timeout, deadline=deadline)
     except _ResolveBudgetExceeded:
@@ -1522,14 +1620,19 @@ def _validate_sub_url(sub_url: str, referer: str, deadline=None):
             return sub_url
         headers = {"User-Agent": HI_UA, **({"Referer": referer} if referer else {})}
         if _is_blocked_dpi_host(host):
-            from api.desync import tls_desync_request
+            # v64: varian 1 lalu varian 2 bila menggantung (masing-masing
+            # dibatasi 4 dtk di sini); hang tercatat sebagai timeout-gantung.
+            from api.desync import desync_request_variants, DesyncTimeout
             try:
-                b = tls_desync_request(sub_url, headers=headers, timeout=_cap_timeout(4.0, deadline))
+                b, _var = desync_request_variants(sub_url, headers=headers, deadline=deadline, timeout_each=_cap_timeout(4.0, deadline))
+            except DesyncTimeout as _dt:
+                _nd_rec("subtitle", host, "desync", "timeout-gantung", _nd_ms(), variant=getattr(_dt, "variant", None))
+                raise
             except Exception as _e:
                 _nd_rec("subtitle", host, "desync", _nd_class(_e), _nd_ms())
                 raise
             if b and len(b) >= 10:
-                _nd_rec("subtitle", host, "desync", "sukses", _nd_ms())
+                _nd_rec("subtitle", host, "desync", "sukses", _nd_ms(), variant=_var)
                 return sub_url
             _nd_rec("subtitle", host, "desync", "lainnya", _nd_ms(), note="body-kosong")
             return None

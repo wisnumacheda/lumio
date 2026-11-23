@@ -41,8 +41,22 @@ def close_otaku_client():
             pass
         _otaku_client = None
 
-def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
-    """Fetch helper menggunakan curl_cffi dengan fallback httpx pool dan TLS desync."""
+def _cap_to(deadline, timeout):
+    """Timeout efektif: tidak melebihi sisa anggaran resolve (bila ada).
+    Raise RuntimeError bila sisa anggaran terlalu kecil untuk fetch."""
+    if deadline is None:
+        return timeout
+    rem = float(deadline) - time.monotonic()
+    if rem <= 0.3:
+        raise RuntimeError("batas waktu resolve habis")
+    return min(float(timeout), rem)
+
+
+def _fetch_once(url: str, referer: str = None, timeout: int = 12, deadline=None) -> str:
+    """Fetch helper menggunakan curl_cffi dengan fallback httpx pool dan TLS desync.
+    v64: deadline diteruskan (timeout tiap tahap dibatasi sisa anggaran);
+    host yang sudah hang di resolve ini dilewati tahap direct-nya; desync
+    memakai varian 1 lalu 2 (masing-masing ~6 dtk)."""
     from api.desync import _looks_like_block_page
     # Diagnosa v63: catat hasil tiap tahap (host saja).
     from api.netdiag import record as _nd_rec, host_of as _nd_hostof, classify_error as _nd_class
@@ -52,48 +66,71 @@ def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
     h = dict(HEADERS)
     if referer:
         h["Referer"] = referer
+    # v64 — registri hang per-resolve: kedua varian sudah hang → gagal cepat;
+    # ada hang apa pun → lewati tahap direct.
+    _hung = set()
+    if deadline is not None:
+        from api.desync import hung_kinds as _hung_kinds
+        _hung = _hung_kinds(deadline, _nd_h)
+        if "v1" in _hung and "v2" in _hung:
+            _nd_rec("resolve-fetch", _nd_h, "desync", "timeout-gantung", 0, note="host-gantung")
+            raise RuntimeError("Gagal memuat URL dari Otakudesu: host menggantung (desync v1+v2)")
+    _skip_direct = bool(_hung)
     _t0 = time.monotonic()
-    try:
-        from curl_cffi import requests as creq
-        r = creq.get(url, headers=h, impersonate="chrome124", timeout=timeout, allow_redirects=True)
-        # v62: halaman blokir DPI (HTTP 200) bukan sukses — lanjut ke tahap berikut.
-        if r.status_code == 200 and not _looks_like_block_page(r.text):
-            _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms(_t0))
-            return r.text
-        if r.status_code == 200:
-            _nd_rec("resolve-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms(_t0))
-        else:
-            _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms(_t0))
-    except Exception as e:
-        _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(e), _nd_ms(_t0))
+    if not _skip_direct:
+        try:
+            from curl_cffi import requests as creq
+            r = creq.get(url, headers=h, impersonate="chrome124", timeout=_cap_to(deadline, timeout), allow_redirects=True)
+            # v62: halaman blokir DPI (HTTP 200) bukan sukses — lanjut ke tahap berikut.
+            if r.status_code == 200 and not _looks_like_block_page(r.text):
+                _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms(_t0))
+                return r.text
+            if r.status_code == 200:
+                _nd_rec("resolve-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms(_t0))
+            else:
+                _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms(_t0))
+        except Exception as e:
+            # v64: timeout direct = host menggantung.
+            if deadline is not None and any(t in str(e).lower() for t in ("timeout", "timed out")):
+                from api.desync import note_hang as _note_hang
+                _note_hang(deadline, _nd_h, "direct")
+            _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(e), _nd_ms(_t0))
 
     _t0 = time.monotonic()
-    try:
-        client = _get_otaku_client()
-        r = client.get(url, headers=h)
-        if r.status_code == 200 and not _looks_like_block_page(r.text):
-            _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms(_t0))
-            return r.text
-        if r.status_code == 200:
-            _nd_rec("resolve-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms(_t0))
-        else:
-            _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms(_t0))
-    except Exception as e:
-        _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(e), _nd_ms(_t0))
+    if not _skip_direct:
+        try:
+            client = _get_otaku_client()
+            r = client.get(url, headers=h, timeout=_cap_to(deadline, timeout))
+            if r.status_code == 200 and not _looks_like_block_page(r.text):
+                _nd_rec("resolve-fetch", _nd_h, "direct", "sukses", _nd_ms(_t0))
+                return r.text
+            if r.status_code == 200:
+                _nd_rec("resolve-fetch", _nd_h, "direct", "halaman-blokir", _nd_ms(_t0))
+            else:
+                _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(f"upstream {r.status_code}"), _nd_ms(_t0))
+        except Exception as e:
+            # v64: timeout direct = host menggantung.
+            if deadline is not None and any(t in str(e).lower() for t in ("timeout", "timed out")):
+                from api.desync import note_hang as _note_hang
+                _note_hang(deadline, _nd_h, "direct")
+            _nd_rec("resolve-fetch", _nd_h, "direct", _nd_class(e), _nd_ms(_t0))
 
     # Fallback TLS Desync jika diblokir ISP
+    # v64: varian 1 lalu varian 2 bila menggantung (masing-masing ~6 dtk).
     _t0 = time.monotonic()
     try:
-        from api.desync import tls_desync_request
-        raw = tls_desync_request(url, headers=h, timeout=timeout)
+        from api.desync import desync_request_variants, DesyncTimeout
+        raw, _var = desync_request_variants(url, headers=h, deadline=deadline, timeout_each=_cap_to(deadline, timeout))
         txt = raw.decode("utf-8", errors="replace")
         if txt and ("<html" in txt.lower() or "{" in txt) and not _looks_like_block_page(txt):
-            _nd_rec("resolve-fetch", _nd_h, "desync", "sukses", _nd_ms(_t0))
+            _nd_rec("resolve-fetch", _nd_h, "desync", "sukses", _nd_ms(_t0), variant=_var)
             return txt
         if txt and _looks_like_block_page(txt):
-            _nd_rec("resolve-fetch", _nd_h, "desync", "halaman-blokir", _nd_ms(_t0))
+            _nd_rec("resolve-fetch", _nd_h, "desync", "halaman-blokir", _nd_ms(_t0), variant=_var)
         else:
             _nd_rec("resolve-fetch", _nd_h, "desync", "lainnya", _nd_ms(_t0), note="body-kosong")
+    except DesyncTimeout as _dt:
+        _nd_rec("resolve-fetch", _nd_h, "desync", "timeout-gantung", _nd_ms(_t0), variant=getattr(_dt, "variant", None))
     except Exception as e:
         _nd_rec("resolve-fetch", _nd_h, "desync", _nd_class(e), _nd_ms(_t0))
 
@@ -103,12 +140,12 @@ def _fetch_once(url: str, referer: str = None, timeout: int = 12) -> str:
 _OTAKU_MIRRORS = ["https://otakudesu.blog", "https://otakudesu.best", "https://ww2.otakudesu.biz"]
 
 
-def _fetch(url: str, referer: str = None, timeout: int = 12) -> str:
+def _fetch(url: str, referer: str = None, timeout: int = 12, deadline=None) -> str:
     """Fetch dengan rotasi mirror: domain Otakudesu terkenal sering berganti;
     bila URL milik salah satu basis yang dikenal gagal dimuat, coba basis lain
-    dengan path yang sama sebelum menyerah."""
+    dengan path yang sama sebelum menyerah. v64: deadline diteruskan."""
     try:
-        return _fetch_once(url, referer=referer, timeout=timeout)
+        return _fetch_once(url, referer=referer, timeout=timeout, deadline=deadline)
     except RuntimeError:
         for base in _OTAKU_MIRRORS:
             if url.startswith(base):
@@ -116,20 +153,20 @@ def _fetch(url: str, referer: str = None, timeout: int = 12) -> str:
                     if alt == base:
                         continue
                     try:
-                        return _fetch_once(url.replace(base, alt, 1), referer=referer, timeout=min(timeout, 8))
+                        return _fetch_once(url.replace(base, alt, 1), referer=referer, timeout=min(timeout, 8), deadline=deadline)
                     except RuntimeError:
                         continue
                 break
         raise
 
 
-def search(query: str, limit: int = 10) -> list:
+def search(query: str, limit: int = 10, deadline=None) -> list:
     """Cari anime di Otakudesu. Return [{title, url, id, poster}]."""
     clean_q = re.sub(r"[^\w\s-]", "", query).strip()
     clean_q = re.sub(r"\bund\s+panzer\b", "panzer", clean_q, flags=re.I)
     clean_q = re.sub(r"\band\s+panzer\b", "panzer", clean_q, flags=re.I)
     url = f"{OTAKU_BASE}/?s={urllib.parse.quote_plus(clean_q)}&post_type=anime"
-    html = _fetch(url)
+    html = _fetch(url, deadline=deadline)
     
     # Format kartu di otakudesu: <a class="ot-k" href="..."> ... <h2 class="ot-k-j">Title</h2>
     cards = re.findall(r'<a class="ot-k"\s+href="([^"]+)">.*?<img[^>]*src="([^"]+)".*?<h2 class="ot-k-j">([^<]+)</h2>', html, re.S)
@@ -154,7 +191,7 @@ def search(query: str, limit: int = 10) -> list:
     return results
 
 
-def get_episodes(anime_url_or_slug: str) -> list:
+def get_episodes(anime_url_or_slug: str, deadline=None) -> list:
     """Ambil daftar episode untuk anime Otakudesu.
     Return [{ep: 1, title: 'Episode 1', url: 'https://...'}] urut dari ep 1 ke atas.
     """
@@ -163,7 +200,7 @@ def get_episodes(anime_url_or_slug: str) -> list:
     else:
         url = f"{OTAKU_BASE}/anime/{anime_url_or_slug.strip('/')}/"
 
-    html = _fetch(url)
+    html = _fetch(url, deadline=deadline)
     # Match: <a class="ot-ep" href="..."><span>Naruto Episode 1</span></a>
     eps_raw = re.findall(r'<a class="ot-ep"\s+href="([^"]+)">\s*<span>([^<]+)</span>', html)
     out = []
@@ -199,9 +236,9 @@ def get_episodes(anime_url_or_slug: str) -> list:
     return out
 
 
-def _decrypt_putarin_config(embed_url: str) -> dict:
+def _decrypt_putarin_config(embed_url: str, deadline=None) -> dict:
     """Buka iframe embed putarin, ambil nonce & key, lalu dekripsi config AES-256-GCM."""
-    html = _fetch(embed_url, referer=OTAKU_BASE + "/")
+    html = _fetch(embed_url, referer=OTAKU_BASE + "/", deadline=deadline)
     px_m = re.search(r'window\.__PX\s*=\s*({[^<]+});', html)
     if not px_m:
         raise RuntimeError("Embed player token (__PX) tidak ditemukan")
@@ -216,7 +253,7 @@ def _decrypt_putarin_config(embed_url: str) -> dict:
 
     # Ambil kunci AES dari /api/pk?n={nonce}
     key_url = f"{origin}/api/pk?n={urllib.parse.quote(nonce)}"
-    key_hex = _fetch(key_url, referer=embed_url).strip()
+    key_hex = _fetch(key_url, referer=embed_url, deadline=deadline).strip()
     if len(key_hex) < 64:
         raise RuntimeError("Kunci dekripsi stream tidak valid")
 
@@ -312,36 +349,48 @@ def _is_title_match(target_title: str, candidate_title: str) -> bool:
     return overlap >= 0.55
 
 
-def _ajax_post(url: str, data: dict, headers: dict = None, timeout: int = 8) -> dict:
+def _ajax_post(url: str, data: dict, headers: dict = None, timeout: int = 8, deadline=None) -> dict:
     """POST admin-ajax Otakudesu: direct httpx dulu; bila koneksi gagal
-    (RST/timeout DPI), coba via TLS desync POST (v62). Return dict JSON."""
+    (RST/timeout DPI), coba via TLS desync POST (v62). Return dict JSON.
+    v64: timeout direct dibatasi sisa anggaran; desync memakai varian 1
+    lalu 2 (masing-masing ~6 dtk); hang tercatat sebagai timeout-gantung."""
     # Diagnosa v63: catat hasil tiap tahap (host saja).
     from api.netdiag import record as _nd_rec, host_of as _nd_hostof, classify_error as _nd_class
     _nd_h = _nd_hostof(url)
     client = _get_otaku_client()
     _t0 = time.monotonic()
     try:
-        r = client.post(url, data=data, headers=headers, timeout=timeout)
+        r = client.post(url, data=data, headers=headers, timeout=_cap_to(deadline, timeout))
         _nd_rec("ajax-otakudesu", _nd_h, "direct", "sukses", int((time.monotonic() - _t0) * 1000))
         return r.json() or {}
     except Exception as e:
+        # v64: timeout direct = host menggantung.
+        if deadline is not None and any(t in str(e).lower() for t in ("timeout", "timed out")):
+            from api.desync import note_hang as _note_hang
+            _note_hang(deadline, _nd_h, "direct")
         _nd_rec("ajax-otakudesu", _nd_h, "direct", _nd_class(e), int((time.monotonic() - _t0) * 1000))
-    from api.desync import tls_desync_post
+    from api.desync import desync_post_variants, DesyncTimeout
     _t0 = time.monotonic()
     try:
-        raw = tls_desync_post(url, data=data, headers=headers, timeout=timeout)
-        _nd_rec("ajax-otakudesu", _nd_h, "desync", "sukses", int((time.monotonic() - _t0) * 1000))
+        raw, _var = desync_post_variants(url, data=data, headers=headers, deadline=deadline, timeout_each=_cap_to(deadline, timeout))
+        _nd_rec("ajax-otakudesu", _nd_h, "desync", "sukses", int((time.monotonic() - _t0) * 1000), variant=_var)
         return json.loads(raw.decode("utf-8", errors="replace") or "{}") or {}
+    except DesyncTimeout as _dt:
+        _nd_rec("ajax-otakudesu", _nd_h, "desync", "timeout-gantung", int((time.monotonic() - _t0) * 1000), variant=getattr(_dt, "variant", None))
+        raise
     except Exception as e:
         _nd_rec("ajax-otakudesu", _nd_h, "desync", _nd_class(e), int((time.monotonic() - _t0) * 1000))
         raise
 
 
-def _extract_animestream_stream(ep_html: str, ep_url: str):
+def _extract_animestream_stream(ep_html: str, ep_url: str, deadline=None):
     """Ekstrak stream dari mirror tema Animestream (otakudesu.blog): mirror
     dipilih lewat ajax WordPress (nonce + data-content base64 per mirror),
     embed-nya berisi iframe pemutar yang digali untuk URL m3u8/mp4.
-    Return (stream_url, quality) atau (None, "")."""
+    Return (stream_url, quality) atau (None, "").
+    v64: deadline diteruskan — tiap mirror dibatasi sisa anggaran (jangan
+    mulai mirror baru bila sisa < 2 dtk) agar failover tidak kehabisan
+    anggaran di tengah jalan."""
     import base64 as _b64
     mirrors = []
     for b64, dflt, name in re.findall(r'data-content="([A-Za-z0-9+/=]+)"( data-default="true")?>([^<]+)</a>', ep_html):
@@ -369,15 +418,17 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
     ajax_url = OTAKU_BASE + "/wp-admin/admin-ajax.php"
     headers = {"Referer": ep_url, "X-Requested-With": "XMLHttpRequest"}
     try:
-        nonce = (_ajax_post(ajax_url, {"action": act_n[0]}, headers=headers, timeout=8) or {}).get("data")
+        nonce = (_ajax_post(ajax_url, {"action": act_n[0]}, headers=headers, timeout=8, deadline=deadline) or {}).get("data")
     except Exception:
         nonce = None
     if not nonce:
         return None, ""
     for m in mirrors[:3]:
+        if deadline is not None and float(deadline) - time.monotonic() < 2.0:
+            return None, ""
         try:
             data = dict(m["payload"]); data["nonce"] = nonce; data["action"] = act_m.group(1)
-            embed_html = _b64.b64decode((_ajax_post(ajax_url, data, headers=headers, timeout=8) or {}).get("data") or "").decode("utf-8", "replace")
+            embed_html = _b64.b64decode((_ajax_post(ajax_url, data, headers=headers, timeout=8, deadline=deadline) or {}).get("data") or "").decode("utf-8", "replace")
         except Exception:
             continue
         src_m = re.search(r'<iframe[^>]*src="([^"]+)"', embed_html)
@@ -389,7 +440,7 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
         if "maintenance" in embed_url or "mega" in embed_url:
             continue
         try:
-            player = _fetch(embed_url, referer=OTAKU_BASE + "/", timeout=5)
+            player = _fetch(embed_url, referer=OTAKU_BASE + "/", timeout=5, deadline=deadline)
         except Exception:
             continue
         stream = None
@@ -405,7 +456,7 @@ def _extract_animestream_stream(ep_html: str, ep_url: str):
     return None, ""
 
 
-def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
+def resolve_stream(title_or_slug: str, ep: int = 1, deadline=None) -> dict:
     """Selesaikan URL stream m3u8 Otakudesu untuk anime & episode tertentu.
     Return dict terstandar dengan master m3u8, variants, referer, server name, dsb.
     """
@@ -415,13 +466,13 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
     # 1. Cari anime jika bukan direct URL
     episodes = []
     if "otakudesu" in title_or_slug and "/anime/" in title_or_slug:
-        episodes = get_episodes(title_or_slug)
+        episodes = get_episodes(title_or_slug, deadline=deadline)
     else:
         # Coba ambil langsung jika title_or_slug merupakan slug anime otakudesu yang valid
         if "-" in title_or_slug and not " " in title_or_slug:
             try:
                 direct_url = f"{OTAKU_BASE}/anime/{title_or_slug.strip('/')}/"
-                direct_eps = get_episodes(direct_url)
+                direct_eps = get_episodes(direct_url, deadline=deadline)
                 if direct_eps:
                     episodes = direct_eps
             except Exception:
@@ -432,16 +483,16 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
             # dan angka suffix ID hianime (cth: "attack-on-titan-season-3-866")
             clean_str = re.sub(r'-[a-z0-9]{5,10}$', '', title_or_slug)
             clean_title = re.sub(r'-\d+$', '', clean_str).replace("-", " ").strip()
-            search_res = search(clean_title)
+            search_res = search(clean_title, deadline=deadline)
             if not search_res and clean_title != title_or_slug:
                 raw_title = re.sub(r'-\d+$', '', title_or_slug).replace("-", " ").strip()
-                search_res = search(raw_title)
+                search_res = search(raw_title, deadline=deadline)
 
             if not search_res:
                 # Coba cari tanpa embel-embel nomor season/part jika pencarian awal kosong
                 simplified = re.sub(r'\b(?:season\s*\d+|\d+(?:nd|rd|th|st)\s*season|part\s*\d+|s\d+)\b', '', clean_title, flags=re.I).strip()
                 if simplified and simplified != clean_title:
-                    search_res = search(simplified)
+                    search_res = search(simplified, deadline=deadline)
 
             if not search_res:
                 raise RuntimeError(f"Anime '{title_or_slug}' tidak ditemukan di Otakudesu")
@@ -474,7 +525,7 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
                     if matched_item:
                         break
                     try:
-                        _res2 = search(_romaji)
+                        _res2 = search(_romaji, deadline=deadline)
                     except Exception:
                         _res2 = []
                     for cand in _res2:
@@ -488,7 +539,7 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
                 raise RuntimeError(f"Anime '{title_or_slug}' tidak memiliki judul yang cocok di Otakudesu")
 
             # Ambil episode dari hasil pencarian yang terverifikasi cocok
-            episodes = get_episodes(matched_item["url"])
+            episodes = get_episodes(matched_item["url"], deadline=deadline)
 
     if not episodes:
         raise RuntimeError("Tidak ada daftar episode di Otakudesu")
@@ -504,7 +555,7 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
             raise RuntimeError(f"Episode {ep} belum rilis di Otakudesu")
 
     # 2. Ambil halaman episode dan ekstrak stream dari pemutarnya
-    ep_html = _fetch(target_ep["url"], referer=OTAKU_BASE + "/")
+    ep_html = _fetch(target_ep["url"], referer=OTAKU_BASE + "/", deadline=deadline)
     hls_master = None
     origin = OTAKU_BASE
     quality_label = "720p"
@@ -515,7 +566,7 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
         if embed_url.startswith("//"):
             embed_url = "https:" + embed_url
         try:
-            cfg = _decrypt_putarin_config(embed_url)
+            cfg = _decrypt_putarin_config(embed_url, deadline=deadline)
             origin = cfg.get("_origin", "https://putarin.xyz")
             hls_rel = cfg.get("file") or (cfg.get("sources") or [{}])[0].get("file")
             if hls_rel:
@@ -524,7 +575,7 @@ def resolve_stream(title_or_slug: str, ep: int = 1) -> dict:
             hls_master = None
     if not hls_master:
         # Tema Animestream (otakudesu.blog): mirror dipilih lewat ajax WordPress.
-        hls_master, quality_label = _extract_animestream_stream(ep_html, target_ep["url"])
+        hls_master, quality_label = _extract_animestream_stream(ep_html, target_ep["url"], deadline=deadline)
         origin = OTAKU_BASE
     if not hls_master:
         raise RuntimeError("Stream Otakudesu tidak ditemukan dari pemutar mana pun")

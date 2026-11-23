@@ -5862,7 +5862,8 @@ $("#btnCheckPayload").addEventListener("click", () => checkPayload(true));
 /* ---------------- Diagnosa Jaringan (v63) ---------------- */
 let _netDiagText = "";
 function netDiagLine(ev){
-  return [ev.t, ev.stage, ev.host, ev.method, ev.result, ev.ms + "ms", ev.note || ""].filter(Boolean).join(" · ");
+  var meth = ev.method + (ev.variant ? " v" + ev.variant : "");
+  return [ev.t, ev.stage, ev.host, meth, ev.result, ev.ms + "ms", ev.note || ""].filter(Boolean).join(" · ");
 }
 async function loadNetDiag(){
   const el = $("#netDiagList"); if (!el) return;
@@ -5876,7 +5877,7 @@ async function loadNetDiag(){
       return;
     }
     _netDiagText = "Diagnosa Jaringan Lumio" + (d.generated_at ? " — " + d.generated_at : "") + "\n" + evs.map(netDiagLine).join("\n");
-    el.innerHTML = evs.map(ev => '<div class="nd-row"><span class="nd-t">' + esc(ev.t) + '</span> · ' + esc(ev.stage) + ' · <span class="nd-h">' + esc(ev.host || "—") + '</span> · ' + esc(ev.method) + ' · <span class="' + (ev.result === "sukses" ? "nd-ok" : "nd-bad") + '">' + esc(ev.result) + '</span> · ' + esc(ev.ms) + 'ms' + (ev.note ? ' · ' + esc(ev.note) : '') + '</div>').join("");
+    el.innerHTML = evs.map(ev => '<div class="nd-row"><span class="nd-t">' + esc(ev.t) + '</span> · ' + esc(ev.stage) + ' · <span class="nd-h">' + esc(ev.host || "—") + '</span> · ' + esc(ev.method) + (ev.variant ? ' v' + esc(ev.variant) : '') + ' · <span class="' + (ev.result === "sukses" ? "nd-ok" : "nd-bad") + '">' + esc(ev.result) + '</span> · ' + esc(ev.ms) + 'ms' + (ev.note ? ' · ' + esc(ev.note) : '') + '</div>').join("");
   } catch (e) {
     el.innerHTML = '<div class="desc">Gagal memuat diagnosa: ' + esc(e.message) + '</div>';
   }
