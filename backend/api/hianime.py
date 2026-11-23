@@ -284,6 +284,10 @@ def _probe_master(master_url, referer, deadline=None):
     _nd_t0 = _time.monotonic()
     _nd_h = host
     _nd_method = "direct"
+    # v66 — penyebab gagal terakhir (bukan-m3u8 / halaman-blokir /
+    # timeout-gantung / http-404 / ...) untuk pesan akhir; diagnosa
+    # mencatat tiap percobaan secara terpisah, ini hanya ringkasannya.
+    _fail_kind = "lainnya"
     def _nd_ms():
         return int((_time.monotonic() - _nd_t0) * 1000)
     if _is_dead_host(host):
@@ -311,7 +315,7 @@ def _probe_master(master_url, referer, deadline=None):
         (bytes master yang lolos normalisasi atau None, hung: bool) — hung
         True bila percobaan berakhir menggantung (DesyncTimeout).
         Raise _ResolveBudgetExceeded bila anggaran habis."""
-        nonlocal _nd_method
+        nonlocal _nd_method, _fail_kind
         _nd_method = "desync"
         try:
             from api.desync import desync_request_variants, DesyncTimeout
@@ -319,16 +323,25 @@ def _probe_master(master_url, referer, deadline=None):
             # v61: konten desync hanya diterima bila lolos normalisasi
             # (dechunk + diawali #EXTM3U); bila tidak, kembalikan None agar
             # pemanggil lanjut ke direct / menandai mati.
+            # v66 — bedakan penyebab (halaman-blokir vs bukan-m3u8) supaya
+            # diagnosa bisa membedakan "CDN diblokir DPI" dari "URL master
+            # memang mati"; tanpa ini kegagalan desync tidak tercatat sama
+            # sekali dan penyebabnya gelap.
             norm = _normalize_m3u8_body(content)
             if norm is not None:
                 _nd_rec("probe-master", _nd_h, "desync", "sukses", _nd_ms(), variant=_var)
                 _add_blocked_dpi_host(host)
                 return norm.encode("utf-8"), False
+            from api.desync import _looks_like_block_page as _v66_is_block
+            _fail_kind = "halaman-blokir" if _v66_is_block(content) else "bukan-m3u8"
+            _nd_rec("probe-master", _nd_h, "desync", _fail_kind,
+                    _nd_ms(), variant=_var)
             return None, False
         except _ResolveBudgetExceeded:
             _nd_rec("probe-master", _nd_h, "desync", "lainnya", _nd_ms(), note="anggaran-habis")
             raise
         except DesyncTimeout as _dt:
+            _fail_kind = "timeout-gantung"
             _nd_rec("probe-master", _nd_h, "desync", "timeout-gantung", _nd_ms(), variant=getattr(_dt, "variant", None))
             return None, True
         except Exception as _de:
@@ -382,22 +395,45 @@ def _probe_master(master_url, referer, deadline=None):
                 if norm is not None:
                     _nd_rec("probe-master", _nd_h, "direct", "sukses", _nd_ms())
                     return norm.encode("utf-8")
+                # v66 — bedakan penyebab sebelum mencoba desync (tanpa ini
+                # kegagalan direct bukan-m3u8 tidak tercatat).
+                from api.desync import _looks_like_block_page as _v66_is_block
+                _fail_kind = "halaman-blokir" if _v66_is_block(r.content) else "bukan-m3u8"
+                _nd_rec("probe-master", _nd_h, "direct", _fail_kind, _nd_ms())
                 raise RuntimeError(f"probe master not m3u8 for {host}")
             if r.status_code >= 400:
+                # v66 — bedakan 404 (konten hilang, jangan desync) dari
+                # 403/5xx; klasifikasi via _nd_class (http-404 baru di v66).
+                _fail_kind = _nd_class(f"upstream {r.status_code}")
+                _nd_rec("probe-master", _nd_h, "direct", _fail_kind, _nd_ms())
                 raise RuntimeError(f"upstream {r.status_code} for {host}")
         except _ResolveBudgetExceeded:
             _nd_rec("probe-master", _nd_h, _nd_method, "lainnya", _nd_ms(), note="anggaran-habis")
             raise
         except Exception as e:
+            # v66 — catat penyebab direct yang gagal berupa exception
+            # (timeout/rst-putus/gagal-dns): sebelumnya hanya percobaan
+            # desync yang tercatat, penyebab direct-nya gelap. Hanya bila
+            # belum ada catatan direct (_fail_kind masih "lainnya" — jalur
+            # bukan-m3u8/halaman-blokir/http-* sudah mencatat sendiri).
+            if _fail_kind == "lainnya":
+                try:
+                    _nd_rec("probe-master", _nd_h, "direct", _nd_class(e), _nd_ms())
+                except Exception:
+                    pass
             # v62: kegagalan direct apa pun (termasuk konten bukan-m3u8 = halaman
             # blokir DPI) dicoba via desync untuk host APA PUN, terbatas deadline.
             # Host ditandai mati hanya bila desync juga gagal; desync yang berhasil
             # mencatat host sebagai DPI-blocked (rute + segmen berikutnya desync-first).
-            got, _hung2 = _desync_retry()
-            if got is not None:
-                return got
+            # v66 — KECUALI http-404: konten memang hilang di server, desync
+            # tidak akan menghidupkannya (desync mengubah handshake TLS, bukan
+            # path); langsung tandai mati tanpa buang anggaran.
+            if _fail_kind != "http-404":
+                got, _hung2 = _desync_retry()
+                if got is not None:
+                    return got
             _mark_dead(host)
-            raise RuntimeError(f"probe fail {host}: {type(e).__name__}")
+            raise RuntimeError(f"probe fail {host}: {_fail_kind}")
     # Direct dilewati (host hang) — coba desync (varian tersisa) sekali lagi.
     # Bila kedua varian sudah hang, jangan panggil ulang (helper akan gagal
     # cepat + mencatat event duplikat) — langsung tandai mati.

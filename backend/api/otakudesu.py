@@ -581,6 +581,18 @@ def resolve_stream(title_or_slug: str, ep: int = 1, deadline=None) -> dict:
         raise RuntimeError("Stream Otakudesu tidak ditemukan dari pemutar mana pun")
 
     # 4. Validasi master playlist & ekstrak variants
+    # v66 — PROBE master sebelum diserahkan ke player. Otakudesu selama ini
+    # mengembalikan master TANPA validasi apa pun (probe hanya di jalur
+    # ZokoAnime), sehingga master mati / halaman blokir DPI diserahkan
+    # mentah-mentah dan meledak jadi 3002 di ExoPlayer (uji v65:
+    # cdn.odcloud.net tanpa-probe → native network-3002, web menggantung).
+    # Probe gagal = raise → rantai failover di main.resolve() pindah ke
+    # server berikutnya dalam anggaran. _probe_master mencatat hasilnya
+    # sendiri di diagnosa (host saja) + menandai host DPI-blocked bila
+    # desync yang berhasil.
+    from api.hianime import _probe_master as _v66_probe_master
+    _v66_probe_master(hls_master, referer=origin + "/", deadline=deadline)
+
     variants = [
         {"q": quality_label, "url": hls_master},
         {"q": "auto", "url": hls_master}

@@ -31,7 +31,7 @@ _MAX_EVENTS = 50
 # bila hanya ada "mulai" tanpa hasil susulan, muatannya menggantung.
 RESULTS = {
     "sukses", "timeout", "timeout-gantung", "rst-putus", "halaman-blokir", "http-403",
-    "http-5xx", "bukan-m3u8", "chunked", "gagal-dns", "lainnya", "mulai",
+    "http-404", "http-5xx", "bukan-m3u8", "chunked", "gagal-dns", "lainnya", "mulai",
 }
 
 # Tahap yang boleh dilaporkan KLIEN (JS player) lewat POST /api/net/diag/event.
@@ -99,6 +99,10 @@ def classify_error(err):
         return "chunked"
     if "upstream 403" in s or "http 403" in s or " 403 " in s or "status 403" in s:
         return "http-403"
+    # v66 — bedakan 404 (konten memang hilang) dari 403/5xx: probe master
+    # yang 404 tidak boleh dicoba lagi via desync.
+    if "upstream 404" in s or "http 404" in s or " 404 " in s or "status 404" in s:
+        return "http-404"
     if ("upstream 5" in s or "http 5" in s or "status 5" in s
             or " 500 " in s or " 502 " in s or " 503 " in s or " 504 " in s):
         return "http-5xx"

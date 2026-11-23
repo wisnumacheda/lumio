@@ -3569,14 +3569,16 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
             return _resolve_deadline - time.monotonic()
 
         # Diagnosa v65 — ringkasan hasil resolve: server terpilih, HOST
-        # master (host saja), jumlah subtitle; plus fakta "tanpa-probe"
-        # bila sumbernya tidak pernah memvalidasi master (Otakudesu
-        # mengembalikan master tanpa probe — itulah kenapa uji v64
-        # menampilkan resolve sukses tapi nol probe-master; ZokoAnime
-        # probe via _probe_master, Megaplay validasi via _fetch_media,
-        # AniChan probe sendiri). Dipanggil persis sebelum return ok(),
-        # di jalur cache-hit maupun fresh, supaya subtitle final tercatat.
-        # Hanya mencatat — tidak mengubah alur resolve apa pun.
+        # master (host saja), jumlah subtitle. Dipanggil persis sebelum
+        # return ok(), di jalur cache-hit maupun fresh, supaya subtitle
+        # final tercatat. Hanya mencatat — tidak mengubah alur resolve
+        # apa pun.
+        # v66 — stempel "tanpa-probe" (v65) DIHAPUS: sejak v66 SEMUA master
+        # sudah diprobe sebelum diserahkan (Otakudesu via resolve_stream,
+        # cache-hit via probe di resolve(), ZokoAnime/Megaplay/AniChan
+        # seperti sebelumnya), jadi stempel itu kini salah dan menyesatkan
+        # diagnosa berikutnya. Bukti probe adalah event probe-master-nya
+        # sendiri, bukan stempel di sini.
         def _nd_record_resolve(data, source):
             try:
                 from api.netdiag import record as _nd_rec
@@ -3587,9 +3589,6 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 _nd_rec("resolve-hasil", _nd_hostof(_m), "direct",
                         "sukses" if _m else "lainnya", _ms,
                         note=f"{source} {_nsub}sub")
-                if source == "otakudesu":
-                    _nd_rec("probe-master", _nd_hostof(_m), "direct",
-                            "lainnya", 0, note="tanpa-probe")
             except Exception:
                 pass
 
@@ -3651,6 +3650,23 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         _spawn_background(_prewarm_sub_translation(en_url, ep_data.get("referer") or "", "en", "id"))
             except Exception:
                 pass
+
+        # v66 — validasi master dari cache: entri cache lama (pra-v66) bisa
+        # menyimpan master yang tidak pernah divalidasi (jalur Otakudesu
+        # tanpa-probe). Probe singkat (cap 6 dtk, sisa anggaran); gagal →
+        # hapus cache + anggap miss supaya rantai fresh jalan dan failover
+        # ke server berikutnya. Master sehat hanya menambah <1 dtk.
+        if hit and hit.get("master"):
+            try:
+                _cache_probe_deadline = min(_resolve_deadline, time.monotonic() + 6.0)
+                _loop = asyncio.get_running_loop()
+                await _loop.run_in_executor(None, lambda: hi._probe_master(hit["master"], referer=hit.get("referer") or "", deadline=_cache_probe_deadline))
+            except Exception:
+                try:
+                    await delete_episode_cache(cache_slug, ep, mode=mode)
+                except Exception:
+                    pass
+                hit = None
 
         if hit:
             # Pastikan subtitle yang tersimpan di cache lama dinormalisasi ulang
@@ -4398,12 +4414,41 @@ async def _pipe_desync_video(url: str, referer: str, range_header: str = ""):
         return
 
     # Segmen TS: stream per bongkah via desync TLS generator
+    # v66 — sniff isi seperti jalur direct: halaman blokir / playlist yang
+    # salah diklasifikasi tidak boleh sampai ke player (lubang yang sama
+    # dengan _pipe_video: body sampah → 3002 di ExoPlayer).
     _seg_any = False
+    _sniff_done = False
+    _playlist_parts = None
     try:
         async for chunk in tls_desync_stream(url, headers=headers):
-            if chunk:
-                _seg_any = True
-                yield chunk
+            if not chunk:
+                continue
+            if _playlist_parts is not None:
+                _playlist_parts.append(chunk)
+                continue
+            if not _sniff_done:
+                _sniff_done = True
+                _head = chunk.lstrip(b"\xef\xbb\xbf \t\r\n")
+                if _head.startswith(b"#EXTM3U"):
+                    _playlist_parts = [chunk]
+                    continue
+                if _head.startswith(b"<"):
+                    _nd_rec("segmen", _nd_h, "desync", "halaman-blokir", _nd_ms())
+                    raise HTTPException(status_code=502, detail="upstream desync segment not media")
+            _seg_any = True
+            yield chunk
+        if _playlist_parts is not None:
+            _txt = hi._normalize_m3u8_body(b"".join(_playlist_parts))
+            if _txt is None:
+                _nd_rec("master-fetch", _nd_h, "desync", "bukan-m3u8", _nd_ms())
+                raise HTTPException(status_code=502, detail="upstream desync m3u8 not a valid playlist")
+            _master_cache_set(url, _txt)
+            _nd_rec("master-fetch", _nd_h, "desync", "sukses", _nd_ms())
+            yield _rewrite_m3u8_content(_txt, url, referer).encode("utf-8")
+            return
+    except HTTPException:
+        raise
     except Exception as e:
         _nd_rec("segmen", _nd_h, "desync", _nd_class(e), _nd_ms())
         raise
@@ -4457,9 +4502,19 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
         headers["Referer"] = referer
 
     last_err = None
-    for attempt in range(2):
+    # v66 — playlist (master) adalah tahap kritis player: direct yang
+    # menggantung (DPI silent-drop pada host yang belum tercatat diblokir)
+    # tidak boleh menahan player sampai 15 dtk connect + ulangan; gagal
+    # cepat (~6 dtk connect, tanpa ulangan — fallback desync adalah
+    # ulangannya) supaya fallback desync segera jalan. Segmen tetap
+    # memakai timeout + ulangan default (toleran terhadap tersendat).
+    import httpx as _hx
+    _likely_playlist = _is_m3u8_url(url)
+    _stream_kw = {"timeout": _hx.Timeout(12.0, connect=6.0)} if _likely_playlist else {}
+    _max_attempts = 1 if _likely_playlist else 2
+    for attempt in range(_max_attempts):
         try:
-            async with c.stream("GET", url, headers=headers) as r:
+            async with c.stream("GET", url, headers=headers, **_stream_kw) as r:
                 if r.status_code >= 400:
                     raise HTTPException(status_code=502, detail=f"upstream {r.status_code}")
                 ctype = r.headers.get("content-type", "")
@@ -4490,15 +4545,33 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
 
                 skipped = 0
                 need_strip = bool(_SR2.search(url))
-                first = True
+                _sniff_done = False
+                _playlist_parts = None
                 _nd_stage = "segmen"
                 async for chunk in r.aiter_bytes(65536):
-                    # v62: segmen yang dikembalikan sebagai HTML = halaman blokir
-                    # DPI (HTTP 200), bukan media — jangan stream sampah ke player.
-                    if first:
-                        first = False
-                        _head = chunk.lstrip()[:20].lower()
-                        if _head.startswith(b"<!doctype") or _head.startswith(b"<html"):
+                    if not chunk:
+                        continue
+                    if _playlist_parts is not None:
+                        _playlist_parts.append(chunk)
+                        continue
+                    if not _sniff_done:
+                        _sniff_done = True
+                        # v66 — sniff ISI, bukan hanya ekstensi URL. Master
+                        # yang salah diklasifikasi sebagai segmen (URL tanpa
+                        # penanda .m3u8) atau halaman blokir DPI harus
+                        # ditangkap di sini — JANGAN sampai ke player
+                        # (sebelumnya: body sampah → 3002 di ExoPlayer).
+                        _head = chunk.lstrip(b"\xef\xbb\xbf \t\r\n")
+                        if _head.startswith(b"#EXTM3U"):
+                            # Playlist asli: kumpulkan sisanya, normalisasi,
+                            # rewrite (tanpa rewrite, segmen di dalamnya
+                            # dimuat player secara direct → DPI / 3002).
+                            _playlist_parts = [chunk]
+                            continue
+                        if _head.startswith(b"<") or (ctype or "").lower().startswith("text/html"):
+                            # v62 dulu hanya <!doctype/<html: halaman blokir
+                            # yang diawali <head>/<script>/komentar lolos.
+                            # Tag "<" apa pun di awal = bukan media.
                             raise HTTPException(status_code=502, detail="upstream segment not media")
                     if need_strip and skipped < _SB:
                         cut = min(len(chunk), _SB - skipped)
@@ -4508,6 +4581,14 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
                             continue
                     if chunk:
                         yield chunk
+                if _playlist_parts is not None:
+                    _txt = hi._normalize_m3u8_body(b"".join(_playlist_parts))
+                    if _txt is None:
+                        raise HTTPException(status_code=502, detail="upstream response not a valid m3u8 playlist")
+                    _master_cache_set(url, _txt)
+                    _nd_rec("master-fetch", _nd_h, "direct", "sukses", _nd_ms())
+                    yield _rewrite_m3u8_content(_txt, url, referer).encode("utf-8")
+                    return
                 _nd_rec("segmen", _nd_h, "direct", "sukses", _nd_ms(), dedupe_success=True)
                 return
         except HTTPException as e:
@@ -4525,7 +4606,9 @@ async def _pipe_video(url: str, referer: str, range_header: str = ""):
             last_err = e
             break
         except Exception as e:
-            if attempt == 0:
+            # v66 — ulangan hanya bila masih ada sisa (playlist: 1x saja,
+            # gagal cepat ke desync; segmen: 1x ulangan seperti semula).
+            if attempt + 1 < _max_attempts:
                 await _asyncio.sleep(0.3)
                 continue
             _nd_rec(_nd_stage, _nd_h, "direct", _nd_class(e), _nd_ms())
