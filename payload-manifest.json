@@ -1,9 +1,9 @@
 {
-  "version": 68,
-  "label": "UI baru gaya Jadwal Anime (burger + Settings di drawer + jadwal per-konten + Manga)",
-  "notes": "UI baru gaya Jadwal Anime + backend v67 dalam satu payload. 1) Header kiri burger + logo Lumio; gear kanan atas dibuang, Pengaturan hanya dari drawer burger (dan nav rail TV). 2) Tampilan tiap menu (Anime/Movie/Series/Donghua/Manhwa) gaya file referensi: Plus Jakarta Sans, aksen amber, kartu poster 2:3, hero, detail bottom-sheet, bottom nav HP. 3) Jadwal mengikuti konten yang dibuka: Anime (/api/schedule), Donghua (/api/schedule/donghua, hanya CN), Manhwa 'Update Bab Terbaru', Movie 'Segera Tayang' (tanggal rilis TMDB via /api/tmdb/upcoming), Series 'Episode Baru' (TMDB). 4) Anime kini punya tab Manga (MangaDex, bahasa Jepang) di Jelajah + Cari. Backend v67 ikut: anggaran resolve 25 detik dibagi adil per server (irisan), semua server dicoba minimal sekali. Tanpa APK baru. Keterbatasan yang diketahui: jadwal Anime/Donghua diisi dari AniList live di HP (di sandbox AniList diblokir sehingga kosong saat uji); poster tergantung CDN. Terverifikasi dari sandbox: route upcoming/donghua/manga-lang=ja live 200, Jadwal Movie/Series terisi, toggle Manga 24 judul ja, 0 pageerror, 0 overflow horizontal 412px + 1280px, TV ?tv=1 OK.",
+  "version": 69,
+  "label": "Perbaikan UI v69 (jadwal anti-404 + Donghua + Manhwa + keyboard)",
+  "notes": "Perbaikan UI v69 (jadwal anti-404 + Donghua + Manhwa + keyboard). 1) Jadwal Movie/Series fallback ke TMDB discover bila route /api/tmdb/upcoming tidak ada di backend HP (jendela 90 hari Movie / 14 hari Series, halaman pertama dibersihkan dari tanggal jauh 2029-2099; bila tetap kosong, tampil empty state jujur). 2) Bug Donghua menampilkan anime diperbaiki (cache + filter kind per seksi). 3) Placeholder cari per kind, nav Cari, tombol Coba lagi di semua varian jadwal, baris Manhwa, header Lanjut Nonton, keyboard, toast pull-to-refresh, chip, placeholder poster, copy halaman. Keterbatasan: Donghua + toggle Manga MASIH butuh backend baru di HP (fallback hanya menyelamatkan Movie/Series) - force-stop + buka lagi agar payload aktif. Tanpa APK baru. Terverifikasi dari sandbox: Playwright 12/12 PASS, 0 pageerror, 0 overflow.",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-68/lumio-payload.zip",
-  "sha256": "411de6e85096ece605bc92d29c0c7d3a0354aa8f462155efda393833d2c23efd",
-  "size": 1146517
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-69/lumio-payload.zip",
+  "sha256": "012ba8f2325c6ecc35d08d3cd6b95711f62b7427f71e7140ebe4a7c7261fdb9b",
+  "size": 1148979
 }
