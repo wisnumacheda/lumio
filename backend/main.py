@@ -12,6 +12,7 @@ from api import anilist as al
 from api import otakudesu as otaku
 from api import aniskip
 from api import anichan
+from api import animeindo
 from api import mangadex as md
 from api import komikcast as kcmod
 from api import asura as asmod
@@ -65,7 +66,8 @@ def _master_cache_set(url: str, text: str):
             _MASTER_CACHE.pop(k, None)
 
 
-# Failover per-judul: mapping slug -> sumber alternatif. Nilai SELALU "anichan".
+# Failover per-judul: mapping slug -> sumber alternatif. Nilai "anichan"
+# atau "animeindo" (server failover terakhir yang berhasil).
 # Dibatasi jumlah entri agar tidak tumbuh tanpa batas pada sesi panjang.
 _ANIME_FAILOVER_MAX = 512
 
@@ -3251,7 +3253,7 @@ async def anime_skiptimes(slug: str, ep: int = Query(1), length: float = Query(0
             return fail("Konten genre Hentai diblokir")
         loop = asyncio.get_running_loop()
         mal_id = ""
-        for cand_slug in (slug, f"otakudesu:{slug}", f"anichan:{slug}"):
+        for cand_slug in (slug, f"otakudesu:{slug}", f"anichan:{slug}", f"animeindo:{slug}"):
             for md in ("sub", "dub"):
                 try:
                     hit = await get_episode_cache(cand_slug, ep, md)
@@ -3793,7 +3795,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         # v55: backstop anggaran untuk percobaan provider. Setiap percobaan
         # dibatasi SISA anggaran global; habisnya anggaran dicatat sebagai
         # alasan jujur per-provider, bukan timeout telanjang. Semantik
-        # prioritas sumber (Auto/HiAnime/Otakudesu/AniChan) TIDAK berubah —
+        # prioritas sumber (Auto/HiAnime/Otakudesu/AniChan/Animeindo) TIDAK berubah —
         # hanya pembungkus eksekusinya yang berbatas.
         # v67 — deadline irisan: percobaan boleh dibatasi tenggat yang lebih
         # awal dari anggaran global (jatah adil per server); pemotongan oleh
@@ -3840,25 +3842,11 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         # dicoba rantai ini; irisan adil dihitung dari jumlah itu.
         _is_auto = (source == "auto" or not source)
         if active_source == "anichan":
-            _dl = _slice_deadline(2 if _is_auto else 1)
+            _dl = _slice_deadline(3 if _is_auto else 1)
             got, _err = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_dl)
             if _err is not None:
                 last_error = _err
                 _note("AniChan", _err)
-                if _is_auto:
-                    got, _err2 = await _try_hianime(deadline=_slice_deadline(1))
-                    if _err2 is not None:
-                        _note("HiAnime", _err2)
-                    else:
-                        active_source = "hianime"
-                        cache_slug = slug
-        elif active_source == "otakudesu":
-            _dl = _slice_deadline(3 if _is_auto else 1)
-            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
-            if _err is not None:
-                last_error = _err
-                _note("Otakudesu", _err)
-                # Fallback ke hianime kalau user pakai auto
                 if _is_auto:
                     got, _err2 = await _try_hianime(deadline=_slice_deadline(2))
                     if _err2 is not None:
@@ -3867,7 +3855,58 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                         active_source = "hianime"
                         cache_slug = slug
                     if not got:
-                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(1))
+                        _dl3 = _slice_deadline(1)
+                        got, _err3 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl3), deadline=_dl3)
+                        if _err3 is not None:
+                            last_error = _err3
+                            _note("Animeindo", _err3)
+                        else:
+                            active_source = "animeindo"
+                            cache_slug = f"animeindo:{slug}"
+                            is_failover = True
+                            failover_from = "anichan"
+                            _set_failover(slug, "animeindo")
+        elif active_source == "animeindo":
+            _dl = _slice_deadline(3 if _is_auto else 1)
+            got, _err = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
+            if _err is not None:
+                last_error = _err
+                _note("Animeindo", _err)
+                if _is_auto:
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(2))
+                    if _err2 is not None:
+                        _note("HiAnime", _err2)
+                    else:
+                        active_source = "hianime"
+                        cache_slug = slug
+                    if not got:
+                        _dl3 = _slice_deadline(1)
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_dl3)
+                        if _err3 is not None:
+                            last_error = _err3
+                            _note("AniChan", _err3)
+                        else:
+                            active_source = "anichan"
+                            cache_slug = f"anichan:{slug}"
+                            is_failover = True
+                            failover_from = "animeindo"
+                            _set_failover(slug, "anichan")
+        elif active_source == "otakudesu":
+            _dl = _slice_deadline(4 if _is_auto else 1)
+            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
+            if _err is not None:
+                last_error = _err
+                _note("Otakudesu", _err)
+                # Fallback ke hianime kalau user pakai auto
+                if _is_auto:
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(3))
+                    if _err2 is not None:
+                        _note("HiAnime", _err2)
+                    else:
+                        active_source = "hianime"
+                        cache_slug = slug
+                    if not got:
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(2))
                         if _err3 is not None:
                             _note("AniChan", _err3)
                         else:
@@ -3876,14 +3915,26 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "otakudesu"
                             _set_failover(slug, "anichan")
+                    if not got:
+                        _dl4 = _slice_deadline(1)
+                        got, _err4 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl4), deadline=_dl4)
+                        if _err4 is not None:
+                            last_error = _err4
+                            _note("Animeindo", _err4)
+                        else:
+                            active_source = "animeindo"
+                            cache_slug = f"animeindo:{slug}"
+                            is_failover = True
+                            failover_from = "otakudesu"
+                            _set_failover(slug, "animeindo")
         else:
-            got, _err = await _try_hianime(deadline=_slice_deadline(3 if _is_auto else 1))
+            got, _err = await _try_hianime(deadline=_slice_deadline(4 if _is_auto else 1))
             if _err is not None:
                 last_error = _err
                 _note("HiAnime", _err)
                 # Fallback ke otakudesu jika hianime gagal
                 if _is_auto:
-                    _dl = _slice_deadline(2)
+                    _dl = _slice_deadline(3)
                     got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
                     if _err2 is not None:
                         _note("Otakudesu", _err2)
@@ -3893,7 +3944,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                     # JIKA HIANIME & OTAKUDESU GAGAL (KASUS EYESHIELD 21):
                     # Failover otomatis per-judul ke AniChan langsung ke HLS M3U8
                     if not got:
-                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(1))
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(2))
                         if _err3 is not None:
                             last_error = _err3
                             _note("AniChan", _err3)
@@ -3903,6 +3954,20 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             is_failover = True
                             failover_from = "hianime"
                             _set_failover(slug, "anichan")
+                    # Server ke-4 (v70): Animeindo — dicoba terakhir bila
+                    # ketiga server di atas gagal, dengan irisannya sendiri.
+                    if not got:
+                        _dl4 = _slice_deadline(1)
+                        got, _err4 = await _try_provider(lambda: animeindo.resolve_stream(slug, ep, deadline=_dl4), deadline=_dl4)
+                        if _err4 is not None:
+                            last_error = _err4
+                            _note("Animeindo", _err4)
+                        else:
+                            active_source = "animeindo"
+                            cache_slug = f"animeindo:{slug}"
+                            is_failover = True
+                            failover_from = "hianime"
+                            _set_failover(slug, "animeindo")
 
         if not got:
             if fail_reasons:

@@ -3124,7 +3124,8 @@ function renderSourceUI(){
   var s = cur.source || "hianime";
   var isOtaku = (s === "otakudesu");
   var isAnichan = (s === "anichan");
-  var txt = isOtaku ? "src: otakudesu (sub indo) ⇄" : (isAnichan ? "src: anichan (failover) ⇄" : "src: hianime ⇄");
+  var isAnimeindo = (s === "animeindo");
+  var txt = isOtaku ? "src: otakudesu (sub indo) ⇄" : (isAnichan ? "src: anichan (failover) ⇄" : (isAnimeindo ? "src: animeindo (sub indo) ⇄" : "src: hianime ⇄"));
   var badgeTxt = isOtaku ? "OTAKUDESU (SUB INDO) ⇄" : (isAnichan ? "ANICHAN (FAILOVER) ⇄" : "HIANIME ⇄");
   var sb = $("sb-source");
   if(sb){
@@ -3145,6 +3146,7 @@ function switchSource(targetSource){
   if(!nextSource){
     if(cur.source === "hianime") nextSource = "otakudesu";
     else if(cur.source === "otakudesu") nextSource = "anichan";
+    else if(cur.source === "anichan") nextSource = "animeindo";
     else nextSource = "hianime";
   }
   cur.source = nextSource;
@@ -3152,7 +3154,7 @@ function switchSource(targetSource){
   if(window.Tatap && window.Tatap.setSetting){
     window.Tatap.setSetting({ preferred_source: nextSource }).catch(function(){});
   }
-  var label = nextSource === "otakudesu" ? "Otakudesu (Sub Indo)" : (nextSource === "anichan" ? "AniChan (Failover)" : "HiAnime");
+  var label = nextSource === "otakudesu" ? "Otakudesu (Sub Indo)" : (nextSource === "anichan" ? "AniChan (Failover)" : (nextSource === "animeindo" ? "Animeindo (Sub Indo)" : "HiAnime"));
   toast("Sumber: " + label);
   if(!$("player-modal").classList.contains("hidden") && cur.ep){
     openPlayer(cur.ep, curTime);
@@ -3519,7 +3521,7 @@ function init(){
     closePopover();
     switchSource();
     var b = $("drawer-src-badge");
-    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : "HiAnime";
+    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : cur.source === "anichan" ? "AniChan" : cur.source === "animeindo" ? "Animeindo" : "HiAnime";
   });
   var popTheme = $("pop-toggle-theme");
   if(popTheme) popTheme.addEventListener("click", function(){
@@ -3630,7 +3632,7 @@ function init(){
   if(drawerSrc) drawerSrc.addEventListener("click", function(){
     switchSource();
     var b = $("drawer-src-badge");
-    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : "HiAnime";
+    if(b) b.textContent = cur.source === "otakudesu" ? "Otakudesu" : cur.source === "anichan" ? "AniChan" : cur.source === "animeindo" ? "Animeindo" : "HiAnime";
   });
 
   var drawerHelp = $("drawer-help");
