@@ -1,9 +1,9 @@
 {
-  "version": 63,
-  "label": "Diagnosa Jaringan (uji)",
-  "notes": "Diagnosa Jaringan dulu sebelum perbaikan berikutnya: ring buffer in-memory 50 kejadian terakhir di jalur anime (tahap, host saja tanpa URL lengkap/body/kredensial, metode direct/desync, hasil, latensi ms) + endpoint GET /api/net/diag dan POST /api/net/diag/clear + seksi baru di Pengaturan berisi daftar kejadian dengan tombol Salin dan Bersihkan. Titik catat di _fetch/_fetch_media/_probe_master/_validate_sub_url (hianime), _fetch_once/_ajax_post (otakudesu), _pipe_video/_pipe_desync_video/_fetch_sub_text/_download_sub (main), tls_desync_connect/_resolve_host (desync). Nol perubahan perilaku jaringan: logika resolve/proxy/desync v62, anggaran 25 detik, subtitle, urutan provider, dan toggle Spike tetap sama. Tanpa APK baru.",
+  "version": 65,
+  "label": "Diagnosa tahap stream (uji)",
+  "notes": "Diagnosa tahap stream dulu sebelum perbaikan putaran: tiga titik gelap v64 kini tercatat di Diagnosa Jaringan (host saja, tanpa URL lengkap). 1) Alasan gagal native: callback hasil native kini melaporkan kode error (codec/timeout/stall/network + kode numerik ExoPlayer bila ada) + host master + durasi sesi. 2) Ringkasan resolve: tiap resolve mencatat server terpilih + host master + jumlah subtitle; jalur Otakudesu yang tidak pernah memvalidasi master kini mencatat fakta tanpa-probe (penyebab nol probe-master di uji v64). 3) Error web player: hls.js melaporkan mulai muat master, manifest ter-parse, dan error fatal pertama (tipe + kode respons) via endpoint baru POST /api/net/diag/event yang menolak payload berisi URL lengkap atau tahap server. Panel Diagnosa menampilkan tahap baru; penanda mulai tampil netral. Nol perubahan perilaku putaran: logika resolve/proxy/desync v64, anggaran 25 detik, subtitle, urutan provider, dan toggle Spike tetap sama. Tanpa APK baru. Terverifikasi dari sandbox: unit 35/35; live resolve ...-10496 ep 8 via ZokoAnime + Ao Ashi S1E1 sukses dengan resolve-hasil tercatat; tanpa-probe terverifikasi live via cache Otakudesu; endpoint laporan: 4 valid diterima, 4 tidak valid ditolak 400; CDP Chromium 1254 17/18 (panel + laporan JS klien + Salin/Bersihkan + tanpa overflow 1280x720 maupun 412px; 1 temuan ERR_ABORTED XHR terbukti artefak uji stopPlayer, kontrol bersih 0 error). Pernyataan jujur: v65 hanya MENCATAT tahap stream — tidak memperbaiki putaran; perbaikan menyusul dari hasil bacaannya di perangkat (ep 8 tanpa VPN).",
   "min_app": "2.30.0",
-  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-63/lumio-payload.zip",
-  "sha256": "d7a170c742a92f4661ad982017e10afc4dbb0fc82db8338e4208c39bcd2b9c5f",
-  "size": 1125194
+  "url": "https://github.com/wisnumacheda/lumio/releases/download/payload-65/lumio-payload.zip",
+  "sha256": "4d4c836521875f5acc91212a421ac60c39fd924e3cecf5f3b94df9a0ae26dc30",
+  "size": 1133258
 }
