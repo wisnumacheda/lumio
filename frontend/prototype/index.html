@@ -3042,6 +3042,9 @@ function tryNativePlay(sess){
   if (!SETTINGS.spikeNative) return false;
   try {
     if (typeof LumioNative === "undefined" || typeof LumioNative.playNative !== "function") return false;
+    /* v65 — cap waktu mulai sesi native (durasi sampai hasil kembali,
+       untuk diagnosa tahap stream). */
+    try { window._nativeStartAt = Date.now(); } catch (e) {}
     LumioNative.playNative(JSON.stringify(sess));
     return true;
   } catch (e) { return false; }
@@ -3056,6 +3059,24 @@ function tryNativePlay(sess){
    (subLang "custom" dsb. dari dialog native diabaikan). */
 window.__lumioNativePlayerResult = function(r){
   try { window._nativeLastResult = r || null; } catch (e) {}
+  /* v65 — diagnosa tahap stream: alasan gagal native dicatat ke Diagnosa
+     Jaringan (kategori errorCode + kode numerik ExoPlayer bila ada, host
+     master saja — TIDAK PERNAH pesan error mentah, bisa memuat URL).
+     Tanpa ini, kegagalan native gelap total (uji v64: toast muncul tapi
+     diagnosa kosong). */
+  try {
+    if (r && r.action === "error") {
+      var _nm = "";
+      try { if (window._nativeAnimePending && window._nativeAnimePending.master) _nm = window._nativeAnimePending.master; } catch (e) {}
+      if (!_nm) { try { if (window._nativeStatic && window._nativeStatic.master) _nm = window._nativeStatic.master; } catch (e) {} }
+      var _cat = (r.errorCode && /^[a-z]+$/.test(r.errorCode)) ? r.errorCode : "tanpa-kode";
+      var _num = "";
+      try { var _cm = /code=(\d{3,5})/.exec(r.error || ""); if (_cm) _num = "-" + _cm[1]; } catch (e) {}
+      var _nms = 0;
+      try { if (window._nativeStartAt) _nms = Date.now() - window._nativeStartAt; } catch (e) {}
+      netDiagReport("native-gagal", _nm, _cat === "timeout" ? "timeout" : "lainnya", _cat + _num, _nms);
+    }
+  } catch (e) {}
   const a = (r && r.action) || "closed";
   const pos = (r && r.posSec) ? " · posisi " + Math.round(r.posSec) + " dtk" : "";
   const err = (r && r.error) ? " — " + r.error : "";
@@ -3275,9 +3296,16 @@ function playAnimeWeb(slug, ep, data, referer, master){
       // saat kualitas naik (ABR switch = renegosiasi + unduhan baru).
       startBufferDuration: 3
     });
+    /* v65 — diagnosa tahap stream: catat MULAI muat master (host saja).
+       Bila hanya ada "web-muat" tanpa "web-ok"/"web-gagal" susulan,
+       muatannya menggantung — itulah yang gelap di uji v64. */
+    window._webDiagReported = false;
+    netDiagReport("web-muat", master, "mulai", "master", 0);
     hls.loadSource(proxied);
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      /* v65 — manifest berhasil dimuat: penanda sukses tahap stream. */
+      netDiagReport("web-ok", master, "sukses", "manifest", 0);
       // Opsi kualitas dari level HLS (v43): bila master punya >=2 tinggi
       // berbeda, isi #qualitySel dari level dan terapkan SETTINGS.quality ke
       // level (buildQualityLevelOptions membersihkan _pendingVariant bila
@@ -3293,6 +3321,21 @@ function playAnimeWeb(slug, ep, data, referer, master){
     hls.on(Hls.Events.LEVEL_SWITCHED, () => updateRendInfo());
     hls.on(Hls.Events.ERROR, (ev, d) => {
       if (!d.fatal) return;
+      /* v65 — diagnosa tahap stream: error fatal pertama per pemutaran
+         dicatat (tipe hls.js + kode respons bila ada, host saja).
+         Hanya yang pertama — retry-loop "mencoba pulih" mengulang error
+         yang sama dan tidak boleh membanjiri buffer 50 kejadian. */
+      if (!window._webDiagReported) {
+        window._webDiagReported = true;
+        var _det = (d.details && /^[A-Za-z0-9]+$/.test(d.details)) ? d.details : "error";
+        var _rc = "";
+        try { if (d.response && d.response.code) _rc = "-" + d.response.code; } catch (e) {}
+        var _res = "lainnya";
+        if (/timeout/i.test(d.details || "")) _res = "timeout";
+        else if (d.response && d.response.code === 403) _res = "http-403";
+        else if (d.response && d.response.code >= 500) _res = "http-5xx";
+        netDiagReport("web-gagal", master, _res, _det + _rc, 0);
+      }
       /* v54: codec tidak didukung bersifat deterministik — retry
          (startLoad/recoverMediaError) atas manifest yang sama sia-sia
          dan bisa mengulang tanpa batas. Hentikan dengan pesan jujur;
@@ -3303,6 +3346,9 @@ function playAnimeWeb(slug, ep, data, referer, master){
       else setPlayerStatus("❌ Stream terputus (" + esc(d.details || "error") + "). Coba episode/server lain.");
     });
   } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    /* v65 — jalur HLS native (Safari): catat mulai muat seperti jalur hls.js. */
+    window._webDiagReported = false;
+    netDiagReport("web-muat", master, "mulai", "master", 0);
     video.src = proxied;
     video.play().catch(() => {});
   } else {
@@ -4221,7 +4267,7 @@ async function playTmdb(slug, ep, fromAuto){
   /* Fase 2 — jalur statis memakai player native bila toggle aktif + bridge
      ada; sesi membawa subtitle rezesubs hasil merge (buildNativeSubtitles)
      + gaya/offset; viaHidden:false. Gagal diam-diam = jalur web biasa. */
-  window._nativeStatic = {slug, ep, t, subs: data.subtitles || [], server: data.server || "", codecDone: false, stallDone: false};
+  window._nativeStatic = {slug, ep, t, subs: data.subtitles || [], server: data.server || "", master: master || "", codecDone: false, stallDone: false};
   if (tryNativePlay({kind: t.type, slug, episode: ep, title: tmdbPlayerTitle(slug, itemStore.get(slug) || currentItem) || ("Episode " + ep), master, referer, speed: SETTINGS.speed || 1, resumePosSec: window._resumePos || 0, tmdb: t.id, mediaType: t.type, season: window._tmdbSeason || 1, subtitles: SETTINGS.subLang === "off" ? [] : buildNativeSubtitles(data, referer), subLang: SETTINGS.subLang, subOffsetSec: window._subOffset || 0, subSize: SETTINGS.subSize, subBg: SETTINGS.subBg, subColor: SETTINGS.subColor, viaHidden: false, hiddenUntried: false})) {
     closeModal("playerModal"); return;
   }
@@ -5860,6 +5906,19 @@ async function checkPayload(manual){
 $("#btnCheckPayload").addEventListener("click", () => checkPayload(true));
 
 /* ---------------- Diagnosa Jaringan (v63) ---------------- */
+/* v65 — laporan klien: player (web/native) melaporkan kejadiannya sendiri
+   ke backend lewat POST /api/net/diag/event. HOST saja — _ndHost memetik
+   hostname dari URL dan membuang sisanya; URL lengkap TIDAK PERNAH
+   dikirim. Fire-and-forget: gagal kirim = diam, tidak pernah toast atau
+   error ke user, tidak pernah mengganggu putaran. */
+function _ndHost(u){
+  try { return new URL(u).hostname.toLowerCase() || ""; } catch (e) { return ""; }
+}
+function netDiagReport(stage, masterUrl, result, note, ms){
+  try {
+    apiSend("POST", "/api/net/diag/event", {stage: stage, host: _ndHost(masterUrl || ""), method: "direct", result: result, ms: Math.max(0, Math.round(ms || 0)), note: note || undefined}).catch(function(){});
+  } catch (e) {}
+}
 let _netDiagText = "";
 function netDiagLine(ev){
   var meth = ev.method + (ev.variant ? " v" + ev.variant : "");
@@ -5877,7 +5936,7 @@ async function loadNetDiag(){
       return;
     }
     _netDiagText = "Diagnosa Jaringan Lumio" + (d.generated_at ? " — " + d.generated_at : "") + "\n" + evs.map(netDiagLine).join("\n");
-    el.innerHTML = evs.map(ev => '<div class="nd-row"><span class="nd-t">' + esc(ev.t) + '</span> · ' + esc(ev.stage) + ' · <span class="nd-h">' + esc(ev.host || "—") + '</span> · ' + esc(ev.method) + (ev.variant ? ' v' + esc(ev.variant) : '') + ' · <span class="' + (ev.result === "sukses" ? "nd-ok" : "nd-bad") + '">' + esc(ev.result) + '</span> · ' + esc(ev.ms) + 'ms' + (ev.note ? ' · ' + esc(ev.note) : '') + '</div>').join("");
+    el.innerHTML = evs.map(ev => '<div class="nd-row"><span class="nd-t">' + esc(ev.t) + '</span> · ' + esc(ev.stage) + ' · <span class="nd-h">' + esc(ev.host || "—") + '</span> · ' + esc(ev.method) + (ev.variant ? ' v' + esc(ev.variant) : '') + ' · <span class="' + (ev.result === "sukses" ? "nd-ok" : ev.result === "mulai" ? "" : "nd-bad") + '">' + esc(ev.result) + '</span> · ' + esc(ev.ms) + 'ms' + (ev.note ? ' · ' + esc(ev.note) : '') + '</div>').join("");
   } catch (e) {
     el.innerHTML = '<div class="desc">Gagal memuat diagnosa: ' + esc(e.message) + '</div>';
   }

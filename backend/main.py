@@ -1,7 +1,7 @@
 import sys, os, re, time, html
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import asyncio, subprocess, tempfile
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -799,6 +799,25 @@ async def net_diag_clear():
     from api.netdiag import clear as _nd_clear
     _nd_clear()
     return ok({"cleared": True})
+
+@app.post("/api/net/diag/event")
+async def net_diag_event(request: Request):
+    """Diagnosa Jaringan (v65): laporan kejadian dari klien (JS player —
+    gagal native, mulai/gagal/sukses muat web). Hanya tahap klien yang
+    diizinkan; host saja — payload berisi URL lengkap DITOLAK tanpa gema
+    isinya. Alat ukur saja; gagal validasi = 400."""
+    from api.netdiag import record as _nd_rec, validate_client_event as _nd_val
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="body JSON tidak valid")
+    try:
+        ev = _nd_val(payload)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    _nd_rec(ev["stage"], ev["host"], ev["method"], ev["result"], ev["ms"],
+            note=ev.get("note"), variant=ev.get("variant"))
+    return ok({"recorded": True})
 
 _META_STOPWORDS = {
     'the', 'a', 'an', 'of', 'in', 'to', 'and', 'und', 'der', 'die', 'das',
@@ -3549,6 +3568,31 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         def _remaining():
             return _resolve_deadline - time.monotonic()
 
+        # Diagnosa v65 — ringkasan hasil resolve: server terpilih, HOST
+        # master (host saja), jumlah subtitle; plus fakta "tanpa-probe"
+        # bila sumbernya tidak pernah memvalidasi master (Otakudesu
+        # mengembalikan master tanpa probe — itulah kenapa uji v64
+        # menampilkan resolve sukses tapi nol probe-master; ZokoAnime
+        # probe via _probe_master, Megaplay validasi via _fetch_media,
+        # AniChan probe sendiri). Dipanggil persis sebelum return ok(),
+        # di jalur cache-hit maupun fresh, supaya subtitle final tercatat.
+        # Hanya mencatat — tidak mengubah alur resolve apa pun.
+        def _nd_record_resolve(data, source):
+            try:
+                from api.netdiag import record as _nd_rec
+                from api.hianime import _host_from as _nd_hostof
+                _m = (data or {}).get("master") or ""
+                _nsub = len((data or {}).get("subtitles") or [])
+                _ms = max(0, int((25.0 - _remaining()) * 1000))
+                _nd_rec("resolve-hasil", _nd_hostof(_m), "direct",
+                        "sukses" if _m else "lainnya", _ms,
+                        note=f"{source} {_nsub}sub")
+                if source == "otakudesu":
+                    _nd_rec("probe-master", _nd_hostof(_m), "direct",
+                            "lainnya", 0, note="tanpa-probe")
+            except Exception:
+                pass
+
         # Cache key mencakup source agar stream tidak tertukar
         cache_slug = f"{active_source}:{slug}" if active_source != "hianime" else slug
         if should_refresh:
@@ -3705,6 +3749,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 outro=hit["outro"]
             )
             await _check_and_prewarm(hit)
+            _nd_record_resolve(hit, active_source)
             return ok(hit)
 
         loop = asyncio.get_running_loop()
@@ -3922,6 +3967,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                                         subtitles=got["subtitles"],
                                         intro=got["intro"], outro=got["outro"])
         await _check_and_prewarm(got)
+        _nd_record_resolve(got, active_source)
         return ok(got)
     except Exception as e:
         return fail(str(e))
