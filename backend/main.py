@@ -3538,6 +3538,18 @@ def _has_valid_subtitles(ep_data: dict) -> bool:
     return False
 
 
+def _fair_slice_seconds(remaining, providers_left):
+    """v67 — irisan adil anggaran resolve: sisa anggaran dibagi rata ke
+    server yang belum dicoba (termasuk yang ini), sehingga satu server yang
+    menggantung tidak bisa memakan jatah server lain. Dihitung ulang tiap
+    giliran dari sisa saat itu, jadi waktu yang tidak terpakai server
+    sebelumnya otomatis mengalir ke server berikutnya. Murni (tanpa I/O)
+    supaya bisa diuji unit."""
+    if providers_left <= 0 or remaining <= 0:
+        return remaining
+    return remaining / providers_left
+
+
 @app.get("/api/stream/resolve")
 @app.get("/api/episode")
 async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("sub"), q: str = Query("best"), source: str = Query(""), force: bool = Query(False), refresh: bool = Query(False)):
@@ -3783,13 +3795,23 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
         # alasan jujur per-provider, bukan timeout telanjang. Semantik
         # prioritas sumber (Auto/HiAnime/Otakudesu/AniChan) TIDAK berubah —
         # hanya pembungkus eksekusinya yang berbatas.
-        async def _try_provider(fn):
-            rem = _remaining()
+        # v67 — deadline irisan: percobaan boleh dibatasi tenggat yang lebih
+        # awal dari anggaran global (jatah adil per server); pemotongan oleh
+        # irisan dibedakan pesannya ("jatah waktu server habis") dari
+        # habisnya anggaran global ("batas waktu resolve habis").
+        async def _try_provider(fn, deadline=None):
+            cap = _resolve_deadline if deadline is None else min(deadline, _resolve_deadline)
+            sliced = deadline is not None and deadline < _resolve_deadline - 0.01
+            rem = cap - time.monotonic()
             if rem <= 1.0:
+                if sliced:
+                    return None, RuntimeError("jatah waktu server habis")
                 return None, RuntimeError("anggaran resolve habis sebelum mencoba")
             try:
                 return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=rem), None
             except asyncio.TimeoutError:
+                if sliced:
+                    return None, RuntimeError("jatah waktu server habis")
                 return None, RuntimeError("batas waktu resolve habis")
             except Exception as e:
                 # Kegagalan provider BUKAN exception endpoint: kembalikan
@@ -3799,39 +3821,53 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                 # langsung mengakhiri endpoint tanpa failover).
                 return None, e
 
-        async def _try_hianime():
-            maps, err = await _try_provider(lambda: hi.hianime_episodes(slug, deadline=min(_resolve_deadline, time.monotonic() + 8.0)))
+        def _slice_deadline(n_left):
+            # v67 — tenggat irisan server ini: sisa anggaran dibagi rata ke
+            # server yang belum dicoba (termasuk yang ini). Satu server yang
+            # menggantung terpotong di irisannya; server berikutnya dihitung
+            # ulang dari sisa yang ada, jadi waktu tak terpakai mengalir maju.
+            now = time.monotonic()
+            return min(_resolve_deadline,
+                       now + _fair_slice_seconds(_remaining(), n_left))
+
+        async def _try_hianime(deadline=None):
+            maps, err = await _try_provider(lambda: hi.hianime_episodes(slug, deadline=deadline), deadline=deadline)
             if err is not None:
                 return None, err
-            return await _try_provider(lambda: hi.hianime_m3u8(maps, ep, mode, slug, deadline=_resolve_deadline))
+            return await _try_provider(lambda: hi.hianime_m3u8(maps, ep, mode, slug, deadline=deadline), deadline=deadline)
 
+        # v67 — mode Auto atau bukan menentukan berapa server yang akan
+        # dicoba rantai ini; irisan adil dihitung dari jumlah itu.
+        _is_auto = (source == "auto" or not source)
         if active_source == "anichan":
-            got, _err = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q))
+            _dl = _slice_deadline(2 if _is_auto else 1)
+            got, _err = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_dl)
             if _err is not None:
                 last_error = _err
                 _note("AniChan", _err)
-                if source == "auto" or not source:
-                    got, _err2 = await _try_hianime()
+                if _is_auto:
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(1))
                     if _err2 is not None:
                         _note("HiAnime", _err2)
                     else:
                         active_source = "hianime"
                         cache_slug = slug
         elif active_source == "otakudesu":
-            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_resolve_deadline))
+            _dl = _slice_deadline(3 if _is_auto else 1)
+            got, _err = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
             if _err is not None:
                 last_error = _err
                 _note("Otakudesu", _err)
                 # Fallback ke hianime kalau user pakai auto
-                if source == "auto" or not source:
-                    got, _err2 = await _try_hianime()
+                if _is_auto:
+                    got, _err2 = await _try_hianime(deadline=_slice_deadline(2))
                     if _err2 is not None:
                         _note("HiAnime", _err2)
                     else:
                         active_source = "hianime"
                         cache_slug = slug
                     if not got:
-                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q))
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(1))
                         if _err3 is not None:
                             _note("AniChan", _err3)
                         else:
@@ -3841,13 +3877,14 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                             failover_from = "otakudesu"
                             _set_failover(slug, "anichan")
         else:
-            got, _err = await _try_hianime()
+            got, _err = await _try_hianime(deadline=_slice_deadline(3 if _is_auto else 1))
             if _err is not None:
                 last_error = _err
                 _note("HiAnime", _err)
                 # Fallback ke otakudesu jika hianime gagal
-                if source == "auto" or not source:
-                    got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_resolve_deadline))
+                if _is_auto:
+                    _dl = _slice_deadline(2)
+                    got, _err2 = await _try_provider(lambda: otaku.resolve_stream(slug, ep, deadline=_dl), deadline=_dl)
                     if _err2 is not None:
                         _note("Otakudesu", _err2)
                     else:
@@ -3856,7 +3893,7 @@ async def resolve(slug: str = Query(""), ep: int = Query(1), mode: str = Query("
                     # JIKA HIANIME & OTAKUDESU GAGAL (KASUS EYESHIELD 21):
                     # Failover otomatis per-judul ke AniChan langsung ke HLS M3U8
                     if not got:
-                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q))
+                        got, _err3 = await _try_provider(lambda: anichan.resolve_stream(slug, ep, mode, q), deadline=_slice_deadline(1))
                         if _err3 is not None:
                             last_error = _err3
                             _note("AniChan", _err3)
